@@ -82,7 +82,6 @@ function App() {
         {!hasConfigured ? (
           <WelcomeScreen
             onOpenSettings={() => setShowSettings(true)}
-            onSaveSettings={handleSaveSettings}
           />
         ) : (
           <ChatInterface settings={settings} />

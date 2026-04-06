@@ -1,7 +1,7 @@
 # Multi-stage build for production deployment
 
 # Stage 1: Build React frontend
-FROM node:20-alpine as frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -18,7 +18,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Python backend
-FROM python:3.11-slim as backend-builder
+FROM python:3.11-slim AS backend-builder
 
 WORKDIR /app
 

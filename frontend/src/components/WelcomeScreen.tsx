@@ -2,10 +2,9 @@ import { Settings } from 'lucide-react'
 
 interface WelcomeScreenProps {
   onOpenSettings: () => void
-  onSaveSettings: (settings: { provider: string; model: string; apiKey: string }) => void
 }
 
-export default function WelcomeScreen({ onOpenSettings, onSaveSettings }: WelcomeScreenProps) {
+export default function WelcomeScreen({ onOpenSettings }: WelcomeScreenProps) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
       <div className="text-6xl mb-6">❤️</div>

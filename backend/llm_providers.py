@@ -1,10 +1,71 @@
 """LLM provider implementations for different services."""
-from typing import Optional
+from typing import Optional, Any, Iterator
+from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 import httpx
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_groq import ChatGroq
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_community.embeddings import FastEmbedEmbeddings
+
+
+class SarvamLLM(BaseChatModel):
+    """Custom LLM implementation for Sarvam AI with streaming support."""
+    
+    api_key: str
+    model: str = "sarvam-m"
+    base_url: str = "https://api.sarvam.ai"
+    
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """Generate response from Sarvam API."""
+        # Convert messages to Sarvam format
+        sarvam_messages = []
+        for msg in messages:
+            if isinstance(msg, HumanMessage):
+                sarvam_messages.append({"role": "user", "content": msg.content})
+            elif isinstance(msg, AIMessage):
+                sarvam_messages.append({"role": "assistant", "content": msg.content})
+            elif isinstance(msg, SystemMessage):
+                sarvam_messages.append({"role": "system", "content": msg.content})
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        
+        payload = {
+            "messages": sarvam_messages,
+            "model": self.model,
+        }
+        
+        response = httpx.post(
+            f"{self.base_url}/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60.0,
+        )
+        
+        if response.status_code != 200:
+            raise Exception(f"Sarvam API error: {response.status_code} - {response.text}")
+        
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+        
+        generation = ChatGeneration(message=AIMessage(content=content))
+        return ChatResult(generations=[generation])
+    
+    @property
+    def _llm_type(self) -> str:
+        return "sarvam"
 
 
 class LLMProvider:
@@ -35,8 +96,10 @@ class LLMProvider:
                 streaming=True,
             )
         elif self.provider == "sarvam":
-            # Sarvam doesn't have LangChain integration, will use custom implementation
-            return None
+            return SarvamLLM(
+                api_key=self.api_key,
+                model=self.model,
+            )
         else:
             return ChatOpenAI(
                 model="gpt-4o-mini",
@@ -46,18 +109,12 @@ class LLMProvider:
     
     def get_embeddings(self):
         """Get embeddings for this provider."""
-        if self.provider == "openai":
-            return OpenAIEmbeddings(api_key=self.api_key)
-        elif self.provider == "groq":
-            # Groq doesn't have embeddings API, fallback to OpenAI
-            return OpenAIEmbeddings(api_key=self.api_key)
-        elif self.provider == "ollama":
-            return OllamaEmbeddings()
-        elif self.provider == "sarvam":
-            # Sarvam doesn't have embeddings API in LangChain, fallback to OpenAI
-            return OpenAIEmbeddings(api_key=self.api_key)
-        else:
-            return OpenAIEmbeddings(api_key=self.api_key)
+        # Use local FastEmbed for all providers to avoid API key conflicts
+        import os
+        cache_dir = "/app/.cache"
+        os.makedirs(cache_dir, exist_ok=True)
+        os.environ["HF_HOME"] = cache_dir
+        return FastEmbedEmbeddings(cache_dir=cache_dir)
 
 
 async def get_available_models(provider: str, api_key: str) -> list[str]:
@@ -107,8 +164,8 @@ async def get_available_models(provider: str, api_key: str) -> list[str]:
     
     elif provider == "sarvam":
         # Sarvam doesn't have a public models API
-        return ["sarvam-1", "sarvam-2b"]
-    
+        return ["sarvam-105b", "sarvam-30b", "sarvam-m"]
+
     else:
         raise Exception(f"Unknown provider: {provider}")
 

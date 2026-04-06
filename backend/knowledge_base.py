@@ -12,7 +12,6 @@ from langchain_community.document_loaders import (
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
@@ -24,7 +23,7 @@ class KnowledgeBase:
     """Manages document loading, chunking, and vector storage in Qdrant."""
     
     def __init__(self):
-        self.embeddings = OpenAIEmbeddings(api_key=config.OPENAI_API_KEY)
+        self.embeddings = None
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
@@ -32,6 +31,7 @@ class KnowledgeBase:
         )
         self.vector_store: QdrantVectorStore | None = None
         self.qdrant_client: QdrantClient | None = None
+        self.vector_size = 1536  # Default, will be updated based on embeddings
         
     def _get_loader(self, file_path: Path):
         """Get the appropriate loader for a file based on its extension."""
@@ -89,20 +89,32 @@ class KnowledgeBase:
         """Initialize the knowledge base with in-memory Qdrant storage."""
         print("Initializing knowledge base...")
         
-        # Use provided embeddings or default to OpenAI
+        # Ensure cache directory exists for FastEmbed and HuggingFace
+        import os
+        cache_dir = "/app/.cache"
+        os.makedirs(cache_dir, exist_ok=True)
+        os.environ["HF_HOME"] = cache_dir
+        
+        # Use provided embeddings or default to FastEmbed
         if embeddings is None:
-            self.embeddings = OpenAIEmbeddings(api_key=config.OPENAI_API_KEY)
+            from langchain_community.embeddings import FastEmbedEmbeddings
+            self.embeddings = FastEmbedEmbeddings(cache_dir=cache_dir)
         else:
             self.embeddings = embeddings
+        
+        # Detect vector size by embedding a test string
+        test_embedding = self.embeddings.embed_query("test")
+        self.vector_size = len(test_embedding)
+        print(f"Detected vector size: {self.vector_size}")
         
         # Create in-memory Qdrant client
         self.qdrant_client = QdrantClient(":memory:")
         
-        # Create collection
+        # Create collection with dynamic vector size
         collection_name = "knowledge_base"
         self.qdrant_client.create_collection(
             collection_name=collection_name,
-            vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+            vectors_config=VectorParams(size=self.vector_size, distance=Distance.COSINE),
         )
         
         # Load and chunk documents

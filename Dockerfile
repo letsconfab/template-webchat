@@ -58,6 +58,10 @@ RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 COPY --chown=appuser:appgroup backend/ ./backend/
 COPY --chown=appuser:appgroup requirements.txt .
 
+# Pre-download FastEmbed model (as root to have write permissions)
+RUN python -c "from langchain_community.embeddings import FastEmbedEmbeddings; import os; os.makedirs('/app/.cache', exist_ok=True); os.environ['HF_HOME']='/app/.cache'; FastEmbedEmbeddings(cache_dir='/app/.cache').embed_query('test')" && \
+    chown -R appuser:appgroup /app/.cache
+
 # Copy frontend build from frontend-builder
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 

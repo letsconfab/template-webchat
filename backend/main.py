@@ -50,7 +50,12 @@ async def lifespan(app: FastAPI):
     # Mount static files for React frontend
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
-        app.mount("/static", StaticFiles(directory=str(frontend_dist)), name="static")
+        assets_dir = frontend_dist / "assets"
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+        static_dir = frontend_dist / "static"
+        if static_dir.exists():
+            app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     else:
         print(f"Warning: Frontend dist directory not found at {frontend_dist}")
     
@@ -185,8 +190,9 @@ async def websocket_chat(websocket: WebSocket):
                 await websocket.send_json({"type": "status", "message": "Welcome! I'm ready to help you."})
             except Exception as e:
                 print(f"Error initializing knowledge base: {e}")
-                await websocket.send_json({"type": "error", "message": f"Failed to initialize knowledge base: {str(e)}"})
-                return
+                # Continue without knowledge base if embeddings fail
+                print("Continuing without knowledge base")
+                await websocket.send_json({"type": "status", "message": "Welcome! I'm ready to help you. Note: Knowledge base not available."})
         
         # Chat loop
         while True:
@@ -200,8 +206,10 @@ async def websocket_chat(websocket: WebSocket):
                 chat_history[session_id] = []
             chat_history[session_id].append(ChatMessage(role="user", content=message))
             
-            # Search knowledge base
-            relevant_docs = knowledge_base.search(message, k=5)
+            # Search knowledge base (only if initialized)
+            relevant_docs = []
+            if knowledge_base.vector_store is not None:
+                relevant_docs = knowledge_base.search(message, k=5)
             
             # Build context
             context = ""
@@ -229,7 +237,7 @@ async def websocket_chat(websocket: WebSocket):
             for hist_msg in recent_history[:-1]:  # Exclude the last message (current one)
                 if hist_msg.role == "user":
                     messages.append(HumanMessage(content=hist_msg.content))
-                else:
+                elif hist_msg.role == "assistant":
                     messages.append(AIMessage(content=hist_msg.content))
             
             # Add current message
@@ -240,8 +248,7 @@ async def websocket_chat(websocket: WebSocket):
             llm = llm_provider.get_llm()
             
             if llm is None:
-                # Handle Sarvam with custom implementation
-                error_msg = "Sarvam provider not fully implemented yet"
+                error_msg = "Failed to initialize LLM provider"
                 await websocket.send_json({"type": "error", "message": error_msg})
                 chat_history[session_id].append(ChatMessage(role="assistant", content=error_msg))
                 continue
@@ -272,17 +279,25 @@ async def websocket_chat(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
     """Serve the React frontend for all non-API routes."""
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
-    index_file = frontend_dist / "index.html"
     
+    # If it's a static asset, try to serve it
+    if full_path.startswith("assets/") or full_path.startswith("static/"):
+        file_path = frontend_dist / full_path
+        if file_path.exists():
+            return FileResponse(file_path)
+    
+    # Otherwise serve index.html for client-side routing
+    index_file = frontend_dist / "index.html"
     if index_file.exists():
         return FileResponse(index_file)
-    return FileResponse(frontend_dist / full_path)
+    
+    raise HTTPException(status_code=404, detail="Frontend not built")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

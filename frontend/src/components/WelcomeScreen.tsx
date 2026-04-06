@@ -19,7 +19,7 @@ export default function WelcomeScreen({ onOpenSettings }: WelcomeScreenProps) {
           <li>• <strong>OpenAI</strong> - gpt-4o-mini, gpt-4o</li>
           <li>• <strong>Groq</strong> - llama3-70b-8192, mixtral-8x7b-32768</li>
           <li>• <strong>Ollama</strong> - llama3:latest, mistral:latest (local, no API key needed)</li>
-          <li>• <strong>Sarvam</strong> - sarvam-1</li>
+          <li>• <strong>Sarvam</strong> - sarvam-105b, sarvam-30b, sarvam-m</li>
         </ul>
       </div>
 

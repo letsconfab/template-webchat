@@ -1,5 +1,5 @@
 const API_BASE = '/api'
-const WS_BASE = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8000/ws/chat`
+const WS_BASE = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/ws/chat`
 
 // Generate or retrieve session ID
 export function getSessionId(): string {

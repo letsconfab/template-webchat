@@ -12,9 +12,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import httpx
 
-from .config import config
-from .knowledge_base import knowledge_base
+from backend.knowledge_base import knowledge_base
+from backend.config import config
 from .llm_providers import LLMProvider, validate_api_key, get_available_models
+from .database import init_db, close_db
+from .routers import auth, users, invites
 
 
 # Pydantic models for API
@@ -47,6 +49,10 @@ async def lifespan(app: FastAPI):
     # Startup
     print("Starting FastAPI application...")
     
+    # Initialize database
+    print("Initializing database...")
+    await init_db()
+    
     # Mount static files for React frontend
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
@@ -62,6 +68,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     print("Shutting down FastAPI application...")
+    await close_db()
 
 
 app = FastAPI(
@@ -79,6 +86,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(invites.router)
 
 
 @app.get("/health")

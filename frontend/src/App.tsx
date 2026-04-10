@@ -1,11 +1,17 @@
-import { useState, useEffect } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider } from './contexts/AuthContext'
+import ProtectedRoute from './components/ProtectedRoute'
+import AdminRegister from './pages/AdminRegister'
+import AdminLogin from './pages/AdminLogin'
+import AdminDashboard from './pages/AdminDashboard'
 import ChatInterface from './components/ChatInterface'
 import SettingsModal from './components/SettingsModal'
 import WelcomeScreen from './components/WelcomeScreen'
+import { useState, useEffect } from 'react'
 import { Settings, Trash2 } from 'lucide-react'
 import { getSessionId } from './services/api'
 
-function App() {
+function AppContent() {
   const [showSettings, setShowSettings] = useState(false)
   const [settings, setSettings] = useState<{
     provider: string
@@ -57,6 +63,18 @@ function App() {
             <h1 className="text-xl font-semibold">AI Copilot</h1>
           </div>
           <div className="flex items-center gap-2">
+            <a
+              href="/admin/register"
+              className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              Admin Register
+            </a>
+            <a
+              href="/admin/login"
+              className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              Admin Login
+            </a>
             {hasConfigured && (
               <button
                 onClick={handleClearHistory}
@@ -98,6 +116,34 @@ function App() {
         />
       )}
     </div>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <Routes>
+          {/* Admin Routes */}
+          <Route path="/admin/register" element={<AdminRegister />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route 
+            path="/admin/dashboard" 
+            element={
+              <ProtectedRoute requireAdmin>
+                <AdminDashboard />
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Default Chat Route */}
+          <Route path="/" element={<AppContent />} />
+          
+          {/* Redirect unknown routes to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Router>
+    </AuthProvider>
   )
 }
 

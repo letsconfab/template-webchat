@@ -8,7 +8,7 @@ from sqlalchemy.orm import declarative_base
 from .config import config
 
 # Database URL from environment variable
-DATABASE_URL = config.DATABASE_URL
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost/webchat_db")
 
 # Create async engine
 engine = create_async_engine(

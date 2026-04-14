@@ -17,9 +17,9 @@ interface Invite {
   id: number
   email: string
   token: string
-  is_used: boolean
+  status: 'pending' | 'accepted' | 'expired' | 'cancelled'
   created_at: string
-  expires_at: string
+  expiry_date: string
 }
 
 const AdminDashboard: React.FC = () => {
@@ -157,7 +157,7 @@ const AdminDashboard: React.FC = () => {
                       Accepted Invites
                     </dt>
                     <dd className="text-lg font-medium text-gray-900">
-                      {invites.filter(i => i.is_used).length}
+                      {invites.filter(i => i.status === 'accepted').length}
                     </dd>
                   </dl>
                 </div>
@@ -177,7 +177,7 @@ const AdminDashboard: React.FC = () => {
                       Pending Invites
                     </dt>
                     <dd className="text-lg font-medium text-gray-900">
-                      {invites.filter(i => !i.is_used).length}
+                      {invites.filter(i => i.status === 'pending').length}
                     </dd>
                   </dl>
                 </div>
@@ -239,18 +239,22 @@ const AdminDashboard: React.FC = () => {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                              invite.is_used 
+                              invite.status === 'accepted' 
                                 ? 'bg-green-100 text-green-800' 
-                                : 'bg-yellow-100 text-yellow-800'
+                                : invite.status === 'pending'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : invite.status === 'expired'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-gray-100 text-gray-800'
                             }`}>
-                              {invite.is_used ? 'Accepted' : 'Pending'}
+                              {invite.status.charAt(0).toUpperCase() + invite.status.slice(1)}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {new Date(invite.created_at).toLocaleDateString()}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            {!invite.is_used && (
+                            {invite.status === 'pending' && (
                               <button
                                 onClick={() => copyInviteLink(invite.token)}
                                 className="text-blue-600 hover:text-blue-900 transition-colors"

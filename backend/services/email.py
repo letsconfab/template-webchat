@@ -225,6 +225,98 @@ class EmailService:
         except Exception as e:
             print(f"Unexpected error sending welcome email: {e}")
             return False
+    
+    async def send_invite_accepted_notification(self, admin_email: str, user_email: str) -> bool:
+        """Send notification to admin when invitation is accepted."""
+        try:
+            subject = "Invitation Accepted!"
+            
+            # HTML email template
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Invitation Accepted</title>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        line-height: 1.6;
+                        color: #333;
+                        max-width: 600px;
+                        margin: 0 auto;
+                        padding: 20px;
+                    }}
+                    .header {{
+                        background-color: #10b981;
+                        color: white;
+                        padding: 20px;
+                        text-align: center;
+                        border-radius: 8px 8px 0 0;
+                    }}
+                    .content {{
+                        background-color: #f9fafb;
+                        padding: 30px;
+                        border-radius: 0 0 8px 8px;
+                    }}
+                    .status-badge {{
+                        display: inline-block;
+                        background-color: #10b981;
+                        color: white;
+                        padding: 6px 12px;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        font-size: 14px;
+                        margin: 10px 0;
+                    }}
+                    .footer {{
+                        text-align: center;
+                        margin-top: 30px;
+                        color: #666;
+                        font-size: 14px;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1>Invitation Accepted!</h1>
+                </div>
+                <div class="content">
+                    <p>Hello Admin,</p>
+                    <p>Great news! Your invitation has been accepted.</p>
+                    <p><strong>User Email:</strong> {user_email}</p>
+                    <p><strong>Status:</strong> <span class="status-badge">Accepted</span></p>
+                    <p>The user has successfully created their account and can now start using Confab Chat.</p>
+                    <p>You can view the updated invitation status in your admin dashboard.</p>
+                </div>
+                <div class="footer">
+                    <p>Best regards,<br>The Confab Chat Team</p>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Create message
+            message = MessageSchema(
+                subject=subject,
+                recipients=[admin_email],
+                body=html_content,
+                subtype=MessageType.html,
+            )
+            
+            # Send email
+            from fastapi_mail import FastMail
+            fm = FastMail(self.config)
+            await fm.send_message(message)
+            
+            return True
+            
+        except ConnectionErrors as e:
+            print(f"Failed to send invite accepted notification: {e}")
+            return False
+        except Exception as e:
+            print(f"Unexpected error sending invite accepted notification: {e}")
+            return False
 
 
 # Global email service instance

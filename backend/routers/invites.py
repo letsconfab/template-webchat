@@ -226,6 +226,13 @@ async def accept_invite(
         user_name=db_user.email
     )
     
+    # Send notification to admin who created the invite
+    if invite.created_by:
+        await email_service.send_invite_accepted_notification(
+            admin_email=invite.created_by.email,
+            user_email=db_user.email
+        )
+    
     return {
         "message": "Account created successfully",
         "user": {

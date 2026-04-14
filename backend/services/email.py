@@ -37,7 +37,7 @@ class EmailService:
         """Send invitation email to user."""
         try:
             # Create invite link
-            invite_link = f"http://localhost:8000/accept-invite/{invite_token}"
+            invite_link = f"{config.FRONTEND_URL}/accept-invite/{invite_token}"
             
             # Prepare email content
             subject = "You're invited to join Confab Chat"
@@ -192,7 +192,7 @@ class EmailService:
                     <p>Welcome and thank you for joining Confab Chat! Your account has been successfully created.</p>
                     <p>You can now start using our AI-powered chat platform to get answers and assistance on various topics.</p>
                     <div style="text-align: center;">
-                        <a href="http://localhost:8000" class="button">Start Chatting</a>
+                        <a href="{config.FRONTEND_URL}" class="button">Start Chatting</a>
                     </div>
                     <p>If you have any questions or need help getting started, feel free to reach out to our support team.</p>
                     <p>We're excited to have you as part of our community!</p>

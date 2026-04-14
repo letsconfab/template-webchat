@@ -16,25 +16,54 @@ if not hasattr(bcrypt, '__about__'):
     # Set a dummy version to prevent AttributeError
     bcrypt.__about__.__version__ = "4.2.0"
 
+# Initialize bcrypt backend properly
+try:
+    import passlib.handlers.bcrypt
+    passlib.handlers.bcrypt._load_backend_mixin("bcrypt")
+except Exception:
+    pass
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+def _bcrypt_safe_password(password: str) -> str:
+    """Convert password to bcrypt-safe format (max 72 bytes)."""
+    # Encode to bytes and truncate to 72 bytes, then decode back to string
+    # Use errors='ignore' to handle any partial UTF-8 sequences at the truncation point
+    return password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
-    # Truncate password to 72 bytes to prevent bcrypt error
-    if len(plain_password.encode('utf-8')) > 72:
-        plain_password = plain_password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        # Try using passlib first
+        return pwd_context.verify(
+            _bcrypt_safe_password(plain_password),
+            hashed_password
+        )
+    except (ValueError, AttributeError):
+        # Fallback to direct bcrypt
+        return bcrypt.checkpw(
+            _bcrypt_safe_password(plain_password).encode('utf-8'),
+            hashed_password.encode('utf-8')
+        )
 
 
 def get_password_hash(password: str) -> str:
     """Generate password hash."""
-    # Truncate password to 72 bytes to prevent bcrypt error
-    if len(password.encode('utf-8')) > 72:
-        password = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
-    return pwd_context.hash(password)
+    try:
+        # Try using passlib first
+        return pwd_context.hash(
+            _bcrypt_safe_password(password)
+        )
+    except (ValueError, AttributeError):
+        # Fallback to direct bcrypt
+        salt = bcrypt.gensalt()
+        return bcrypt.hashpw(
+            _bcrypt_safe_password(password).encode('utf-8'),
+            salt
+        ).decode('utf-8')
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

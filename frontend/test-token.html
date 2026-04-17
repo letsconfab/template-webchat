@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Token Test</title>
+</head>
+<body>
+    <h1>Token Test</h1>
+    <div id="result"></div>
+    
+    <script>
+        // Test if token is saved in localStorage
+        const token = localStorage.getItem('token');
+        const resultDiv = document.getElementById('result');
+        
+        if (token) {
+            resultDiv.innerHTML = `
+                <p style="color: green;">✅ Token found in localStorage</p>
+                <p><strong>Token:</strong> ${token.substring(0, 20)}...</p>
+                <p><strong>Full token length:</strong> ${token.length}</p>
+            `;
+        } else {
+            resultDiv.innerHTML = `
+                <p style="color: red;">❌ No token found in localStorage</p>
+                <p>Please login first to set the token</p>
+            `;
+        }
+        
+        // Test setting a dummy token
+        function setTestToken() {
+            const testToken = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.test.token';
+            localStorage.setItem('token', testToken);
+            location.reload();
+        }
+        
+        // Test clearing token
+        function clearToken() {
+            localStorage.removeItem('token');
+            location.reload();
+        }
+    </script>
+    
+    <br>
+    <button onclick="setTestToken()">Set Test Token</button>
+    <button onclick="clearToken()">Clear Token</button>
+    <br><br>
+    <a href="/admin/login">Go to Admin Login</a>
+</body>
+</html>

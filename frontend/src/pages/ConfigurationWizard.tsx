@@ -9,7 +9,7 @@ import { Switch } from '../components/ui/switch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Progress } from '../components/ui/progress'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
+import { Tabs,  TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Loader2, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings } from 'lucide-react'
 
 interface SystemSettings {
@@ -136,6 +136,7 @@ export default function ConfigurationWizard() {
     setIsLoading(true)
     try {
       const response = await api.post('/settings/configure', settings)
+      console.log(response);
 
       setSuccess(true)
       setTimeout(() => {

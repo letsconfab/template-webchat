@@ -229,8 +229,8 @@ export default function AdminSettings() {
           </Alert>
         )}
 
-        <Tabs defaultValue="basic" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+       <Tabs value="basic" className="w-full">
+  <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="basic">
               <Settings className="h-4 w-4 mr-2" />
               Basic

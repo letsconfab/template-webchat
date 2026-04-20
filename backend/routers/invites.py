@@ -73,7 +73,8 @@ async def create_invite(
     email_sent = await email_service.send_invite_email(
         to_email=invite_data.email,
         invite_token=token,
-        inviter_name=current_user.email
+        inviter_name=current_user.email,
+        db=db
     )
     
     if not email_sent:
@@ -223,14 +224,16 @@ async def accept_invite(
     # Send welcome email
     await email_service.send_welcome_email(
         to_email=db_user.email,
-        user_name=db_user.email
+        user_name=db_user.email,
+        db=db
     )
     
     # Send notification to admin who created the invite
     if invite.created_by:
         await email_service.send_invite_accepted_notification(
             admin_email=invite.created_by.email,
-            user_email=db_user.email
+            user_email=db_user.email,
+            db=db
         )
     
     return {

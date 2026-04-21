@@ -143,22 +143,22 @@ export default function AdminDashboard() {
         {!isAdmin && (
           <div className="space-y-4">
             <h2 className="text-xl font-semibold">Your Access</h2>
-            <Card>
-              <CardHeader>
-                <CardTitle>Chat Interface</CardTitle>
-                <CardDescription>
-                  Access the AI-powered chat with your knowledge base
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link to="/chat">
-                  <Button>
-                    <MessageSquare className="h-4 w-4 mr-2" />
-                    Open Chat
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
+<Card>
+                <CardHeader>
+                  <CardTitle>Chat Interface</CardTitle>
+                  <CardDescription>
+                    Access the AI-powered chat with your knowledge base
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Link to="/chat">
+                    <Button>
+                      <MessageSquare className="h-4 w-4 mr-2" />
+                      Open Chat
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
           </div>
         )}
       </main>

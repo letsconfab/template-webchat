@@ -9,6 +9,7 @@ import AdminDashboard from './pages/AdminDashboard'
 import UserDashboard from './pages/UserDashboard'
 import ConfigurationWizard from './pages/ConfigurationWizard'
 import AdminSettings from './pages/AdminSettings'
+import ChatPage from './pages/ChatPage'
 
 function AppContent() {
   const [isLoading, setIsLoading] = useState(true)
@@ -104,7 +105,7 @@ function App() {
                   path="/chat" 
                   element={
                     <ProtectedRoute>
-                      <UserDashboard />
+                      <ChatPage />
                     </ProtectedRoute>
                   } 
                 />

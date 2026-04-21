@@ -47,6 +47,8 @@ export default function AdminSettings() {
   const { user } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [settings, setSettings] = useState<SystemSettings | null>(null)
@@ -93,6 +95,100 @@ export default function AdminSettings() {
     } catch (error) {
       console.error('Failed to load knowledge status:', error)
     }
+  }
+
+  const handleSyncFromFoundry = async () => {
+    if (!settings?.foundry_url || !settings.foundry_confab_id) {
+      setError('Please configure Foundry URL and Confab ID first')
+      return
+    }
+    
+    setIsSyncing(true)
+    setError(null)
+    setSuccess(null)
+    
+    try {
+      // For now, we need the user's Foundry token - in production this would be stored
+      // For demo, we'll show an alert asking for token
+      const token = prompt('Please enter your Foundry access token:')
+      if (!token) {
+        setIsSyncing(false)
+        return
+      }
+      
+      const response = await fetch('/api/knowledge/sync-foundry', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          foundry_url: settings.foundry_url,
+          access_token: token,
+          confab_id: settings.foundry_confab_id
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to sync from Foundry')
+      }
+      
+      const result = await response.json()
+      setSuccess(`Synced ${result.synced_count} documents from Foundry`)
+      loadKnowledgeStatus()
+    } catch (error: any) {
+      setError(error.message || 'Failed to sync from Foundry')
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  const handleUploadDocument = async () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.pdf,.doc,.docx,.txt,.csv,.xlsx'
+    
+    input.onchange = async (e: any) => {
+      const file = e.target.files[0]
+      if (!file) return
+      
+      setIsUploading(true)
+      setError(null)
+      setSuccess(null)
+      
+      try {
+        const reader = new FileReader()
+        reader.readAsDataURL(file)
+        reader.onload = async () => {
+          const base64 = (reader.result as string).split(',')[1]
+          
+          const response = await fetch('/api/knowledge/documents', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+              filename: file.name,
+              content_base64: base64
+            })
+          })
+          
+          if (!response.ok) {
+            throw new Error('Failed to upload document')
+          }
+          
+          setSuccess(`Uploaded: ${file.name}`)
+          loadKnowledgeStatus()
+          setIsUploading(false)
+        }
+      } catch (error: any) {
+        setError(error.message || 'Failed to upload document')
+        setIsUploading(false)
+      }
+    }
+    
+    input.click()
   }
 
   const handleInputChange = (field: keyof SystemSettings, value: string | number | boolean) => {
@@ -501,12 +597,28 @@ export default function AdminSettings() {
                 </div>
                 
                 <div className="flex gap-2">
-                  <Button variant="outline">
-                    <Upload className="h-4 w-4 mr-2" />
+                  <Button 
+                    variant="outline" 
+                    onClick={handleUploadDocument}
+                    disabled={isUploading}
+                  >
+                    {isUploading ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4 mr-2" />
+                    )}
                     Upload Document
                   </Button>
-                  <Button variant="outline">
-                    <RefreshCw className="h-4 w-4 mr-2" />
+                  <Button 
+                    variant="outline" 
+                    onClick={handleSyncFromFoundry}
+                    disabled={isSyncing}
+                  >
+                    {isSyncing ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
                     Sync from Foundry
                   </Button>
                 </div>

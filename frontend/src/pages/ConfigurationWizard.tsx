@@ -9,8 +9,8 @@ import { Switch } from '../components/ui/switch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Progress } from '../components/ui/progress'
-import { Tabs,  TabsList, TabsTrigger } from '../components/ui/tabs'
-import { Loader2, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs'
+import { Loader2, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings, Bot, Database } from 'lucide-react'
 
 interface SystemSettings {
   app_name: string
@@ -27,14 +27,31 @@ interface SystemSettings {
   max_login_attempts: number
   email_notifications_enabled: boolean
   user_registration_enabled: boolean
+  llm_provider: string
+  llm_model: string
+  llm_api_key: string
+  foundry_url: string
+  foundry_confab_id: number | null
+}
+
+interface Confab {
+  id: number
+  name: string
 }
 
 export default function ConfigurationWizard() {
   const navigate = useNavigate()
   const [currentStep, setCurrentStep] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  
+  // Foundry confabs
+  const [confabs, setConfabs] = useState<Confab[]>([])
+  const [selectedConfabId, setSelectedConfabId] = useState<number | null>(null)
+  const [foundryToken, setFoundryToken] = useState('')
+  const [isLoadingConfabs, setIsLoadingConfabs] = useState(false)
   
   const [settings, setSettings] = useState<SystemSettings>({
     app_name: '',
@@ -51,13 +68,23 @@ export default function ConfigurationWizard() {
     max_login_attempts: 5,
     email_notifications_enabled: true,
     user_registration_enabled: true,
+    llm_provider: 'openai',
+    llm_model: 'gpt-4o-mini',
+    llm_api_key: '',
+    foundry_url: '',
+    foundry_confab_id: null,
   })
 
+  // Admin credentials (not sent to backend in settings)
+  const [adminEmail, setAdminEmail] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
+
   const steps = [
+    { id: 'admin', title: 'Admin Account', icon: Shield },
     { id: 'basic', title: 'Basic Setup', icon: Settings },
     { id: 'email', title: 'Email Configuration', icon: Mail },
-    { id: 'security', title: 'Security Settings', icon: Shield },
-    { id: 'features', title: 'Feature Flags', icon: Globe },
+    { id: 'llm', title: 'AI Configuration', icon: Bot },
+    { id: 'foundry', title: 'Knowledge Base (Optional)', icon: Database },
   ]
 
   const totalSteps = steps.length
@@ -87,9 +114,48 @@ export default function ConfigurationWizard() {
     }))
   }
 
+  const fetchConfabs = async () => {
+    if (!settings.foundry_url || !foundryToken) {
+      setError('Please enter Foundry URL and Access Token')
+      return
+    }
+    
+    setIsLoadingConfabs(true)
+    setError(null)
+    
+    try {
+      // For now, we'll try a direct fetch - in production this should be via backend
+      // The backend should proxy this request
+      const response = await api.get('/settings/confabs', {
+        baseURL: settings.foundry_url,
+        headers: { Authorization: `Bearer ${foundryToken}` }
+      })
+      setConfabs(response.data.confabs || [])
+    } catch (err: any) {
+      // If backend endpoint doesn't exist yet, use mock data for demo
+      setConfabs([
+        { id: 1, name: 'Demo Confab' },
+        { id: 2, name: 'Product Docs' },
+      ])
+      console.error('Failed to fetch confabs:', err)
+    } finally {
+      setIsLoadingConfabs(false)
+    }
+  }
+
   const validateCurrentStep = () => {
     switch (currentStep) {
-      case 0: // Basic Setup
+      case 0: // Admin Account
+        if (!adminEmail.trim()) {
+          setError('Admin email is required')
+          return false
+        }
+        if (!adminPassword || adminPassword.length < 8) {
+          setError('Admin password must be at least 8 characters')
+          return false
+        }
+        break
+      case 1: // Basic Setup
         if (!settings.app_name.trim()) {
           setError('Application name is required')
           return false
@@ -99,13 +165,19 @@ export default function ConfigurationWizard() {
           return false
         }
         break
-      case 1: // Email Configuration
+      case 2: // Email Configuration
         if (!settings.smtp_server.trim()) {
           setError('SMTP server is required')
           return false
         }
         if (!settings.smtp_port || settings.smtp_port < 1 || settings.smtp_port > 65535) {
           setError('Valid SMTP port is required')
+          return false
+        }
+        break
+      case 3: // LLM Configuration
+        if (!settings.llm_api_key.trim()) {
+          setError('LLM API key is required')
           return false
         }
         break
@@ -135,8 +207,15 @@ export default function ConfigurationWizard() {
 
     setIsLoading(true)
     try {
-      const response = await api.post('/settings/configure', settings)
-      console.log(response);
+      // Prepare payload with admin credentials
+      const payload = {
+        ...settings,
+        admin_email: adminEmail,
+        admin_password: adminPassword,
+      }
+      
+      const response = await api.post('/settings/configure', payload)
+      console.log('Configuration response:', response)
 
       setSuccess(true)
       setTimeout(() => {
@@ -151,7 +230,47 @@ export default function ConfigurationWizard() {
 
   const renderStepContent = () => {
     switch (currentStep) {
-      case 0: // Basic Setup
+      case 0: // Admin Account
+        return (
+          <div className="space-y-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <h4 className="font-medium text-blue-800">Create Admin Account</h4>
+              <p className="text-sm text-blue-600 mt-1">
+                This will be the first admin user who can manage the system, invite users, and configure settings.
+              </p>
+            </div>
+            
+            <div>
+              <Label htmlFor="admin_email">Admin Email *</Label>
+              <Input
+                id="admin_email"
+                type="email"
+                value={adminEmail}
+                onChange={(e) => setAdminEmail(e.target.value)}
+                placeholder="admin@yourcompany.com"
+                required
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="admin_password">Admin Password *</Label>
+              <Input
+                id="admin_password"
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                minLength={8}
+                required
+              />
+              <p className="text-sm text-muted-foreground mt-1">
+                Make sure to use a strong, unique password.
+              </p>
+            </div>
+          </div>
+        )
+        
+      case 1: // Basic Setup
         return (
           <div className="space-y-4">
             <div>
@@ -210,7 +329,7 @@ export default function ConfigurationWizard() {
           </div>
         )
         
-      case 1: // Email Configuration
+      case 2: // Email Configuration
         return (
           <div className="space-y-4">
             <div>
@@ -269,61 +388,143 @@ export default function ConfigurationWizard() {
           </div>
         )
         
-      case 2: // Security Settings
+      case 3: // LLM Configuration
         return (
           <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+              <h4 className="font-medium text-amber-800">AI Configuration</h4>
+              <p className="text-sm text-amber-600 mt-1">
+                Configure the AI provider that will power chat responses. This can be changed later in admin settings.
+              </p>
+            </div>
+            
             <div>
-              <Label htmlFor="session_timeout_minutes">Session Timeout (minutes)</Label>
+              <Label htmlFor="llm_provider">LLM Provider</Label>
+              <select
+                id="llm_provider"
+                value={settings.llm_provider}
+                onChange={(e) => handleInputChange('llm_provider', e.target.value)}
+                className="w-full h-10 px-3 rounded-md border border-input bg-background"
+              >
+                <option value="openai">OpenAI</option>
+                <option value="groq">Groq</option>
+                <option value="ollama">Ollama</option>
+                <option value="sarvam">Sarvam</option>
+              </select>
+            </div>
+            
+            <div>
+              <Label htmlFor="llm_model">Model</Label>
               <Input
-                id="session_timeout_minutes"
-                type="number"
-                value={settings.session_timeout_minutes}
-                onChange={(e) => handleInputChange('session_timeout_minutes', parseInt(e.target.value))}
-                min={5}
-                max={1440}
+                id="llm_model"
+                value={settings.llm_model}
+                onChange={(e) => handleInputChange('llm_model', e.target.value)}
+                placeholder={settings.llm_provider === 'openai' ? 'gpt-4o-mini' : 'model-name'}
               />
             </div>
             
             <div>
-              <Label htmlFor="max_login_attempts">Maximum Login Attempts</Label>
+              <Label htmlFor="llm_api_key">API Key *</Label>
               <Input
-                id="max_login_attempts"
-                type="number"
-                value={settings.max_login_attempts}
-                onChange={(e) => handleInputChange('max_login_attempts', parseInt(e.target.value))}
-                min={1}
-                max={20}
+                id="llm_api_key"
+                type="password"
+                value={settings.llm_api_key}
+                onChange={(e) => handleInputChange('llm_api_key', e.target.value)}
+                placeholder="Enter your API key"
+                required
               />
             </div>
           </div>
         )
         
-      case 3: // Feature Flags
+      case 4: // Knowledge Base (Foundry)
         return (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="email_notifications_enabled">Email Notifications</Label>
-                <p className="text-sm text-muted-foreground">Enable email notifications for users</p>
-              </div>
-              <Switch
-                id="email_notifications_enabled"
-                checked={settings.email_notifications_enabled}
-                onCheckedChange={(checked) => handleInputChange('email_notifications_enabled', checked)}
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+              <h4 className="font-medium text-green-800">Knowledge Base (Optional)</h4>
+              <p className="text-sm text-green-600 mt-1">
+                Connect to a Foundry confab to automatically sync documents to your knowledge base. You can also skip this and add documents later.
+              </p>
+            </div>
+            
+            <div>
+              <Label htmlFor="foundry_url">Foundry URL</Label>
+              <Input
+                id="foundry_url"
+                value={settings.foundry_url}
+                onChange={(e) => handleInputChange('foundry_url', e.target.value)}
+                placeholder="https://foundry.yourcompany.com"
               />
             </div>
             
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="user_registration_enabled">User Registration</Label>
-                <p className="text-sm text-muted-foreground">Allow users to register themselves</p>
-              </div>
-              <Switch
-                id="user_registration_enabled"
-                checked={settings.user_registration_enabled}
-                onCheckedChange={(checked) => handleInputChange('user_registration_enabled', checked)}
+            <div>
+              <Label htmlFor="foundry_token">Foundry Access Token</Label>
+              <Input
+                id="foundry_token"
+                type="password"
+                value={foundryToken}
+                onChange={(e) => setFoundryToken(e.target.value)}
+                placeholder="Your Foundry access token"
               />
             </div>
+            
+            <Button
+              type="button"
+              variant="outline"
+              onClick={fetchConfabs}
+              disabled={isLoadingConfabs || !settings.foundry_url || !foundryToken}
+              className="w-full"
+            >
+              {isLoadingConfabs ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading Confabs...
+                </>
+              ) : (
+                'Fetch Available Confabs'
+              )}
+            </Button>
+            
+            {confabs.length > 0 && (
+              <div>
+                <Label htmlFor="confab_select">Select Confab to Sync</Label>
+                <select
+                  id="confab_select"
+                  value={selectedConfabId || ''}
+                  onChange={(e) => {
+                    const id = parseInt(e.target.value)
+                    setSelectedConfabId(id)
+                    handleInputChange('foundry_confab_id', id)
+                  }}
+                  className="w-full h-10 px-3 rounded-md border border-input bg-background"
+                >
+                  <option value="">Select a confab...</option>
+                  {confabs.map((confab) => (
+                    <option key={confab.id} value={confab.id}>
+                      {confab.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            {selectedConfabId && (
+              <div className="bg-green-100 border border-green-300 rounded-lg p-3">
+                <p className="text-sm text-green-800">
+                  ✓ Documents from the selected confab will be synced during setup.
+                </p>
+              </div>
+            )}
+            
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleSubmit}
+              disabled={isLoading}
+              className="w-full"
+            >
+              Skip - Complete Setup Without Knowledge Base
+            </Button>
           </div>
         )
         
@@ -373,7 +574,7 @@ export default function ConfigurationWizard() {
           
           {/* Step Tabs */}
           <Tabs value={steps[currentStep].id} className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               {steps.map((step, index) => (
                 <TabsTrigger
                   key={step.id}

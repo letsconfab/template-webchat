@@ -1,5 +1,7 @@
-"""FastAPI application for AI Copilot Chat."""
+"""FastAPI application for Admin Invite and Chat."""
+
 import os
+import logging
 from typing import List, Optional, Dict
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from contextlib import asynccontextmanager
@@ -12,9 +14,18 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import httpx
 
-from .config import config
-from .knowledge_base import knowledge_base
-from .llm_providers import LLMProvider, validate_api_key, get_available_models
+from config import config
+from database import init_db, close_db
+from routers import auth, users, invites, settings, knowledge
+from knowledge_base import knowledge_base
+from llm_providers import LLMProvider, validate_api_key, get_available_models
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 
 # Pydantic models for API
@@ -46,7 +57,11 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     # Startup
     print("Starting FastAPI application...")
-    
+
+    # Initialize database
+    print("Initializing database...")
+    await init_db()
+
     # Mount static files for React frontend
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
@@ -58,10 +73,11 @@ async def lifespan(app: FastAPI):
             app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     else:
         print(f"Warning: Frontend dist directory not found at {frontend_dist}")
-    
+
     yield
     # Shutdown
     print("Shutting down FastAPI application...")
+    await close_db()
 
 
 app = FastAPI(
@@ -79,6 +95,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(invites.router)
+app.include_router(settings.router)
+app.include_router(knowledge.router)
 
 
 @app.get("/health")
@@ -143,17 +166,17 @@ async def clear_chat_history(session_id: str = "default"):
 
 class ConnectionManager:
     """Manage WebSocket connections for streaming chat."""
-    
+
     def __init__(self):
         self.active_connections: List[WebSocket] = []
-    
+
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-    
+
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
-    
+
     async def send_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
 
@@ -165,7 +188,7 @@ manager = ConnectionManager()
 async def websocket_chat(websocket: WebSocket):
     """WebSocket endpoint for streaming chat responses."""
     await manager.connect(websocket)
-    
+
     try:
         # Receive initial settings
         data = await websocket.receive_json()
@@ -173,100 +196,120 @@ async def websocket_chat(websocket: WebSocket):
         provider = data.get("provider", "openai")
         model = data.get("model", "gpt-4o-mini")
         api_key = data.get("api_key", "")
-        
-        print(f"WebSocket: Received settings - session: {session_id}, provider: {provider}, model: {model}")
-        
+
+        print(
+            f"WebSocket: Received settings - session: {session_id}, provider: {provider}, model: {model}"
+        )
+
         # Send chat history
         history = chat_history.get(session_id, [])
         if history:
-            await websocket.send_json({"type": "history", "messages": [msg.model_dump() for msg in history]})
-        
+            await websocket.send_json(
+                {"type": "history", "messages": [msg.model_dump() for msg in history]}
+            )
+
         # Initialize knowledge base if not done
         if knowledge_base.vector_store is None:
             try:
                 llm_provider = LLMProvider(provider, model, api_key)
                 embeddings = llm_provider.get_embeddings()
                 knowledge_base.initialize(embeddings)
-                await websocket.send_json({"type": "status", "message": "Welcome! I'm ready to help you."})
+                await websocket.send_json(
+                    {"type": "status", "message": "Welcome! I'm ready to help you."}
+                )
             except Exception as e:
                 print(f"Error initializing knowledge base: {e}")
-                # Continue without knowledge base if embeddings fail
                 print("Continuing without knowledge base")
-                await websocket.send_json({"type": "status", "message": "Welcome! I'm ready to help you. Note: Knowledge base not available."})
-        
+                await websocket.send_json(
+                    {
+                        "type": "status",
+                        "message": "Welcome! I'm ready to help you. Note: Knowledge base not available.",
+                    }
+                )
+
         # Chat loop
         while True:
             data = await websocket.receive_json()
             message = data.get("message", "")
-            
+
             print(f"WebSocket: Received message: {message[:50]}...")
-            
+
             # Store user message in history
             if session_id not in chat_history:
                 chat_history[session_id] = []
             chat_history[session_id].append(ChatMessage(role="user", content=message))
-            
+
             # Search knowledge base (only if initialized)
             relevant_docs = []
             if knowledge_base.vector_store is not None:
                 relevant_docs = knowledge_base.search(message, k=5)
-            
+
             # Build context
             context = ""
             if relevant_docs:
                 context_parts = []
                 for i, doc in enumerate(relevant_docs, 1):
-                    source = doc.metadata.get('source', 'Unknown')
+                    source = doc.metadata.get("source", "Unknown")
                     context_parts.append(f"[{i}] Source: {source}\n{doc.page_content}")
                 context = "\n\n".join(context_parts)
-            
+
             # Build messages with conversation history
-            system_prompt = config.system_prompt
+            system_prompt = getattr(
+                config, "system_prompt", "You are a helpful AI assistant."
+            )
             messages = [SystemMessage(content=system_prompt)]
-            
+
             # Add knowledge base context if available
             if context:
-                messages.append(SystemMessage(
-                    content=f"Relevant knowledge base documents:\n\n{context}\n\nUse the above information to answer the user's question."
-                ))
-            
+                messages.append(
+                    SystemMessage(
+                        content=f"Relevant knowledge base documents:\n\n{context}\n\nUse the above information to answer the user's question."
+                    )
+                )
+
             # Add conversation history (last 10 messages to stay within token limits)
             history = chat_history.get(session_id, [])
             recent_history = history[-10:] if len(history) > 10 else history
-            
-            for hist_msg in recent_history[:-1]:  # Exclude the last message (current one)
+
+            for hist_msg in recent_history[:-1]:
                 if hist_msg.role == "user":
                     messages.append(HumanMessage(content=hist_msg.content))
                 elif hist_msg.role == "assistant":
                     messages.append(AIMessage(content=hist_msg.content))
-            
+
             # Add current message
             messages.append(HumanMessage(content=message))
-            
+
             # Get LLM and stream response
             llm_provider = LLMProvider(provider, model, api_key)
             llm = llm_provider.get_llm()
-            
+
             if llm is None:
                 error_msg = "Failed to initialize LLM provider"
                 await websocket.send_json({"type": "error", "message": error_msg})
-                chat_history[session_id].append(ChatMessage(role="assistant", content=error_msg))
+                chat_history[session_id].append(
+                    ChatMessage(role="assistant", content=error_msg)
+                )
                 continue
-            
+
             # Stream response
             await websocket.send_json({"type": "start"})
             full_response = ""
-            
+
             for chunk in llm.stream(messages):
                 if chunk.content:
                     full_response += chunk.content
-                    await websocket.send_json({"type": "chunk", "content": chunk.content})
-            
+                    await websocket.send_json(
+                        {"type": "chunk", "content": chunk.content}
+                    )
+
             # Store assistant message in history
-            chat_history[session_id].append(ChatMessage(role="assistant", content=full_response))
-            
+            chat_history[session_id].append(
+                ChatMessage(role="assistant", content=full_response)
+            )
+
             await websocket.send_json({"type": "end"})
-            
+
     except WebSocketDisconnect:
         print("WebSocket: Client disconnected")
         manager.disconnect(websocket)
@@ -283,21 +326,22 @@ async def websocket_chat(websocket: WebSocket):
 async def serve_frontend(full_path: str):
     """Serve the React frontend for all non-API routes."""
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
-    
+
     # If it's a static asset, try to serve it
     if full_path.startswith("assets/") or full_path.startswith("static/"):
         file_path = frontend_dist / full_path
         if file_path.exists():
             return FileResponse(file_path)
-    
+
     # Otherwise serve index.html for client-side routing
     index_file = frontend_dist / "index.html"
     if index_file.exists():
         return FileResponse(index_file)
-    
+
     raise HTTPException(status_code=404, detail="Frontend not built")
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

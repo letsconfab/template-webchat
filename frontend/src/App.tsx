@@ -1,103 +1,144 @@
 import { useState, useEffect } from 'react'
-import ChatInterface from './components/ChatInterface'
-import SettingsModal from './components/SettingsModal'
-import WelcomeScreen from './components/WelcomeScreen'
-import { Settings, Trash2 } from 'lucide-react'
-import { getSessionId } from './services/api'
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { AuthProvider } from './contexts/AuthContext'
+import ProtectedRoute from './components/ProtectedRoute'
+import ConfigurationChecker from './components/ConfigurationChecker'
+import AdminRegister from './pages/AdminRegister'
+import AdminLogin from './pages/AdminLogin'
+import AdminDashboard from './pages/AdminDashboard'
+import UserDashboard from './pages/UserDashboard'
+import ConfigurationWizard from './pages/ConfigurationWizard'
+import AdminSettings from './pages/AdminSettings'
+import ChatPage from './pages/ChatPage'
 
-function App() {
-  const [showSettings, setShowSettings] = useState(false)
-  const [settings, setSettings] = useState<{
-    provider: string
-    model: string
-    apiKey: string
-  } | null>(null)
-  const [hasConfigured, setHasConfigured] = useState(false)
+function AppContent() {
+  const [isLoading, setIsLoading] = useState(true)
+  const [configStatus, setConfigStatus] = useState<any>(null)
+  const navigate = useNavigate()
 
-  // Load settings from localStorage on mount
   useEffect(() => {
-    const savedSettings = localStorage.getItem('copilot-settings')
-    if (savedSettings) {
-      const parsed = JSON.parse(savedSettings)
-      setSettings(parsed)
-      setHasConfigured(true)
-    }
+    checkConfigurationStatus()
   }, [])
 
-  const handleSaveSettings = (newSettings: {
-    provider: string
-    model: string
-    apiKey: string
-  }) => {
-    setSettings(newSettings)
-    setHasConfigured(true)
-    setShowSettings(false)
-    // Save to localStorage
-    localStorage.setItem('copilot-settings', JSON.stringify(newSettings))
+  const checkConfigurationStatus = async () => {
+    try {
+      const response = await fetch('/api/settings/config-status')
+      const data = await response.json()
+      setConfigStatus(data)
+      
+      // If not configured, redirect to setup
+      if (data.needs_setup) {
+        navigate('/setup')
+        return
+      }
+    } catch (error) {
+      console.error('Failed to check configuration status:', error)
+      // If we can't check status, assume configuration is needed
+      navigate('/setup')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleClearHistory = async () => {
-    try {
-      const sessionId = getSessionId()
-      await fetch(`/api/chat-history?session_id=${sessionId}`, { method: 'DELETE' })
-      // Force ChatInterface to refresh by remounting
-      window.location.reload()
-    } catch (error) {
-      console.error('Failed to clear history:', error)
-    }
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="border-b border-border px-4 py-3">
-        <div className="flex items-center justify-between max-w-4xl mx-auto">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">❤️</span>
-            <h1 className="text-xl font-semibold">AI Copilot</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            {hasConfigured && (
-              <button
-                onClick={handleClearHistory}
-                className="p-2 hover:bg-muted rounded-lg transition-colors"
-                aria-label="Clear chat history"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
-            )}
-            <button
-              onClick={() => setShowSettings(true)}
-              className="p-2 hover:bg-muted rounded-lg transition-colors"
-              aria-label="Settings"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-          </div>
+    <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold mb-8">
+          {configStatus?.app_name || 'WebChat'}
+        </h1>
+        <p className="text-muted-foreground mb-8">Please login to continue</p>
+        <div className="space-x-4">
+          <a
+            href="/login"
+            className="inline-block px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            Login
+          </a>
+          <a
+            href="/register"
+            className="inline-block px-6 py-3 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/90 transition-colors"
+          >
+            Register
+          </a>
         </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-4xl mx-auto p-4">
-        {!hasConfigured ? (
-          <WelcomeScreen
-            onOpenSettings={() => setShowSettings(true)}
-          />
-        ) : (
-          <ChatInterface settings={settings} />
-        )}
-      </main>
-
-      {/* Settings Modal */}
-      {showSettings && (
-        <SettingsModal
-          isOpen={showSettings}
-          onClose={() => setShowSettings(false)}
-          onSave={handleSaveSettings}
-          initialSettings={settings}
-        />
-      )}
+      </div>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <Routes>
+          {/* Configuration Wizard - accessible without configuration check */}
+          <Route path="/setup" element={<ConfigurationWizard />} />
+          
+          {/* Routes that require configuration check */}
+          <Route path="/*" element={
+            <ConfigurationChecker>
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/login" element={<AdminLogin />} />
+                <Route path="/register" element={<AdminRegister />} />
+                <Route path="/admin/login" element={<AdminLogin />} />
+                <Route path="/admin/register" element={<AdminRegister />} />
+                
+                {/* Protected Routes - require authentication */}
+                <Route 
+                  path="/dashboard" 
+                  element={
+                    <ProtectedRoute>
+                      <UserDashboard />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/chat" 
+                  element={
+                    <ProtectedRoute>
+                      <ChatPage />
+                    </ProtectedRoute>
+                  } 
+                />
+                
+                {/* Admin Routes */}
+                <Route 
+                  path="/admin/dashboard" 
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <AdminDashboard />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/settings" 
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <AdminSettings />
+                    </ProtectedRoute>
+                  } 
+                />
+                
+                {/* Default Landing Page */}
+                <Route path="/" element={<AppContent />} />
+                
+                {/* Redirect unknown routes to home */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </ConfigurationChecker>
+          } />
+        </Routes>
+      </Router>
+    </AuthProvider>
   )
 }
 

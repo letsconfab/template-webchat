@@ -2,3 +2,4 @@
 __pycache__
 .env
 kb_assets
+.cache

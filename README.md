@@ -15,6 +15,11 @@ A multi-tenant AI copilot chat application with RAG (Retrieval Augmented Generat
 - **Langfuse Observability**: Track and monitor conversations
 - **Configurable via .env**: Easy setup with environment variables
 - **React Frontend**: Modern UI with TailwindCSS and Radix UI
+- **User Authentication**: JWT-based authentication with role-based access control
+- **Admin Panel**: User management and invitation system
+- **Email Invitations**: Admin can invite users via email with secure tokens
+- **PostgreSQL Database**: Persistent storage for users and invitations
+- **Role-Based Access**: Admin and user roles with appropriate permissions
 
 ## Quick Start
 
@@ -24,7 +29,16 @@ A multi-tenant AI copilot chat application with RAG (Retrieval Augmented Generat
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment Variables
+### 2. Set Up PostgreSQL Database
+
+Create a PostgreSQL database and update the `DATABASE_URL` in your `.env` file:
+
+```bash
+# Example DATABASE_URL format:
+DATABASE_URL=postgresql+asyncpg://username:password@localhost:5432/webchat_db
+```
+
+### 3. Configure Environment Variables
 
 Copy `.env.example` to `.env` and configure:
 
@@ -32,7 +46,12 @@ Copy `.env.example` to `.env` and configure:
 cp .env.example .env
 ```
 
-### 3. Add Knowledge Base Documents
+**Required for Authentication:**
+- `DATABASE_URL`: PostgreSQL connection string
+- `SECRET_KEY`: JWT secret key (change in production)
+- `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `FROM_EMAIL`: Email settings for invitations
+
+### 4. Add Knowledge Base Documents
 
 Create a `kb_assets` folder and add your documents:
 
@@ -41,7 +60,7 @@ mkdir kb_assets
 # Add PDF, DOCX, CSV, XLSX, TXT files here
 ```
 
-### 4. Run the Backend
+### 5. Run the Backend
 
 ```bash
 python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
@@ -49,7 +68,7 @@ python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
 The backend API will be available at `http://localhost:8000`
 
-### 5. Run the Frontend (Development)
+### 6. Run the Frontend (Development)
 
 ```bash
 cd frontend
@@ -58,6 +77,18 @@ npm run dev
 ```
 
 The frontend will be available at `http://localhost:3000`
+
+### 7. Create First Admin User
+
+After starting the backend, create an admin user via the API:
+
+```bash
+curl -X POST "http://localhost:8000/api/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com", "password": "admin123", "role": "admin"}'
+```
+
+Then update their role in the database or use the admin panel to manage users.
 
 ## Architecture
 
@@ -68,6 +99,10 @@ The frontend will be available at `http://localhost:3000`
 - **Chat History**: In-memory storage per session
 - **Knowledge Base**: Document loading, chunking, and Qdrant vector store
 - **Multi-LLM Support**: OpenAI, Groq, Ollama, Sarvam with dynamic model fetching
+- **Authentication**: JWT-based authentication with role-based access control
+- **User Management**: Admin panel for managing users and invitations
+- **Email Service**: SMTP-based email invitations with secure tokens
+- **Database**: PostgreSQL for persistent user and invitation storage
 
 ### Frontend (React)
 - **Vite**: Fast development server with HMR
@@ -101,6 +136,7 @@ The frontend will be available at `http://localhost:3000`
 
 ## API Endpoints
 
+### Chat & LLM
 - `GET /health` - Health check
 - `GET /api/providers` - List available LLM providers
 - `POST /api/models` - Get models for a provider (dynamic fetching)
@@ -110,30 +146,81 @@ The frontend will be available at `http://localhost:3000`
 - `DELETE /api/chat-history?session_id={id}` - Clear chat history
 - `WS /ws/chat` - WebSocket for streaming chat
 
+### Authentication
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/login` - User login (returns JWT token)
+- `GET /api/auth/me` - Get current user info
+- `POST /api/auth/logout` - User logout
+
+### Admin Management (Admin only)
+- `GET /api/admin/users` - List all users
+- `GET /api/admin/users/{id}` - Get specific user
+- `PUT /api/admin/users/{id}` - Update user (role, status)
+- `DELETE /api/admin/users/{id}` - Delete user
+- `GET /api/admin/users/stats` - User statistics
+
+### Invitation System
+- `POST /api/admin/invite-user` - Create and send invitation (Admin)
+- `GET /api/admin/invites` - List all invitations (Admin)
+- `DELETE /api/admin/invites/{id}` - Cancel invitation (Admin)
+- `GET /api/accept-invite/{token}` - Check invitation validity
+- `POST /api/accept-invite/{token}` - Accept invitation and create account
+
 ## Project Structure
 
 ```
 .
-├── backend/
-│   ├── main.py              # FastAPI application with WebSocket
-│   ├── config.py            # Configuration loader
-│   ├── knowledge_base.py    # Document loading and vector store
-│   └── llm_providers.py     # Multi-provider LLM with dynamic model fetching
-├── frontend/
-│   ├── src/
-│   │   ├── components/      # React components
-│   │   │   ├── ChatInterface.tsx
-│   │   │   ├── SettingsModal.tsx
-│   │   │   └── WelcomeScreen.tsx
-│   │   ├── services/        # API service and WebSocket client
-│   │   ├── lib/             # Utilities
-│   │   └── App.tsx          # Main app with session management
-│   ├── package.json
-│   └── vite.config.ts
-├── requirements.txt         # Python dependencies
-├── Dockerfile              # Multi-stage build for production
-├── .env.example            # Example environment variables
-└── kb_assets/              # Knowledge base documents (create this)
+|-- backend/
+|   |-- main.py              # FastAPI application with WebSocket
+|   |-- config.py            # Configuration loader
+|   |-- database.py          # Database connection and setup
+|   |-- knowledge_base.py    # Document loading and vector store
+|   |-- llm_providers.py     # Multi-provider LLM with dynamic model fetching
+|   |-- models/              # Database models
+|   |   |-- user.py          # User model
+|   |   |-- invite.py        # Invitation model
+|   |-- routers/             # API routers
+|   |   |-- auth.py          # Authentication endpoints
+|   |   |-- users.py         # User management endpoints
+|   |   |-- invites.py       # Invitation endpoints
+|   |-- services/            # Business logic services
+|   |   |-- auth.py          # Authentication utilities
+|   |   |-- email.py         # Email service
+|   |-- middleware/          # Custom middleware
+|   |   |-- auth.py          # Authentication middleware
+|   |-- schemas/             # Pydantic schemas
+|   |   |-- user.py          # User schemas
+|   |   |-- invite.py        # Invitation schemas
+|-- frontend/
+|   |-- src/
+|   |   |-- components/      # React components
+|   |   |   |-- auth/        # Authentication components
+|   |   |   |   |-- LoginForm.tsx
+|   |   |   |   |-- InviteAcceptForm.tsx
+|   |   |   |-- admin/       # Admin panel components
+|   |   |   |   |-- InviteUser.tsx
+|   |   |   |   |-- UserList.tsx
+|   |   |   |-- ui/          # UI components
+|   |   |   |   |-- button.tsx
+|   |   |   |   |-- input.tsx
+|   |   |   |   |-- label.tsx
+|   |   |   |   |-- card.tsx
+|   |   |   |   |-- badge.tsx
+|   |   |   |   |-- table.tsx
+|   |   |   |-- ChatInterface.tsx
+|   |   |   |-- SettingsModal.tsx
+|   |   |   |-- WelcomeScreen.tsx
+|   |   |-- contexts/        # React contexts
+|   |   |   |-- AuthContext.tsx
+|   |   |-- services/        # API service and WebSocket client
+|   |   |-- lib/             # Utilities
+|   |   |-- App.tsx          # Main app with session management
+|   |-- package.json
+|   |-- vite.config.ts
+|-- requirements.txt         # Python dependencies
+|-- Dockerfile              # Multi-stage build for production
+|-- .env.example            # Example environment variables
+|-- kb_assets/              # Knowledge base documents (create this)
 ```
 
 ## Deployment to Coolify

@@ -6,6 +6,7 @@ import ConfigurationChecker from './components/ConfigurationChecker'
 import AdminRegister from './pages/AdminRegister'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
+import UserDashboard from './pages/UserDashboard'
 import ConfigurationWizard from './pages/ConfigurationWizard'
 import AdminSettings from './pages/AdminSettings'
 
@@ -50,21 +51,21 @@ function AppContent() {
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
       <div className="text-center">
         <h1 className="text-4xl font-bold mb-8">
-          {configStatus?.app_name || 'Admin Invite System'}
+          {configStatus?.app_name || 'WebChat'}
         </h1>
-        <p className="text-muted-foreground mb-8">Please login or register to access the admin dashboard</p>
+        <p className="text-muted-foreground mb-8">Please login to continue</p>
         <div className="space-x-4">
           <a
-            href="/admin/login"
+            href="/login"
             className="inline-block px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
           >
-            Admin Login
+            Login
           </a>
           <a
-            href="/admin/register"
+            href="/register"
             className="inline-block px-6 py-3 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/90 transition-colors"
           >
-            Admin Register
+            Register
           </a>
         </div>
       </div>
@@ -84,9 +85,31 @@ function App() {
           <Route path="/*" element={
             <ConfigurationChecker>
               <Routes>
-                {/* Admin Routes */}
-                <Route path="/admin/register" element={<AdminRegister />} />
+                {/* Public Routes */}
+                <Route path="/login" element={<AdminLogin />} />
+                <Route path="/register" element={<AdminRegister />} />
                 <Route path="/admin/login" element={<AdminLogin />} />
+                <Route path="/admin/register" element={<AdminRegister />} />
+                
+                {/* Protected Routes - require authentication */}
+                <Route 
+                  path="/dashboard" 
+                  element={
+                    <ProtectedRoute>
+                      <UserDashboard />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/chat" 
+                  element={
+                    <ProtectedRoute>
+                      <UserDashboard />
+                    </ProtectedRoute>
+                  } 
+                />
+                
+                {/* Admin Routes */}
                 <Route 
                   path="/admin/dashboard" 
                   element={

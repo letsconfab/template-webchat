@@ -31,8 +31,13 @@ const AdminLogin: React.FC = () => {
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true)
     try {
-      await login(data.email, data.password)
-      navigate('/admin/dashboard')
+      const role = await login(data.email, data.password)
+      // Redirect based on role
+      if (role === 'admin') {
+        navigate('/admin/dashboard')
+      } else {
+        navigate('/dashboard')
+      }
     } catch (error: any) {
       if (error.response?.data?.detail) {
         setError('root', { message: error.response.data.detail })

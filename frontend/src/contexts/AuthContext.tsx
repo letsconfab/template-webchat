@@ -75,6 +75,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       await fetchUser();
       toast.success('Login successful!');
+      
+      // Return the user role so caller can navigate accordingly
+      return user?.role || 'user';
     } catch (error: any) {
       const message = error.response?.data?.detail || 'Login failed';
       toast.error(message);

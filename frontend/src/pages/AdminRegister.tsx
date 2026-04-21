@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { Eye, EyeOff, UserPlus } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
-const adminRegisterSchema = z.object({
+const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   confirmPassword: z.string().min(8, 'Password must be at least 8 characters')
@@ -15,13 +15,13 @@ const adminRegisterSchema = z.object({
   path: ["confirmPassword"],
 })
 
-type AdminRegisterFormData = z.infer<typeof adminRegisterSchema>
+type RegisterFormData = z.infer<typeof registerSchema>
 
 const AdminRegister: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const { adminRegister } = useAuth()
+  const { register } = useAuth()
   const navigate = useNavigate()
 
   const {
@@ -29,15 +29,15 @@ const AdminRegister: React.FC = () => {
     handleSubmit,
     formState: { errors },
     setError
-  } = useForm<AdminRegisterFormData>({
-    resolver: zodResolver(adminRegisterSchema)
+  } = useForm<RegisterFormData>({
+    resolver: zodResolver(registerSchema)
   })
 
-  const onSubmit = async (data: AdminRegisterFormData) => {
+  const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true)
     try {
-      await adminRegister(data.email, data.password, data.confirmPassword)
-      navigate('/admin/dashboard')
+      await register(data.email, data.password)
+      navigate('/login')
     } catch (error: any) {
       if (error.response?.data?.detail) {
         setError('root', { message: error.response.data.detail })
@@ -57,10 +57,10 @@ const AdminRegister: React.FC = () => {
             <UserPlus className="h-6 w-6 text-white" />
           </div>
           <h2 className="mt-6 text-3xl font-bold text-gray-900">
-            Admin Registration
+            Create Account
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Create your admin account to manage the system
+            Register to access the chat application
           </p>
         </div>
 

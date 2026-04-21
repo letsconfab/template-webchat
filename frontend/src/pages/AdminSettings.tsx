@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Badge } from '../components/ui/badge'
-import { Loader2, Save, RotateCcw, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings } from 'lucide-react'
+import { Loader2, Save, RotateCcw, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings, Bot, Database, Upload, RefreshCw } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 interface SystemSettings {
@@ -28,6 +28,13 @@ interface SystemSettings {
   max_login_attempts: number
   email_notifications_enabled: boolean
   user_registration_enabled: boolean
+  // LLM Configuration
+  llm_provider: string
+  llm_model: string
+  llm_api_key: string
+  // Foundry Configuration
+  foundry_url: string
+  foundry_confab_id: number | null
   is_configured: boolean
   configured_at: string
   configured_by: string
@@ -44,6 +51,7 @@ export default function AdminSettings() {
   const [success, setSuccess] = useState<string | null>(null)
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
+  const [knowledgeStatus, setKnowledgeStatus] = useState<{document_count: number, llm_provider: string, llm_model: string} | null>(null)
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
@@ -51,6 +59,7 @@ export default function AdminSettings() {
       return
     }
     loadSettings()
+    loadKnowledgeStatus()
   }, [user, navigate])
 
   const loadSettings = async () => {
@@ -71,6 +80,18 @@ export default function AdminSettings() {
       setError(error instanceof Error ? error.message : 'Failed to load settings')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadKnowledgeStatus = async () => {
+    try {
+      const response = await fetch('/api/knowledge/status')
+      if (response.ok) {
+        const data = await response.json()
+        setKnowledgeStatus(data)
+      }
+    } catch (error) {
+      console.error('Failed to load knowledge status:', error)
     }
   }
 
@@ -230,7 +251,7 @@ export default function AdminSettings() {
         )}
 
        <Tabs value="basic" className="w-full">
-  <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="basic">
               <Settings className="h-4 w-4 mr-2" />
               Basic
@@ -238,6 +259,14 @@ export default function AdminSettings() {
             <TabsTrigger value="email">
               <Mail className="h-4 w-4 mr-2" />
               Email
+            </TabsTrigger>
+            <TabsTrigger value="llm">
+              <Bot className="h-4 w-4 mr-2" />
+              AI
+            </TabsTrigger>
+            <TabsTrigger value="knowledge">
+              <Database className="h-4 w-4 mr-2" />
+              Knowledge
             </TabsTrigger>
             <TabsTrigger value="security">
               <Shield className="h-4 w-4 mr-2" />
@@ -364,6 +393,122 @@ export default function AdminSettings() {
                     onCheckedChange={(checked) => handleInputChange('use_tls', checked)}
                   />
                   <Label htmlFor="use_tls">Use TLS/SSL</Label>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="llm" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>AI Configuration</CardTitle>
+                <CardDescription>
+                  Configure the AI provider for chat functionality
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="llm_provider">LLM Provider</Label>
+                  <select
+                    id="llm_provider"
+                    value={settings.llm_provider || 'openai'}
+                    onChange={(e) => handleInputChange('llm_provider', e.target.value)}
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background"
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="groq">Groq</option>
+                    <option value="ollama">Ollama</option>
+                    <option value="sarvam">Sarvam</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <Label htmlFor="llm_model">Model</Label>
+                  <Input
+                    id="llm_model"
+                    value={settings.llm_model || ''}
+                    onChange={(e) => handleInputChange('llm_model', e.target.value)}
+                    placeholder="gpt-4o-mini"
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="llm_api_key">API Key</Label>
+                  <Input
+                    id="llm_api_key"
+                    type="password"
+                    value={settings.llm_api_key || ''}
+                    onChange={(e) => handleInputChange('llm_api_key', e.target.value)}
+                    placeholder="Enter your API key"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="knowledge" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Knowledge Base</CardTitle>
+                <CardDescription>
+                  Manage documents and sync from Foundry
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-muted rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium">Documents</span>
+                    <Button variant="outline" size="sm" onClick={loadKnowledgeStatus}>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Refresh
+                    </Button>
+                  </div>
+                  {knowledgeStatus ? (
+                    <div className="space-y-1">
+                      <p className="text-sm">
+                        <span className="font-medium">{knowledgeStatus.document_count}</span> documents in knowledge base
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        AI: {knowledgeStatus.llm_provider} / {knowledgeStatus.llm_model}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Click refresh to load status
+                    </p>
+                  )}
+                </div>
+                
+                <div>
+                  <Label htmlFor="foundry_url">Foundry URL</Label>
+                  <Input
+                    id="foundry_url"
+                    value={settings.foundry_url || ''}
+                    onChange={(e) => handleInputChange('foundry_url', e.target.value)}
+                    placeholder="https://foundry.yourcompany.com"
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="foundry_confab_id">Connected Confab ID</Label>
+                  <Input
+                    id="foundry_confab_id"
+                    type="number"
+                    value={settings.foundry_confab_id || ''}
+                    onChange={(e) => handleInputChange('foundry_confab_id', e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="Leave empty to disconnect"
+                  />
+                </div>
+                
+                <div className="flex gap-2">
+                  <Button variant="outline">
+                    <Upload className="h-4 w-4 mr-2" />
+                    Upload Document
+                  </Button>
+                  <Button variant="outline">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Sync from Foundry
+                  </Button>
                 </div>
               </CardContent>
             </Card>

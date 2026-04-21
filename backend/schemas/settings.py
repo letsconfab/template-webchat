@@ -108,18 +108,6 @@ class SystemSettingsCreate(SystemSettingsBase):
             raise ValueError("SMTP port is required for initial configuration")
         return v
 
-    @validator("smtp_server")
-    def validate_smtp_server(cls, v, values):
-        if not v:
-            raise ValueError("SMTP server is required for initial configuration")
-        return v.strip()
-
-    @validator("smtp_port")
-    def validate_smtp_port(cls, v, values):
-        if not v:
-            raise ValueError("SMTP port is required for initial configuration")
-        return v
-
 
 class SystemSettingsUpdate(SystemSettingsBase):
     """Schema for updating system settings."""

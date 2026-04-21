@@ -72,8 +72,8 @@ async def configure_system(
     )
     db.add(admin_user)
 
-    # Prepare settings data (exclude admin credentials)
-    settings_dict = settings_data.dict(exclude={"admin_email", "admin_password"})
+    # Prepare settings data (admin credentials excluded by schema)
+    settings_dict = settings_data.dict()
 
     # Create or update settings
     if existing_settings:

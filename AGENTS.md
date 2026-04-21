@@ -46,7 +46,7 @@ createdb webchat_db
 #### 2. Environment
 Create `.env` file:
 ```
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/webchat_db
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5454/webchat_db
 SECRET_KEY=your-secret-key-change-in-production
 ```
 
@@ -98,15 +98,15 @@ make run-fe
 
 | Service | Port |
 |---------|------|
-| Frontend (dev) | 3000 |
+| Frontend (dev) | 3030 |
 | Backend | 8005 |
-| PostgreSQL | 5432 |
+| PostgreSQL | 5454 (internal 5432) |
 
 ## Environment Variables
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/webchat_db` | |
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5454/webchat_db` | |
 | `SECRET_KEY` | - | JWT secret |
 | `KB_ASSETS_DIR` | `./kb_assets` | Knowledge base files |
 

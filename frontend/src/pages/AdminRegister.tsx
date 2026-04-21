@@ -21,7 +21,7 @@ const AdminRegister: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const { register } = useAuth()
+  const { register: registerUser } = useAuth()
   const navigate = useNavigate()
 
   const {
@@ -36,7 +36,7 @@ const AdminRegister: React.FC = () => {
   const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true)
     try {
-      await register(data.email, data.password)
+      await registerUser(data.email, data.password)
       navigate('/login')
     } catch (error: any) {
       if (error.response?.data?.detail) {

@@ -57,10 +57,10 @@ const AdminLogin: React.FC = () => {
             <LogIn className="h-6 w-6 text-white" />
           </div>
           <h2 className="mt-6 text-3xl font-bold text-gray-900">
-            Admin Login
+            Login
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Sign in to your admin account
+            Sign in to your account
           </p>
         </div>
 
@@ -139,7 +139,7 @@ const AdminLogin: React.FC = () => {
 
             <div className="text-center">
               <p className="text-sm text-gray-600">
-                Don't have an admin account?{' '}
+                Don't have an account?{' '}
                 <Link
                   to="/admin/register"
                   className="font-medium text-blue-600 hover:text-blue-500 transition-colors"

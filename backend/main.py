@@ -1,6 +1,7 @@
 """FastAPI application for Admin Invite and Chat."""
 
 import os
+import logging
 from typing import List, Optional, Dict
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from contextlib import asynccontextmanager
@@ -18,6 +19,13 @@ from database import init_db, close_db
 from routers import auth, users, invites, settings, knowledge
 from knowledge_base import knowledge_base
 from llm_providers import LLMProvider, validate_api_key, get_available_models
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 
 # Pydantic models for API

@@ -1,4 +1,6 @@
 """Email service for sending invitations and notifications."""
+
+import logging
 from typing import Optional
 
 from fastapi_mail import ConnectionConfig, MessageSchema, MessageType
@@ -8,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import config
 from services.settings_service import settings_service
 
+logger = logging.getLogger(__name__)
 
 # Email configuration - will be initialized dynamically from database
 email_config = None
@@ -15,58 +18,67 @@ email_config = None
 
 class EmailService:
     """Email service for sending emails."""
-    
+
     def __init__(self):
         self.config = email_config
-    
+
     async def _get_email_config(self, db: AsyncSession):
         """Get email configuration from database."""
         email_settings = await settings_service.get_email_config(db)
-        
+
         if not email_settings:
             return None
-            
+
         return ConnectionConfig(
-            MAIL_USERNAME=email_settings['smtp_username'],
-            MAIL_PASSWORD=email_settings['smtp_password'],
-            MAIL_FROM=email_settings['from_email'],
-            MAIL_PORT=email_settings['smtp_port'],
-            MAIL_SERVER=email_settings['smtp_server'],
-            MAIL_STARTTLS=email_settings['use_tls'],
+            MAIL_USERNAME=email_settings["smtp_username"],
+            MAIL_PASSWORD=email_settings["smtp_password"],
+            MAIL_FROM=email_settings["from_email"],
+            MAIL_PORT=email_settings["smtp_port"],
+            MAIL_SERVER=email_settings["smtp_server"],
+            MAIL_STARTTLS=email_settings["use_tls"],
             MAIL_SSL_TLS=False,
             USE_CREDENTIALS=True,
             VALIDATE_CERTS=True,
         )
-    
+
     async def _get_frontend_url(self, db: AsyncSession) -> str:
-        """Get frontend URL from config."""
+        """Get frontend URL from database settings."""
+        from services.settings_service import settings_service
+
+        settings = await settings_service.get_settings(db)
+        if settings and settings.frontend_url:
+            return settings.frontend_url
         return config.FRONTEND_URL
-    
+
     async def send_invite_email(
         self,
         to_email: str,
         invite_token: str,
         inviter_name: Optional[str] = None,
-        db: Optional[AsyncSession] = None
+        db: Optional[AsyncSession] = None,
     ) -> bool:
         """Send invitation email to user."""
         if not db:
-            print(f"Email not configured. Would send invite to {to_email} with token {invite_token}")
+            logger.warning(
+                f"Email not configured. Would send invite to {to_email} with token {invite_token}"
+            )
             return True
-            
+
         email_config = await self._get_email_config(db)
         if not email_config:
-            print(f"Email not configured in database. Would send invite to {to_email} with token {invite_token}")
+            logger.warning(
+                f"Email not configured in database. Would send invite to {to_email} with token {invite_token}"
+            )
             return True
-            
+
         try:
             # Create invite link
             frontend_url = await self._get_frontend_url(db)
             invite_link = f"{frontend_url}/accept-invite/{invite_token}"
-            
+
             # Prepare email content
             subject = "You're invited to join Confab Chat"
-            
+
             # HTML email template
             html_content = f"""
             <!DOCTYPE html>
@@ -108,7 +120,7 @@ class EmailService:
             <body>
                 <div class="content">
                     <p>Hello,</p>
-                    <p>You've been invited to join Confab Chat{f' by {inviter_name}' if inviter_name else ''}!</p>
+                    <p>You've been invited to join Confab Chat{f" by {inviter_name}" if inviter_name else ""}!</p>
                     <p>Confab Chat is an AI-powered chat platform that helps you get answers and assistance using advanced AI technology.</p>
                     <p>To get started, simply click the button below to accept your invitation and create your account:</p>
                     <div style="text-align: center;">
@@ -125,7 +137,7 @@ class EmailService:
             </body>
             </html>
             """
-            
+
             # Create message
             message = MessageSchema(
                 subject=subject,
@@ -133,35 +145,51 @@ class EmailService:
                 body=html_content,
                 subtype=MessageType.html,
             )
-            
+
             # Send email
             from fastapi_mail import FastMail
+
+            logger.info(f"Sending invite email to {to_email}")
             fm = FastMail(email_config)
             await fm.send_message(message)
-            
+            logger.info(f"Invite email sent successfully to {to_email}")
+
             return True
-            
+
         except ConnectionErrors as e:
-            print(f"Failed to send email: {e}")
+            logger.error(
+                f"Failed to send invite email to {to_email}: Connection error: {e}"
+            )
             return False
         except Exception as e:
-            print(f"Unexpected error sending email: {e}")
+            logger.error(
+                f"Failed to send invite email to {to_email}: {type(e).__name__}: {e}"
+            )
             return False
-    
-    async def send_welcome_email(self, to_email: str, user_name: Optional[str] = None, db: Optional[AsyncSession] = None) -> bool:
+
+    async def send_welcome_email(
+        self,
+        to_email: str,
+        user_name: Optional[str] = None,
+        db: Optional[AsyncSession] = None,
+    ) -> bool:
         """Send welcome email after user registration."""
         if not db:
-            print(f"Email not configured. Would send welcome email to {to_email}")
+            logger.warning(
+                f"Email not configured. Would send welcome email to {to_email}"
+            )
             return True
-            
+
         email_config = await self._get_email_config(db)
         if not email_config:
-            print(f"Email not configured in database. Would send welcome email to {to_email}")
+            logger.warning(
+                f"Email not configured in database. Would send welcome email to {to_email}"
+            )
             return True
-            
+
         try:
             subject = "Welcome to Confab Chat!"
-            
+
             # HTML email template
             html_content = f"""
             <!DOCTYPE html>
@@ -212,7 +240,7 @@ class EmailService:
                     <h1>Welcome to Confab Chat!</h1>
                 </div>
                 <div class="content">
-                    <p>Hello {user_name or 'there'},</p>
+                    <p>Hello {user_name or "there"},</p>
                     <p>Welcome and thank you for joining Confab Chat! Your account has been successfully created.</p>
                     <p>You can now start using our AI-powered chat platform to get answers and assistance on various topics.</p>
                     <div style="text-align: center;">
@@ -227,7 +255,7 @@ class EmailService:
             </body>
             </html>
             """
-            
+
             # Create message
             message = MessageSchema(
                 subject=subject,
@@ -235,35 +263,46 @@ class EmailService:
                 body=html_content,
                 subtype=MessageType.html,
             )
-            
+
             # Send email
             from fastapi_mail import FastMail
+
+            logger.info(f"Sending welcome email to {to_email}")
             fm = FastMail(email_config)
             await fm.send_message(message)
-            
+            logger.info(f"Welcome email sent successfully to {to_email}")
+
             return True
-            
+
         except ConnectionErrors as e:
-            print(f"Failed to send welcome email: {e}")
+            logger.error(f"Failed to send welcome email to {to_email}: {e}")
             return False
         except Exception as e:
-            print(f"Unexpected error sending welcome email: {e}")
+            logger.error(
+                f"Failed to send welcome email to {to_email}: {type(e).__name__}: {e}"
+            )
             return False
-    
-    async def send_invite_accepted_notification(self, admin_email: str, user_email: str, db: Optional[AsyncSession] = None) -> bool:
+
+    async def send_invite_accepted_notification(
+        self, admin_email: str, user_email: str, db: Optional[AsyncSession] = None
+    ) -> bool:
         """Send notification to admin when invitation is accepted."""
         if not db:
-            print(f"Email not configured. Would send invite accepted notification to {admin_email}")
+            logger.warning(
+                f"Email not configured. Would send invite accepted notification to {admin_email}"
+            )
             return True
-            
+
         email_config = await self._get_email_config(db)
         if not email_config:
-            print(f"Email not configured in database. Would send invite accepted notification to {admin_email}")
+            logger.warning(
+                f"Email not configured in database. Would send invite accepted notification to {admin_email}"
+            )
             return True
-            
+
         try:
             subject = "Invitation Accepted!"
-            
+
             # HTML email template
             html_content = f"""
             <!DOCTYPE html>
@@ -328,7 +367,7 @@ class EmailService:
             </body>
             </html>
             """
-            
+
             # Create message
             message = MessageSchema(
                 subject=subject,
@@ -336,19 +375,25 @@ class EmailService:
                 body=html_content,
                 subtype=MessageType.html,
             )
-            
+
             # Send email
             from fastapi_mail import FastMail
+
             fm = FastMail(email_config)
             await fm.send_message(message)
-            
+            logger.info(f"Invite accepted notification sent to {admin_email}")
+
             return True
-            
+
         except ConnectionErrors as e:
-            print(f"Failed to send invite accepted notification: {e}")
+            logger.error(
+                f"Failed to send invite accepted notification to {admin_email}: {e}"
+            )
             return False
         except Exception as e:
-            print(f"Unexpected error sending invite accepted notification: {e}")
+            logger.error(
+                f"Failed to send invite accepted notification to {admin_email}: {type(e).__name__}: {e}"
+            )
             return False
 
 

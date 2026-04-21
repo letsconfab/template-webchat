@@ -7,16 +7,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
-from ..dependencies.auth import get_current_admin_user
-from ..models.settings import SystemSettings
-from ..models.user import User
-from ..schemas.settings import (
+from database import get_db
+from dependencies.auth import get_current_admin_user
+from models.settings import SystemSettings
+from models.user import User
+from schemas.settings import (
     SystemSettingsCreate,
     SystemSettingsResponse,
     SystemSettingsUpdate,
 )
-from ..services.auth import get_password_hash
+from services.auth import get_password_hash
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 

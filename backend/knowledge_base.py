@@ -16,7 +16,7 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
-from .config import config
+from config import config
 
 
 class KnowledgeBase:

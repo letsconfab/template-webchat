@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 
 import httpx
 
-from ..config import config
+from config import config
 
 
 class FoundryService:

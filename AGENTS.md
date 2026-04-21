@@ -2,7 +2,7 @@
 
 ## Running the Application
 
-### Quick Start
+### Quick Start (Local)
 
 ```bash
 # Initial setup (creates DB + installs deps)
@@ -10,59 +10,24 @@ make setup
 make install
 make install-fe
 
-# Run the application
+# Run both backend and frontend
 make run
 ```
 
-Or step by step:
+### Quick Start (Docker)
 
-### 1. Database
 ```bash
-createdb webchat_db
-# Or use: make setup
+docker-compose up -d
 ```
 
-### 2. Environment
-Create `.env` file in project root:
-```
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/webchat_db
-SECRET_KEY=your-secret-key-change-in-production
-```
-
-### 3. Install Dependencies
-
-**Backend:**
-```bash
-pip install -r requirements.txt
-# Or: make install
-```
-
-**Frontend:**
-```bash
-cd frontend && npm install
-# Or: make install-fe
-```
-
-### 4. Run
-
-**Backend (Terminal 1):**
-```bash
-python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-# Or: make run-be
-```
-
-**Frontend (Terminal 2):**
-```bash
-cd frontend && npm run dev
-# Or: make run-fe
-```
+Then visit `http://localhost:3000`
 
 ### Available Make Commands
 
 | Command | Description |
 |---------|-------------|
 | `make setup` | Create database |
-| `make install` | Install backend dependencies |
+| `make install` | Install backend dependencies (creates venv) |
 | `make install-fe` | Install frontend dependencies |
 | `make run` | Run both backend and frontend |
 | `make run-be` | Run backend only |
@@ -70,6 +35,40 @@ cd frontend && npm run dev
 | `make build` | Build frontend for production |
 | `make dev` | Run in development mode |
 | `make clean` | Clean build artifacts |
+
+### Manual Setup
+
+#### 1. Database
+```bash
+createdb webchat_db
+```
+
+#### 2. Environment
+Create `.env` file:
+```
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/webchat_db
+SECRET_KEY=your-secret-key-change-in-production
+```
+
+#### 3. Install Dependencies
+```bash
+# Backend
+pip install -r requirements.txt
+# Or: make install
+
+# Frontend
+cd frontend && npm install
+# Or: make install-fe
+```
+
+#### 4. Run
+```bash
+# Backend (Terminal 1)
+make run-be
+
+# Frontend (Terminal 2)
+make run-fe
+```
 
 ## First-Time Setup Flow
 
@@ -95,12 +94,13 @@ cd frontend && npm run dev
 | `/admin/dashboard` | Admin | Admin dashboard |
 | `/admin/settings` | Admin | System settings |
 
-## Key Features
+## Ports
 
-- **Admin creation**: Only during first-time setup (`/api/settings/configure`)
-- **Role-based access**: Admin vs regular user
-- **LLM config**: Admin configures in settings, shared by all users
-- **Knowledge base**: Upload docs or sync from Foundry
+| Service | Port |
+|---------|------|
+| Frontend (dev) | 3000 |
+| Backend | 8005 |
+| PostgreSQL | 5432 |
 
 ## Environment Variables
 
@@ -109,11 +109,16 @@ cd frontend && npm run dev
 | `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/webchat_db` | |
 | `SECRET_KEY` | - | JWT secret |
 | `KB_ASSETS_DIR` | `./kb_assets` | Knowledge base files |
-| `LLM_PROVIDER` | `openai` | Default LLM |
-| `LLM_MODEL` | `gpt-4o-mini` | Default model |
 
-## Database Models
+## Docker Compose
 
-- `users` - User accounts with roles (admin/user)
-- `invites` - User invitations with roles
-- `system_settings` - App config including LLM + Foundry settings
+The project includes `docker-compose.yml` for running all services:
+
+```bash
+docker-compose up -d
+```
+
+This starts:
+- PostgreSQL (port 5432)
+- Backend API (port 8005)
+- Frontend dev server (port 3000)

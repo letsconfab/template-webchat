@@ -1,12 +1,18 @@
 # Makefile for template-webchat demo branch
 
+# Virtual environment path
+VENV = .venv
+
+# Python path
+PYTHONPATH = $(CURDIR)
+
 .PHONY: help setup install install-fe run run-be run-fe build build-fe dev clean
 
 # Default target
 help:
 	@echo "template-webchat - Available commands:"
 	@echo "  make setup       - Initial setup (create db, install deps)"
-	@echo "  make install   - Install backend dependencies"
+	@echo "  make install   - Install backend dependencies (creates venv)"
 	@echo "  make install-fe - Install frontend dependencies"
 	@echo "  make run       - Run both backend and frontend"
 	@echo "  make run-be    - Run backend only"
@@ -21,9 +27,13 @@ setup:
 	-createdb webchat_db 2>/dev/null || true
 	@echo "Database ready. Install dependencies with: make install && make install-fe"
 
-# Install dependencies
-install:
-	pip install -r requirements.txt
+# Create virtual environment if it doesn't exist
+$(VENV):
+	python3 -m venv $(VENV)
+
+# Install dependencies (creates venv if needed)
+install: $(VENV)
+	$(VENV)/bin/pip install -r requirements.txt
 
 install-fe:
 	cd frontend && npm install
@@ -31,8 +41,8 @@ install-fe:
 # Run commands
 run: run-be run-fe
 
-run-be:
-	python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+run-be: $(VENV)
+	PYTHONPATH=.::./backend $(VENV)/bin/uvicorn backend.main:app --reload --host 0.0.0.0 --port 8005
 
 run-fe:
 	cd frontend && npm run dev
@@ -48,4 +58,5 @@ dev: run-fe
 clean:
 	rm -rf frontend/dist
 	rm -rf frontend/node_modules
+	rm -rf $(VENV)
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

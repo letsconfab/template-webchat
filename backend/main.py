@@ -13,11 +13,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import httpx
 
-from .config import config
-from .database import init_db, close_db
-from .routers import auth, users, invites, settings, knowledge
-from .knowledge_base import knowledge_base
-from .llm_providers import LLMProvider, validate_api_key, get_available_models
+from config import config
+from database import init_db, close_db
+from routers import auth, users, invites, settings, knowledge
+from knowledge_base import knowledge_base
+from llm_providers import LLMProvider, validate_api_key, get_available_models
 
 
 # Pydantic models for API

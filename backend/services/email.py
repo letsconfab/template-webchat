@@ -60,9 +60,8 @@ class EmailService:
             return True
             
         try:
-            # Create invite link
-            frontend_url = await self._get_frontend_url(db)
-            invite_link = f"{frontend_url}/accept-invite/{invite_token}"
+            # Create invite link pointing to user registration
+            invite_link = "http://localhost:3000/register"
             
             # Prepare email content
             subject = "You're invited to join Confab Chat"

@@ -60,6 +60,7 @@ async def create_invite(
     db_invite = Invite(
         email=invite_data.email,
         token=token,
+        role=invite_data.role,
         status=InviteStatus.PENDING,
         expiry_date=datetime.utcnow() + timedelta(days=7),  # 7 days expiry
         created_by_id=current_user.id
@@ -145,6 +146,7 @@ async def check_invite_token(
     return {
         "valid": True,
         "email": invite.email,
+        "role": invite.role,
         "expiry_date": invite.expiry_date
     }
 
@@ -209,7 +211,7 @@ async def accept_invite(
     db_user = User(
         email=invite.email,
         password_hash=hashed_password,
-        role="user",
+        role=invite.role,
         is_active=True
     )
     
@@ -244,6 +246,39 @@ async def accept_invite(
             "role": db_user.role
         }
     }
+
+
+@router.get("/invite/check")
+async def check_invite_by_email(
+    email: str = Query(..., description="Email to check for invitation"),
+    db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Check if email exists in invite table and return role."""
+    result = await db.execute(
+        select(Invite).where(
+            and_(
+                Invite.email == email,
+                Invite.status == InviteStatus.PENDING,
+                Invite.expiry_date > datetime.utcnow()
+            )
+        )
+    )
+    invite = result.scalar_one_or_none()
+    
+    if invite:
+        return {
+            "found": True,
+            "email": invite.email,
+            "role": invite.role,
+            "message": "You are invited by admin"
+        }
+    else:
+        return {
+            "found": False,
+            "email": email,
+            "role": "general",
+            "message": "No invitation found"
+        }
 
 
 @router.delete("/admin/invites/{invite_id}")

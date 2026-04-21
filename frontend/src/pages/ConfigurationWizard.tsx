@@ -12,6 +12,12 @@ import { Progress } from '../components/ui/progress'
 import { Tabs,  TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Loader2, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings } from 'lucide-react'
 
+interface AdminDetails {
+  admin_email: string
+  admin_password: string
+  admin_confirm_password: string
+}
+
 interface SystemSettings {
   app_name: string
   app_description: string
@@ -36,6 +42,12 @@ export default function ConfigurationWizard() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   
+  const [adminDetails, setAdminDetails] = useState<AdminDetails>({
+    admin_email: '',
+    admin_password: '',
+    admin_confirm_password: '',
+  })
+  
   const [settings, setSettings] = useState<SystemSettings>({
     app_name: '',
     app_description: '',
@@ -54,6 +66,7 @@ export default function ConfigurationWizard() {
   })
 
   const steps = [
+    { id: 'admin', title: 'Admin Setup', icon: Settings },
     { id: 'basic', title: 'Basic Setup', icon: Settings },
     { id: 'email', title: 'Email Configuration', icon: Mail },
     { id: 'security', title: 'Security Settings', icon: Shield },
@@ -80,6 +93,13 @@ export default function ConfigurationWizard() {
     }
   }
 
+  const handleAdminInputChange = (field: keyof AdminDetails, value: string) => {
+    setAdminDetails(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
   const handleInputChange = (field: keyof SystemSettings, value: string | number | boolean) => {
     setSettings(prev => ({
       ...prev,
@@ -89,7 +109,25 @@ export default function ConfigurationWizard() {
 
   const validateCurrentStep = () => {
     switch (currentStep) {
-      case 0: // Basic Setup
+      case 0: // Admin Setup
+        if (!adminDetails.admin_email.trim()) {
+          setError('Admin email is required')
+          return false
+        }
+        if (!adminDetails.admin_password.trim()) {
+          setError('Admin password is required')
+          return false
+        }
+        if (adminDetails.admin_password.length < 8) {
+          setError('Password must be at least 8 characters long')
+          return false
+        }
+        if (adminDetails.admin_password !== adminDetails.admin_confirm_password) {
+          setError('Passwords do not match')
+          return false
+        }
+        break
+      case 1: // Basic Setup
         if (!settings.app_name.trim()) {
           setError('Application name is required')
           return false
@@ -99,7 +137,7 @@ export default function ConfigurationWizard() {
           return false
         }
         break
-      case 1: // Email Configuration
+      case 2: // Email Configuration
         if (!settings.smtp_server.trim()) {
           setError('SMTP server is required')
           return false
@@ -135,7 +173,11 @@ export default function ConfigurationWizard() {
 
     setIsLoading(true)
     try {
-      const response = await api.post('/settings/configure', settings)
+      const payload = {
+        admin_details: adminDetails,
+        settings: settings
+      }
+      const response = await api.post('/settings/configure', payload)
       console.log(response);
 
       setSuccess(true)
@@ -151,7 +193,48 @@ export default function ConfigurationWizard() {
 
   const renderStepContent = () => {
     switch (currentStep) {
-      case 0: // Basic Setup
+      case 0: // Admin Setup
+        return (
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="admin_email">Admin Email Address *</Label>
+              <Input
+                id="admin_email"
+                type="email"
+                value={adminDetails.admin_email}
+                onChange={(e) => handleAdminInputChange('admin_email', e.target.value)}
+                placeholder="admin@yourcompany.com"
+                required
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="admin_password">Admin Password *</Label>
+              <Input
+                id="admin_password"
+                type="password"
+                value={adminDetails.admin_password}
+                onChange={(e) => handleAdminInputChange('admin_password', e.target.value)}
+                placeholder="Enter admin password"
+                required
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="admin_confirm_password">Confirm Password *</Label>
+              <Input
+                id="admin_confirm_password"
+                type="password"
+                value={adminDetails.admin_confirm_password}
+                onChange={(e) => handleAdminInputChange('admin_confirm_password', e.target.value)}
+                placeholder="Confirm admin password"
+                required
+              />
+            </div>
+          </div>
+        )
+        
+      case 1: // Basic Setup
         return (
           <div className="space-y-4">
             <div>
@@ -210,7 +293,7 @@ export default function ConfigurationWizard() {
           </div>
         )
         
-      case 1: // Email Configuration
+      case 2: // Email Configuration
         return (
           <div className="space-y-4">
             <div>
@@ -269,7 +352,7 @@ export default function ConfigurationWizard() {
           </div>
         )
         
-      case 2: // Security Settings
+      case 3: // Security Settings
         return (
           <div className="space-y-4">
             <div>
@@ -298,7 +381,7 @@ export default function ConfigurationWizard() {
           </div>
         )
         
-      case 3: // Feature Flags
+      case 4: // Feature Flags
         return (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -373,7 +456,7 @@ export default function ConfigurationWizard() {
           
           {/* Step Tabs */}
           <Tabs value={steps[currentStep].id} className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               {steps.map((step, index) => (
                 <TabsTrigger
                   key={step.id}

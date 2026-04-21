@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr, Field
 class UserBase(BaseModel):
     """Base user schema."""
     email: EmailStr
-    role: Optional[str] = "user"
+    role: Optional[str] = "general"
     is_active: Optional[bool] = True
 
 
@@ -16,7 +16,7 @@ class UserCreate(BaseModel):
     """User creation schema."""
     email: EmailStr
     password: str = Field(..., min_length=8)
-    role: Optional[str] = "user"
+    role: Optional[str] = "general"
 
 
 class AdminCreate(BaseModel):

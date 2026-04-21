@@ -1,5 +1,5 @@
 """Authentication router for user login, registration, and token management."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -37,16 +37,39 @@ async def register(
             detail="Email already registered"
         )
     
+    # Check if there's a valid invite for this email
+    from models.invite import Invite, InviteStatus
+    from sqlalchemy import and_
+    
+    result = await db.execute(
+        select(Invite).where(
+            and_(
+                Invite.email == user_data.email,
+                Invite.status == InviteStatus.PENDING,
+                Invite.expiry_date > datetime.utcnow()
+            )
+        )
+    )
+    invite = result.scalar_one_or_none()
+    
+    # Determine role - use role from request if provided, otherwise use invite role or default to general
+    user_role = user_data.role if user_data.role else (invite.role if invite else "general")
+    
     # Create new user
     hashed_password = get_password_hash(user_data.password)
     db_user = User(
         email=user_data.email,
         password_hash=hashed_password,
-        role=user_data.role,
+        role=user_role,
         is_active=True
     )
     
     db.add(db_user)
+    
+    # Mark invite as accepted if exists
+    if invite:
+        invite.status = InviteStatus.ACCEPTED
+    
     await db.commit()
     await db.refresh(db_user)
     
@@ -58,7 +81,7 @@ async def admin_register(
     admin_data: AdminCreate,
     db: AsyncSession = Depends(get_db)
 ) -> Any:
-    """Register a new admin user."""
+    """Register a new user through admin flow (respects invite roles)."""
     # Check if passwords match
     if admin_data.password != admin_data.confirm_password:
         raise HTTPException(
@@ -66,30 +89,53 @@ async def admin_register(
             detail="Passwords do not match"
         )
     
-    # Check if admin already exists
+    # Check if user already exists
     result = await db.execute(select(User).where(User.email == admin_data.email))
-    existing_admin = result.scalar_one_or_none()
+    existing_user = result.scalar_one_or_none()
     
-    if existing_admin:
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
     
-    # Create new admin
+    # Check if there's a valid invite for this email
+    from models.invite import Invite, InviteStatus
+    from sqlalchemy import and_
+    
+    result = await db.execute(
+        select(Invite).where(
+            and_(
+                Invite.email == admin_data.email,
+                Invite.status == InviteStatus.PENDING,
+                Invite.expiry_date > datetime.utcnow()
+            )
+        )
+    )
+    invite = result.scalar_one_or_none()
+    
+    # Determine role - use invite role if exists, otherwise default to general
+    user_role = invite.role if invite else "general"
+    
+    # Create new user
     hashed_password = get_password_hash(admin_data.password)
-    db_admin = User(
+    db_user = User(
         email=admin_data.email,
         password_hash=hashed_password,
-        role="admin",
+        role=user_role,
         is_active=True
     )
     
-    db.add(db_admin)
-    await db.commit()
-    await db.refresh(db_admin)
+    db.add(db_user)
     
-    return db_admin
+    # Mark invite as accepted if exists
+    if invite:
+        invite.status = InviteStatus.ACCEPTED
+    
+    await db.commit()
+    await db.refresh(db_user)
+    
+    return db_user
 
 
 @router.post("/login", response_model=Token)

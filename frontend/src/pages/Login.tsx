@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Eye, EyeOff, LogIn } from 'lucide-react'
+import { Eye, EyeOff, LogIn, MessageCircle } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 const loginSchema = z.object({
@@ -13,7 +13,7 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>
 
-const AdminLogin: React.FC = () => {
+const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const { login } = useAuth()
@@ -44,17 +44,17 @@ const AdminLogin: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center p-4">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 bg-blue-600 rounded-lg flex items-center justify-center">
-            <LogIn className="h-6 w-6 text-white" />
+          <div className="mx-auto h-12 w-12 bg-green-600 rounded-lg flex items-center justify-center">
+            <MessageCircle className="h-6 w-6 text-white" />
           </div>
           <h2 className="mt-6 text-3xl font-bold text-gray-900">
-            Admin Login
+            User Login
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Sign in to your admin account
+            Sign in to access the AI Copilot
           </p>
         </div>
 
@@ -74,8 +74,8 @@ const AdminLogin: React.FC = () => {
                 {...register('email')}
                 type="email"
                 id="email"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="admin@example.com"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                placeholder="user@example.com"
               />
               {errors.email && (
                 <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
@@ -91,8 +91,8 @@ const AdminLogin: React.FC = () => {
                   {...register('password')}
                   type={showPassword ? 'text' : 'password'}
                   id="password"
-                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="••••••••"
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  placeholder="•••••••"
                 />
                 <button
                   type="button"
@@ -115,7 +115,7 @@ const AdminLogin: React.FC = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isLoading ? (
                   <div className="flex items-center">
@@ -133,12 +133,12 @@ const AdminLogin: React.FC = () => {
 
             <div className="text-center">
               <p className="text-sm text-gray-600">
-                Don't have an admin account?{' '}
+                Are you an admin?{' '}
                 <Link
-                  to="/admin/register"
-                  className="font-medium text-blue-600 hover:text-blue-500 transition-colors"
+                  to="/admin/login"
+                  className="font-medium text-green-600 hover:text-green-500 transition-colors"
                 >
-                  Register here
+                  Admin Login
                 </Link>
               </p>
             </div>
@@ -149,4 +149,4 @@ const AdminLogin: React.FC = () => {
   )
 }
 
-export default AdminLogin
+export default Login

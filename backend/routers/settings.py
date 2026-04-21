@@ -10,7 +10,7 @@ from database import get_db
 from dependencies.auth import get_current_admin_user
 from models.settings import SystemSettings
 from models.user import User
-from schemas.settings import SystemSettingsCreate, SystemSettingsResponse, SystemSettingsUpdate
+from schemas.settings import SystemSettingsCreate, SystemSettingsResponse, SystemSettingsUpdate, ConfigurationRequest, AdminDetails
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -34,10 +34,10 @@ async def get_config_status(db: AsyncSession = Depends(get_db)):
 
 @router.post("/configure", response_model=SystemSettingsResponse)
 async def configure_system(
-    settings_data: SystemSettingsCreate,
+    config_request: ConfigurationRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Configure the system for the first time."""
+    """Configure system for first time and create admin user."""
     # Check if already configured
     result = await db.execute(select(SystemSettings).limit(1))
     existing_settings = result.scalar_one_or_none()
@@ -48,7 +48,31 @@ async def configure_system(
             detail="System is already configured. Use admin settings to update configuration."
         )
     
+    # Check if admin user already exists
+    result = await db.execute(select(User).where(User.email == config_request.admin_details.admin_email))
+    existing_admin = result.scalar_one_or_none()
+    
+    if existing_admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Admin user with this email already exists"
+        )
+    
+    # Create admin user
+    from services.auth import get_password_hash
+    hashed_password = get_password_hash(config_request.admin_details.admin_password)
+    
+    admin_user = User(
+        email=config_request.admin_details.admin_email,
+        password_hash=hashed_password,
+        role="admin",
+        is_active=True
+    )
+    
+    db.add(admin_user)
+    
     # Create or update settings
+    settings_data = config_request.settings
     if existing_settings:
         settings = existing_settings
         # Update all fields
@@ -61,7 +85,7 @@ async def configure_system(
     # Mark as configured
     settings.is_configured = True
     settings.configured_at = datetime.utcnow()
-    settings.configured_by = "system_setup"
+    settings.configured_by = config_request.admin_details.admin_email
     
     await db.commit()
     await db.refresh(settings)

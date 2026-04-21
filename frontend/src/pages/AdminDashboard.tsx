@@ -8,7 +8,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 
 const inviteSchema = z.object({
-  email: z.string().email('Invalid email address')
+  email: z.string().email('Invalid email address'),
+  role: z.enum(['admin', 'general'], { required_error: 'Please select a role' })
 })
 
 type InviteFormData = z.infer<typeof inviteSchema>
@@ -18,6 +19,7 @@ interface Invite {
   email: string
   token: string
   status: 'pending' | 'accepted' | 'expired' | 'cancelled'
+  role: 'admin' | 'general'
   created_at: string
   expiry_date: string
 }
@@ -35,9 +37,13 @@ const AdminDashboard: React.FC = () => {
     handleSubmit,
     formState: { errors },
     reset,
-    setError
+    setError,
+    setValue
   } = useForm<InviteFormData>({
-    resolver: zodResolver(inviteSchema)
+    resolver: zodResolver(inviteSchema),
+    defaultValues: {
+      role: 'general'
+    }
   })
 
   // Load existing invites on component mount
@@ -228,6 +234,9 @@ const AdminDashboard: React.FC = () => {
                           Email
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Role
+                        </th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Status
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -243,6 +252,15 @@ const AdminDashboard: React.FC = () => {
                         <tr key={invite.id}>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                             {invite.email}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              invite.role === 'admin' 
+                                ? 'bg-purple-100 text-purple-800' 
+                                : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {invite.role.charAt(0).toUpperCase() + invite.role.slice(1)}
+                            </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -301,20 +319,40 @@ const AdminDashboard: React.FC = () => {
                       <h3 className="text-lg leading-6 font-medium text-gray-900">
                         Invite User
                       </h3>
-                      <div className="mt-4">
-                        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                          Email Address
-                        </label>
-                        <input
-                          {...register('email')}
-                          type="email"
-                          id="email"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          placeholder="user@example.com"
-                        />
-                        {errors.email && (
-                          <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
-                        )}
+                      <div className="mt-4 space-y-4">
+                        <div>
+                          <label htmlFor="role" className="block text-sm font-medium text-gray-700">
+                            Select Role *
+                          </label>
+                          <select
+                            {...register('role')}
+                            id="role"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          >
+                            <option value="general">General User</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                          {errors.role && (
+                            <p className="mt-1 text-sm text-red-600">{errors.role.message}</p>
+                          )}
+                        </div>
+                        
+                        <div>
+                          <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                            Email Address *
+                          </label>
+                          <input
+                            {...register('email')}
+                            type="email"
+                            id="email"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            placeholder="user@example.com"
+                          />
+                          {errors.email && (
+                            <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
+                          )}
+                        </div>
+                        
                         {errors.root && (
                           <p className="mt-1 text-sm text-red-600">{errors.root.message}</p>
                         )}

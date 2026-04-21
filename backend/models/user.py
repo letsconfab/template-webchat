@@ -12,7 +12,7 @@ from database import Base
 class UserRole(str, Enum):
     """User roles."""
     ADMIN = "admin"
-    USER = "user"
+    GENERAL = "general"
 
 
 class User(Base):
@@ -23,7 +23,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
-    role = Column(String, default=UserRole.USER, nullable=False)
+    role = Column(String, default=UserRole.GENERAL, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

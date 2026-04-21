@@ -15,7 +15,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, role?: string) => Promise<void>;
   adminRegister: (email: string, password: string, confirmPassword: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
@@ -64,7 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, navigate?: (path: string) => void) => {
     try {
       const response = await api.post('/auth/login', { email, password });
       const { access_token } = response.data;
@@ -74,6 +74,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       
       await fetchUser();
+      
+      // Role-based navigation
+      if (navigate) {
+        const userResponse = await api.get('/auth/me');
+        const user = userResponse.data;
+        
+        if (user.role === 'admin') {
+          navigate('/admin/dashboard');
+        } else {
+          // Navigate to AI copilot page for general users
+          navigate('/chat'); // Assuming this is the AI copilot route
+        }
+      }
+      
       toast.success('Login successful!');
     } catch (error: any) {
       const message = error.response?.data?.detail || 'Login failed';
@@ -82,9 +96,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (email: string, password: string) => {
+  const register = async (email: string, password: string, role: string = 'general') => {
     try {
-      await api.post('/auth/register', { email, password });
+      await api.post('/auth/register', { email, password, role });
       toast.success('Registration successful! Please login.');
     } catch (error: any) {
       const message = error.response?.data?.detail || 'Registration failed';

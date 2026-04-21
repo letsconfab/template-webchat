@@ -5,6 +5,25 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, validator
 
 
+class AdminDetails(BaseModel):
+    """Admin user details for initial setup."""
+    admin_email: EmailStr
+    admin_password: str = Field(..., min_length=8)
+    admin_confirm_password: str = Field(..., min_length=8)
+    
+    @validator('admin_confirm_password')
+    def passwords_match(cls, v, values):
+        if 'admin_password' in values and v != values['admin_password']:
+            raise ValueError('Passwords do not match')
+        return v
+
+
+class ConfigurationRequest(BaseModel):
+    """Configuration request with admin details and system settings."""
+    admin_details: AdminDetails
+    settings: 'SystemSettingsCreate'
+
+
 class SystemSettingsBase(BaseModel):
     """Base system settings schema."""
     

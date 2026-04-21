@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr
 
 class InviteCreate(BaseModel):
     """Invite creation schema."""
+    role: str
     email: EmailStr
 
 
@@ -16,6 +17,7 @@ class InviteResponse(BaseModel):
     email: str
     token: str
     status: str
+    role: str
     expiry_date: datetime
     created_at: datetime
     created_by_id: int

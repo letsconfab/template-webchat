@@ -17,6 +17,12 @@ class InviteStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class UserRole(str, Enum):
+    """User roles."""
+    ADMIN = "admin"
+    GENERAL = "general"
+
+
 class Invite(Base):
     """Invite model for user invitations."""
     
@@ -26,6 +32,7 @@ class Invite(Base):
     email = Column(String, index=True, nullable=False)
     token = Column(String, unique=True, index=True, nullable=False)
     status = Column(String, default=InviteStatus.PENDING, nullable=False)
+    role = Column(String, default=UserRole.GENERAL, nullable=False)
     expiry_date = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

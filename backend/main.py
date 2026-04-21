@@ -8,9 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from .config import config
-from .database import init_db, close_db
-from .routers import auth, users, invites
+from config import config
+from database import init_db, close_db
+from routers import auth, users, invites, settings
 
 
 
@@ -63,6 +63,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(invites.router)
+app.include_router(settings.router)
 
 
 @app.get("/health")

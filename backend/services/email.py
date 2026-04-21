@@ -1,25 +1,16 @@
 """Email service for sending invitations and notifications."""
-import os
 from typing import Optional
 
 from fastapi_mail import ConnectionConfig, MessageSchema, MessageType
 from fastapi_mail.errors import ConnectionErrors
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import config
+from config import config
+from services.settings_service import settings_service
 
 
-# Email configuration
-email_config = ConnectionConfig(
-    MAIL_USERNAME=config.SMTP_USERNAME,
-    MAIL_PASSWORD=config.SMTP_PASSWORD,
-    MAIL_FROM=config.FROM_EMAIL,
-    MAIL_PORT=config.SMTP_PORT,
-    MAIL_SERVER=config.SMTP_SERVER,
-    MAIL_STARTTLS=True,
-    MAIL_SSL_TLS=False,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True,
-)
+# Email configuration - will be initialized dynamically from database
+email_config = None
 
 
 class EmailService:
@@ -28,16 +19,50 @@ class EmailService:
     def __init__(self):
         self.config = email_config
     
+    async def _get_email_config(self, db: AsyncSession):
+        """Get email configuration from database."""
+        email_settings = await settings_service.get_email_config(db)
+        
+        if not email_settings:
+            return None
+            
+        return ConnectionConfig(
+            MAIL_USERNAME=email_settings['smtp_username'],
+            MAIL_PASSWORD=email_settings['smtp_password'],
+            MAIL_FROM=email_settings['from_email'],
+            MAIL_PORT=email_settings['smtp_port'],
+            MAIL_SERVER=email_settings['smtp_server'],
+            MAIL_STARTTLS=email_settings['use_tls'],
+            MAIL_SSL_TLS=False,
+            USE_CREDENTIALS=True,
+            VALIDATE_CERTS=True,
+        )
+    
+    async def _get_frontend_url(self, db: AsyncSession) -> str:
+        """Get frontend URL from config."""
+        return config.FRONTEND_URL
+    
     async def send_invite_email(
         self,
         to_email: str,
         invite_token: str,
-        inviter_name: Optional[str] = None
+        inviter_name: Optional[str] = None,
+        db: Optional[AsyncSession] = None
     ) -> bool:
         """Send invitation email to user."""
+        if not db:
+            print(f"Email not configured. Would send invite to {to_email} with token {invite_token}")
+            return True
+            
+        email_config = await self._get_email_config(db)
+        if not email_config:
+            print(f"Email not configured in database. Would send invite to {to_email} with token {invite_token}")
+            return True
+            
         try:
             # Create invite link
-            invite_link = f"{config.FRONTEND_URL}/accept-invite/{invite_token}"
+            frontend_url = await self._get_frontend_url(db)
+            invite_link = f"{frontend_url}/accept-invite/{invite_token}"
             
             # Prepare email content
             subject = "You're invited to join Confab Chat"
@@ -58,17 +83,10 @@ class EmailService:
                         margin: 0 auto;
                         padding: 20px;
                     }}
-                    .header {{
-                        background-color: #4f46e5;
-                        color: white;
-                        padding: 20px;
-                        text-align: center;
-                        border-radius: 8px 8px 0 0;
-                    }}
                     .content {{
                         background-color: #f9fafb;
                         padding: 30px;
-                        border-radius: 0 0 8px 8px;
+                        border-radius: 8px;
                     }}
                     .button {{
                         display: inline-block;
@@ -88,9 +106,6 @@ class EmailService:
                 </style>
             </head>
             <body>
-                <div class="header">
-                    <h1>You're Invited!</h1>
-                </div>
                 <div class="content">
                     <p>Hello,</p>
                     <p>You've been invited to join Confab Chat{f' by {inviter_name}' if inviter_name else ''}!</p>
@@ -121,7 +136,7 @@ class EmailService:
             
             # Send email
             from fastapi_mail import FastMail
-            fm = FastMail(self.config)
+            fm = FastMail(email_config)
             await fm.send_message(message)
             
             return True
@@ -133,8 +148,17 @@ class EmailService:
             print(f"Unexpected error sending email: {e}")
             return False
     
-    async def send_welcome_email(self, to_email: str, user_name: Optional[str] = None) -> bool:
+    async def send_welcome_email(self, to_email: str, user_name: Optional[str] = None, db: Optional[AsyncSession] = None) -> bool:
         """Send welcome email after user registration."""
+        if not db:
+            print(f"Email not configured. Would send welcome email to {to_email}")
+            return True
+            
+        email_config = await self._get_email_config(db)
+        if not email_config:
+            print(f"Email not configured in database. Would send welcome email to {to_email}")
+            return True
+            
         try:
             subject = "Welcome to Confab Chat!"
             
@@ -192,7 +216,7 @@ class EmailService:
                     <p>Welcome and thank you for joining Confab Chat! Your account has been successfully created.</p>
                     <p>You can now start using our AI-powered chat platform to get answers and assistance on various topics.</p>
                     <div style="text-align: center;">
-                        <a href="{config.FRONTEND_URL}" class="button">Start Chatting</a>
+                        <a href="{await self._get_frontend_url(db)}" class="button">Start Chatting</a>
                     </div>
                     <p>If you have any questions or need help getting started, feel free to reach out to our support team.</p>
                     <p>We're excited to have you as part of our community!</p>
@@ -214,7 +238,7 @@ class EmailService:
             
             # Send email
             from fastapi_mail import FastMail
-            fm = FastMail(self.config)
+            fm = FastMail(email_config)
             await fm.send_message(message)
             
             return True
@@ -226,8 +250,17 @@ class EmailService:
             print(f"Unexpected error sending welcome email: {e}")
             return False
     
-    async def send_invite_accepted_notification(self, admin_email: str, user_email: str) -> bool:
+    async def send_invite_accepted_notification(self, admin_email: str, user_email: str, db: Optional[AsyncSession] = None) -> bool:
         """Send notification to admin when invitation is accepted."""
+        if not db:
+            print(f"Email not configured. Would send invite accepted notification to {admin_email}")
+            return True
+            
+        email_config = await self._get_email_config(db)
+        if not email_config:
+            print(f"Email not configured in database. Would send invite accepted notification to {admin_email}")
+            return True
+            
         try:
             subject = "Invitation Accepted!"
             
@@ -306,7 +339,7 @@ class EmailService:
             
             # Send email
             from fastapi_mail import FastMail
-            fm = FastMail(self.config)
+            fm = FastMail(email_config)
             await fm.send_message(message)
             
             return True

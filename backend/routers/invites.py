@@ -7,13 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
 
-from ..database import get_db
-from ..middleware.auth import get_admin_user, get_current_active_user
-from ..models.user import User
-from ..models.invite import Invite, InviteStatus
-from ..schemas.invite import InviteCreate, InviteResponse, InviteAccept, InviteListResponse
-from ..services.auth import generate_secure_token
-from ..services.email import email_service
+from database import get_db
+from middleware.auth import get_admin_user, get_current_active_user
+from models.user import User
+from models.invite import Invite, InviteStatus
+from schemas.invite import InviteCreate, InviteResponse, InviteAccept, InviteListResponse
+from services.auth import generate_secure_token
+from services.email import email_service
 
 router = APIRouter(prefix="/api", tags=["invites"])
 
@@ -73,7 +73,8 @@ async def create_invite(
     email_sent = await email_service.send_invite_email(
         to_email=invite_data.email,
         invite_token=token,
-        inviter_name=current_user.email
+        inviter_name=current_user.email,
+        db=db
     )
     
     if not email_sent:
@@ -223,14 +224,16 @@ async def accept_invite(
     # Send welcome email
     await email_service.send_welcome_email(
         to_email=db_user.email,
-        user_name=db_user.email
+        user_name=db_user.email,
+        db=db
     )
     
     # Send notification to admin who created the invite
     if invite.created_by:
         await email_service.send_invite_accepted_notification(
             admin_email=invite.created_by.email,
-            user_email=db_user.email
+            user_email=db_user.email,
+            db=db
         )
     
     return {

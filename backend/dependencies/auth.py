@@ -6,9 +6,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from ..database import get_db
-from ..models.user import User, UserRole
-from ..services.auth import verify_token
+from database import get_db
+from models.user import User, UserRole
+from services.auth import verify_token
 
 # HTTP Bearer token scheme
 security = HTTPBearer(auto_error=False)
@@ -172,3 +172,7 @@ async def get_optional_current_user(
         return user
     except Exception:
         return None
+
+
+# Alias for get_admin_user for consistency
+get_current_admin_user = get_admin_user

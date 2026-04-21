@@ -7,7 +7,7 @@ from jose import JWTError, jwt
 import bcrypt
 from passlib.context import CryptContext
 
-from ..config import config
+from config import config
 
 # Fix for bcrypt 4.x compatibility with passlib 1.7.4
 if not hasattr(bcrypt, '__about__'):

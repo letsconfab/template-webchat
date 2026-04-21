@@ -14,7 +14,7 @@ class Config:
     USE_EMAIL_AS_IDENTIFIER: bool = os.getenv("USE_EMAIL_AS_IDENTIFIER", "true").lower() == "true"
     
     # Database Configuration
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost/webchat_db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/webchat_db")
     
     # JWT Configuration
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-super-secret-jwt-key-change-this-in-production")

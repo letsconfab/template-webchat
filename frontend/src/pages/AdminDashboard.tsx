@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { LogOut, Users, Mail, CheckCircle, Copy } from 'lucide-react'
+import { LogOut, Users, Mail, CheckCircle, Copy, Settings } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 
@@ -99,6 +99,13 @@ const AdminDashboard: React.FC = () => {
               <span className="text-sm text-gray-700">
                 Welcome, {user?.email}
               </span>
+              <button
+                onClick={() => navigate('/admin/settings')}
+                className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </button>
               <button
                 onClick={handleLogout}
                 className="flex items-center px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors"

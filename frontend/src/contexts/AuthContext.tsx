@@ -14,7 +14,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<string>;
   register: (email: string, password: string) => Promise<void>;
   adminRegister: (email: string, password: string, confirmPassword: string) => Promise<void>;
   logout: () => void;
@@ -64,26 +64,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, password: string) => {
-    try {
-      const response = await api.post('/auth/login', { email, password });
-      const { access_token } = response.data;
-      
-      localStorage.setItem('token', access_token);
-      setToken(access_token);
-      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-      
-      await fetchUser();
-      toast.success('Login successful!');
-      
-      // Return the user role so caller can navigate accordingly
-      return user?.role || 'user';
-    } catch (error: any) {
-      const message = error.response?.data?.detail || 'Login failed';
-      toast.error(message);
-      throw error;
-    }
-  };
+  const login = async (email: string, password: string): Promise<string> => {
+  try {
+    const response = await api.post('/auth/login', { email, password });
+    const { access_token } = response.data;
+
+    // Save token
+    localStorage.setItem('token', access_token);
+    setToken(access_token);
+    api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+
+    // Fetch user fresh (important)
+    const userResponse = await api.get('/auth/me');
+    setUser(userResponse.data);
+
+    toast.success('Login successful!');
+
+    // Return role
+    return userResponse.data.role;
+  } catch (error: any) {
+    const message = error.response?.data?.detail || 'Login failed';
+    toast.error(message);
+    throw error;
+  }
+};
 
   const register = async (email: string, password: string) => {
     try {

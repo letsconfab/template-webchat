@@ -103,6 +103,9 @@ app.include_router(invites.router)
 app.include_router(settings.router)
 app.include_router(knowledge.router)
 
+# Mount static files for frontend (deployment)
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
+
 
 @app.get("/health")
 async def health_check():

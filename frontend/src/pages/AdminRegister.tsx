@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import React, { useState, useEffect } from 'react'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Eye, EyeOff, UserPlus } from 'lucide-react'
+import { Eye, EyeOff, UserPlus, CheckCircle } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { api } from '../services/api'
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -21,6 +22,11 @@ const AdminRegister: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [inviteToken, setInviteToken] = useState<string | null>(null)
+  const [inviteData, setInviteData] = useState<{ email: string; role: string } | null>(null)
+  const [isInviteVerified, setIsInviteVerified] = useState(false)
+  const [emailInviteStatus, setEmailInviteStatus] = useState<{ has_invite: boolean; role: string | null; message: string | null } | null>(null)
+  const [searchParams] = useSearchParams()
   const { register: registerUser } = useAuth()
   const navigate = useNavigate()
 
@@ -28,16 +34,80 @@ const AdminRegister: React.FC = () => {
     register,
     handleSubmit,
     formState: { errors },
-    setError
+    setError,
+    setValue
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema)
   })
 
+  // Check for invite token on component mount
+  useEffect(() => {
+    const token = searchParams.get('token')
+    if (token) {
+      setInviteToken(token)
+      verifyInviteToken(token)
+    }
+  }, [searchParams])
+
+  const verifyInviteToken = async (token: string) => {
+    try {
+      const response = await api.get(`/accept-invite/${token}`)
+      const { email, role } = response.data
+      setInviteData({ email, role })
+      setValue('email', email)
+      setIsInviteVerified(true)
+    } catch (error: any) {
+      console.error('Invalid or expired invite token:', error)
+      setIsInviteVerified(false)
+    }
+  }
+
+  const checkInviteByEmail = async (email: string) => {
+    if (!email || !email.includes('@')) {
+      setEmailInviteStatus(null)
+      return
+    }
+
+    try {
+      const response = await api.get(`/check-invite/${encodeURIComponent(email)}`)
+      setEmailInviteStatus(response.data)
+    } catch (error: any) {
+      console.error('Error checking invite status:', error)
+      setEmailInviteStatus(null)
+    }
+  }
+
+  // Debounced email check
+  const [emailTimeout, setEmailTimeout] = useState<number | null>(null)
+  
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const email = e.target.value
+    // Clear existing timeout
+    if (emailTimeout) {
+      clearTimeout(emailTimeout)
+    }
+    // Set new timeout to check invite after 500ms
+    const timeout = setTimeout(() => {
+      checkInviteByEmail(email)
+    }, 500)
+    setEmailTimeout(timeout)
+  }
+
   const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true)
     try {
-      await registerUser(data.email, data.password)
-      navigate('/login')
+      if (inviteToken && isInviteVerified && inviteData) {
+        // Register using invite token
+        await api.post(`/accept-invite/${inviteToken}`, {
+          token: inviteToken,
+          password: data.password
+        })
+        navigate('/login')
+      } else {
+        // Regular registration with default role
+        await registerUser(data.email, data.password)
+        navigate('/login')
+      }
     } catch (error: any) {
       if (error.response?.data?.detail) {
         setError('root', { message: error.response.data.detail })
@@ -72,6 +142,19 @@ const AdminRegister: React.FC = () => {
               </div>
             )}
 
+            {/* Invite Verification Message */}
+            {isInviteVerified && inviteData && (
+              <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-md text-sm flex items-center">
+                <CheckCircle className="h-4 w-4 mr-2" />
+                <div>
+                  <div className="font-medium">You are invited by Admin</div>
+                  <div className="text-xs mt-1">
+                    Role: {inviteData.role === 'admin' ? 'Admin' : 'General User'}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address
@@ -82,9 +165,19 @@ const AdminRegister: React.FC = () => {
                 id="email"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="admin@example.com"
+                onChange={(e) => {
+                  register('email').onChange(e)
+                  handleEmailChange(e)
+                }}
               />
               {errors.email && (
                 <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
+              )}
+              {emailInviteStatus?.has_invite && (
+                <div className="mt-2 bg-green-50 border border-green-200 text-green-800 px-3 py-2 rounded-md text-sm flex items-center">
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  {emailInviteStatus.message}
+                </div>
               )}
             </div>
 

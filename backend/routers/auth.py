@@ -1,10 +1,10 @@
 """Authentication router for user login, registration, and token management."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
 
 from database import get_db
 from dependencies.auth import get_current_active_user
@@ -37,16 +37,39 @@ async def register(
             detail="Email already registered"
         )
     
+    # Check for pending invite for this email
+    from models.invite import Invite, InviteStatus
+    
+    invite_result = await db.execute(
+        select(Invite).where(
+            and_(
+                Invite.email == user_data.email,
+                Invite.status == InviteStatus.PENDING,
+                Invite.expiry_date > datetime.utcnow()
+            )
+        )
+    )
+    invite = invite_result.scalar_one_or_none()
+    
+    # Determine role - use invite role if available, otherwise default to provided role
+    user_role = invite.role if invite else (user_data.role or "user")
+    
     # Create new user
     hashed_password = get_password_hash(user_data.password)
     db_user = User(
         email=user_data.email,
         password_hash=hashed_password,
-        role=user_data.role,
+        role=user_role,
         is_active=True
     )
     
     db.add(db_user)
+    
+    # If invite was used, mark it as accepted
+    if invite:
+        invite.status = InviteStatus.ACCEPTED
+        invite.updated_at = datetime.utcnow()
+    
     await db.commit()
     await db.refresh(db_user)
     

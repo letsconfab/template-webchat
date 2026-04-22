@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { LogOut, Users, Mail, CheckCircle, Copy, Settings } from 'lucide-react'
+import { LogOut, Users, Mail, CheckCircle, Copy, Settings, MessageSquare } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
+import { Button } from '../components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 
 const inviteSchema = z.object({
   email: z.string().email('Invalid email address')
@@ -20,10 +22,13 @@ interface Invite {
   status: 'pending' | 'accepted' | 'expired' | 'cancelled'
   created_at: string
   expiry_date: string
+  role: 'user' | 'admin'
 }
 
 const AdminDashboard: React.FC = () => {
   const [showInviteModal, setShowInviteModal] = useState(false)
+  const [showRoleSelectionModal, setShowRoleSelectionModal] = useState(false)
+  const [selectedRole, setSelectedRole] = useState<'general' | 'admin'>('general')
   const [invites, setInvites] = useState<Invite[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
@@ -56,13 +61,18 @@ const AdminDashboard: React.FC = () => {
   const onInviteSubmit = async (data: InviteFormData) => {
     setIsLoading(true)
     try {
-      const response = await api.post('/admin/invite-user', data)
+      const inviteData = {
+        email: data.email,
+        role: selectedRole === 'general' ? 'user' : 'admin'
+      }
+      const response = await api.post('/admin/invite-user', inviteData)
 
-      const inviteData = response.data
-      setInvites([inviteData, ...invites])
-      setInviteSuccess(`Invite sent to ${data.email}`)
+      const invite = response.data
+      setInvites([invite, ...invites])
+      setInviteSuccess(`Invite sent to ${data.email} as ${selectedRole}`)
       reset()
       setShowInviteModal(false)
+      setSelectedRole('general')
       
       // Clear success message after 3 seconds
       setTimeout(() => setInviteSuccess(null), 3000)
@@ -82,6 +92,13 @@ const AdminDashboard: React.FC = () => {
   const handleLogout = () => {
     logout()
     navigate('/admin/login')
+  }
+
+  const scrollToInviteUsers = () => {
+    const element = document.getElementById('invite-users-section')
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
   }
 
   return (
@@ -130,6 +147,88 @@ const AdminDashboard: React.FC = () => {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Admin Features Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Your Role</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold capitalize">{user?.role}</div>
+              <p className="text-xs text-muted-foreground">
+                {user?.role === 'admin' ? 'Full system access' : 'Standard user access'}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Account Status</CardTitle>
+              <Settings className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">Active</div>
+              <p className="text-xs text-muted-foreground">
+                Account is in good standing
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Quick Actions</CardTitle>
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <Link to="/chat">
+                <Button variant="outline" className="w-full">
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Open Chat
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Admin Tools Section */}
+        <div className="space-y-4 mb-8">
+          <h2 className="text-xl font-semibold">Admin Tools</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>User Management</CardTitle>
+                <CardDescription>
+                  Manage invited users and view registrations
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" className="w-full" onClick={scrollToInviteUsers}>
+                  <Users className="h-4 w-4 mr-2" />
+                  View Users
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>System Settings</CardTitle>
+                <CardDescription>
+                  Configure application settings, LLM, and knowledge base
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link to="/admin/settings">
+                  <Button variant="outline" className="w-full">
+                    <Settings className="h-4 w-4 mr-2" />
+                    Settings
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white overflow-hidden shadow rounded-lg">
@@ -194,14 +293,14 @@ const AdminDashboard: React.FC = () => {
         </div>
 
         {/* Invite User Section */}
-        <div className="bg-white shadow rounded-lg">
+        <div id="invite-users-section" className="bg-white shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg leading-6 font-medium text-gray-900">
                 Invite Users
               </h3>
               <button
-                onClick={() => setShowInviteModal(true)}
+                onClick={() => setShowRoleSelectionModal(true)}
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
               >
                 <Mail className="h-4 w-4 mr-2" />
@@ -228,6 +327,9 @@ const AdminDashboard: React.FC = () => {
                           Email
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Role
+                        </th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Status
                         </th>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -243,6 +345,15 @@ const AdminDashboard: React.FC = () => {
                         <tr key={invite.id}>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                             {invite.email}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              invite.role === 'admin' 
+                                ? 'bg-purple-100 text-purple-800' 
+                                : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {invite.role === 'admin' ? 'Admin' : 'User'}
+                            </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -282,6 +393,89 @@ const AdminDashboard: React.FC = () => {
         </div>
       </main>
 
+      {/* Role Selection Modal */}
+      {showRoleSelectionModal && (
+        <div className="fixed z-10 inset-0 overflow-y-auto">
+          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
+              <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
+            </div>
+
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div className="sm:flex sm:items-start">
+                  <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 sm:mx-0 sm:h-10 sm:w-10">
+                    <Users className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left flex-1">
+                    <h3 className="text-lg leading-6 font-medium text-gray-900">
+                      Select Role for Invitation
+                    </h3>
+                    <div className="mt-4">
+                      <p className="text-sm text-gray-600 mb-4">
+                        Choose the role for the user you want to invite:
+                      </p>
+                      <div className="space-y-3">
+                        <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                          <input
+                            type="radio"
+                            name="role"
+                            value="general"
+                            checked={selectedRole === 'general'}
+                            onChange={(e) => setSelectedRole(e.target.value as 'general' | 'admin')}
+                            className="mr-3"
+                          />
+                          <div>
+                            <div className="font-medium text-gray-900">General User</div>
+                            <div className="text-sm text-gray-500">Can access chat and basic features</div>
+                          </div>
+                        </label>
+                        <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                          <input
+                            type="radio"
+                            name="role"
+                            value="admin"
+                            checked={selectedRole === 'admin'}
+                            onChange={(e) => setSelectedRole(e.target.value as 'general' | 'admin')}
+                            className="mr-3"
+                          />
+                          <div>
+                            <div className="font-medium text-gray-900">Admin</div>
+                            <div className="text-sm text-gray-500">Full system access and user management</div>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRoleSelectionModal(false)
+                    setShowInviteModal(true)
+                  }}
+                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
+                >
+                  Continue
+                </button>
+                <button
+                  type="button"
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                  onClick={() => {
+                    setShowRoleSelectionModal(false)
+                    setSelectedRole('general')
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Invite Modal */}
       {showInviteModal && (
         <div className="fixed z-10 inset-0 overflow-y-auto">
@@ -301,6 +495,24 @@ const AdminDashboard: React.FC = () => {
                       <h3 className="text-lg leading-6 font-medium text-gray-900">
                         Invite User
                       </h3>
+                      
+                      {/* Selected Role Display */}
+                      <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                        <div className="flex items-center">
+                          <Users className="h-5 w-5 text-blue-600 mr-2" />
+                          <div>
+                            <div className="text-sm font-medium text-blue-900">
+                              Role: {selectedRole === 'admin' ? 'Admin' : 'General User'}
+                            </div>
+                            <div className="text-xs text-blue-700">
+                              {selectedRole === 'admin' 
+                                ? 'This user will have full system access' 
+                                : 'This user will have standard access'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
                       <div className="mt-4">
                         <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                           Email Address

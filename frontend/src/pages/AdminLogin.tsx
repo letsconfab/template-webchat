@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -16,7 +16,7 @@ type LoginFormData = z.infer<typeof loginSchema>
 const AdminLogin: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const { login } = useAuth()
+  const { login, user } = useAuth()
   const navigate = useNavigate()
 
   const {
@@ -28,16 +28,22 @@ const AdminLogin: React.FC = () => {
     resolver: zodResolver(loginSchema)
   })
 
+  // Handle navigation after successful login
+  useEffect(() => {
+    if (user) {
+      if (user.role === 'admin') {
+        navigate('/admin/dashboard')
+      } else {
+        navigate('/chat')
+      }
+    }
+  }, [user, navigate])
+
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true)
     try {
-      const role = await login(data.email, data.password)
-      // Redirect based on role
-      if (role === 'admin') {
-        navigate('/admin/dashboard')
-      } else {
-        navigate('/dashboard')
-      }
+      await login(data.email, data.password)
+      // Navigation will be handled by useEffect when user is updated
     } catch (error: any) {
       if (error.response?.data?.detail) {
         setError('root', { message: error.response.data.detail })

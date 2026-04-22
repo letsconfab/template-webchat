@@ -17,6 +17,7 @@ COPY frontend/ ./
 # Build frontend
 RUN npm run build
 
+
 # Stage 2: Build Python backend
 FROM python:3.11-slim AS backend-builder
 
@@ -35,6 +36,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+
 # Stage 3: Final image
 FROM python:3.11-slim
 
@@ -44,7 +46,7 @@ WORKDIR /app
 COPY --from=backend-builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install runtime dependencies for document processing
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     poppler-utils \
@@ -58,17 +60,15 @@ RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 COPY --chown=appuser:appgroup backend/ ./backend/
 COPY --chown=appuser:appgroup requirements.txt .
 
-# Pre-download FastEmbed model (as root to have write permissions)
-RUN python -c "from langchain_community.embeddings import FastEmbedEmbeddings; import os; os.makedirs('/app/.cache', exist_ok=True); os.environ['HF_HOME']='/app/.cache'; FastEmbedEmbeddings(cache_dir='/app/.cache').embed_query('test')" && \
-    chown -R appuser:appgroup /app/.cache
+# ❌ REMOVED FastEmbed preload block (this was causing build to hang)
 
-# Copy frontend build from frontend-builder
+# Copy frontend build
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
 # Switch to non-root user
 USER appuser
 
-# Expose ports
+# Expose port
 EXPOSE 8005
 
 # Health check

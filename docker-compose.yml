@@ -1,5 +1,20 @@
 name: template-webchat
+
 services:
+  app:
+    build: .
+    container_name: webchat-app
+    ports:
+      - "8005:8005"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/webchat_db
+      SECRET_KEY: your-secret-key-change-in-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - webchat
+
   postgres:
     image: postgres:15-alpine
     container_name: webchat-db
@@ -9,8 +24,6 @@ services:
       POSTGRES_DB: webchat_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5454:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -19,48 +32,8 @@ services:
     networks:
       - webchat
 
-  backend:
-    image: python:3.11-slim
-    container_name: webchat-backend
-    working_dir: /app
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/webchat_db
-      SECRET_KEY: your-secret-key-change-in-production
-      PYTHONUNBUFFERED: "1"
-    ports:
-      - "8005:8005"
-    volumes:
-      - .:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - webchat
-    command: >
-      sh -c "pip install --no-cache-dir -r requirements.txt && 
-             cd backend && 
-             PYTHONPATH=/app python -m uvicorn main:app --host 0.0.0.0 --port 8005"
-
-  frontend:
-    image: node:20-alpine
-    container_name: webchat-frontend
-    working_dir: /app
-    environment:
-      - NODE_ENV=development
-    ports:
-      - "3030:3030"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    depends_on:
-      - backend
-    networks:
-      - webchat
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
-
 volumes:
   postgres_data:
 
 networks:
   webchat:
-    driver: bridge

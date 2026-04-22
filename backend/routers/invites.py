@@ -118,6 +118,34 @@ async def get_invites(
     return {"invites": invites, "total": len(invites)}
 
 
+@router.get("/check-invite/{email}")
+async def check_invite_by_email(email: str, db: AsyncSession = Depends(get_db)) -> Any:
+    """Check if email has a pending invite."""
+    result = await db.execute(
+        select(Invite).where(
+            and_(
+                Invite.email == email,
+                Invite.status == InviteStatus.PENDING,
+                Invite.expiry_date > datetime.utcnow()
+            )
+        )
+    )
+    invite = result.scalar_one_or_none()
+
+    if invite:
+        return {
+            "has_invite": True,
+            "role": invite.role,
+            "message": f"You've been invited by an admin to join as {invite.role}"
+        }
+    else:
+        return {
+            "has_invite": False,
+            "role": None,
+            "message": None
+        }
+
+
 @router.get("/accept-invite/{token}")
 async def check_invite_token(token: str, db: AsyncSession = Depends(get_db)) -> Any:
     """Check if invite token is valid."""

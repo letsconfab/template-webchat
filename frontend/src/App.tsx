@@ -6,7 +6,6 @@ import ConfigurationChecker from './components/ConfigurationChecker'
 import AdminRegister from './pages/AdminRegister'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
-import UserDashboard from './pages/UserDashboard'
 import ConfigurationWizard from './pages/ConfigurationWizard'
 import AdminSettings from './pages/AdminSettings'
 import ChatPage from './pages/ChatPage'
@@ -96,8 +95,8 @@ function App() {
                 <Route 
                   path="/dashboard" 
                   element={
-                    <ProtectedRoute>
-                      <UserDashboard />
+                    <ProtectedRoute requireAdmin>
+                      <AdminDashboard />
                     </ProtectedRoute>
                   } 
                 />

@@ -63,7 +63,7 @@ const AdminLogin: React.FC = () => {
             <LogIn className="h-8 w-8 text-white" />
           </div>
           <h2 className="mt-8 text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-            Admin Login
+            Login Here!
           </h2>
           <p className="mt-3 text-base text-gray-600 leading-relaxed">
             Sign in to access your admin dashboard
@@ -87,7 +87,7 @@ const AdminLogin: React.FC = () => {
                 type="email"
                 id="email"
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-white/50"
-                placeholder="admin@example.com"
+                placeholder="abc@example.com"
               />
               {errors.email && (
                 <p className="mt-2 text-sm text-red-600 font-medium">{errors.email.message}</p>

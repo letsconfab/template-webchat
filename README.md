@@ -85,7 +85,7 @@ After starting the backend, create an admin user via the API:
 ```bash
 curl -X POST "http://localhost:8000/api/auth/register" \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@example.com", "password": "admin123", "role": "admin"}'
+  -d '{"email": "abc@example.com", "password": "admin123", "role": "admin"}'
 ```
 
 Then update their role in the database or use the admin panel to manage users.

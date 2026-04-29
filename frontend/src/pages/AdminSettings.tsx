@@ -54,6 +54,7 @@ export default function AdminSettings() {
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
   const [knowledgeStatus, setKnowledgeStatus] = useState<{document_count: number, llm_provider: string, llm_model: string} | null>(null)
+  const [activeTab, setActiveTab] = useState('basic')
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
@@ -346,7 +347,7 @@ export default function AdminSettings() {
           </Alert>
         )}
 
-       <Tabs value="basic" className="w-full">
+       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="basic">
               <Settings className="h-4 w-4 mr-2" />

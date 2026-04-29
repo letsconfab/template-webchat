@@ -5,8 +5,9 @@ import shutil
 from typing import List, Optional
 from pathlib import Path
 
-from config import config
-from services.foundry import FoundryService
+# from config import config
+from backend.config import config
+from backend.services.foundry import FoundryService
 
 
 class KnowledgeService:

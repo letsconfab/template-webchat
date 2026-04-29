@@ -4,8 +4,9 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import get_db
-from models.settings import SystemSettings
+# from database import get_db
+from backend.database import get_db
+from backend.models.settings import SystemSettings
 
 
 class SettingsService:

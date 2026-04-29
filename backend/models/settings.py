@@ -5,7 +5,8 @@ from typing import Optional
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 
-from database import Base
+# from database import Base
+from backend.database import Base
 
 
 class SystemSettings(Base):

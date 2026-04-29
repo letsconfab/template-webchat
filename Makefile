@@ -42,7 +42,7 @@ install-fe:
 run: run-be run-fe
 
 run-be: $(VENV)
-	PYTHONPATH=.::./backend $(VENV)/bin/uvicorn backend.main:app --reload --host 0.0.0.0 --port 8005
+	PYTHONPATH=.::./backend $(VENV)/bin/uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
 run-fe:
 	cd frontend && npm run dev

@@ -6,17 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
-from database import get_db
-from dependencies.auth import get_current_active_user
-from models.user import User
-from schemas.user import UserCreate, AdminCreate, UserLogin, UserResponse, Token
-from services.auth import (
+from backend.database import get_db
+from backend.dependencies.auth import get_current_active_user
+from backend.models.user import User
+from backend.schemas.user import UserCreate, AdminCreate, UserLogin, UserResponse, Token
+from backend.services.auth import (
     create_access_token,
     get_password_hash,
-    verify_password,
-    generate_secure_token
+    verify_password
 )
-from config import config
+from backend.config import config
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
@@ -27,53 +26,75 @@ async def register(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Register a new user."""
-    # Check if user already exists
-    result = await db.execute(select(User).where(User.email == user_data.email))
-    existing_user = result.scalar_one_or_none()
-    
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Check for pending invite for this email
-    from models.invite import Invite, InviteStatus
-    
-    invite_result = await db.execute(
-        select(Invite).where(
-            and_(
-                Invite.email == user_data.email,
-                Invite.status == InviteStatus.PENDING,
-                Invite.expiry_date > datetime.utcnow()
+    try:
+        print("REGISTER CALLED:", user_data.email)
+
+        # Check if user already exists
+        result = await db.execute(select(User).where(User.email == user_data.email))
+        existing_user = result.scalar_one_or_none()
+
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+
+        # Import invite model
+        from backend.models.invite import Invite
+
+        # 🔥 FIX: use "pending" string (matches DB)
+        invite_result = await db.execute(
+            select(Invite).where(
+                and_(
+                    Invite.email == user_data.email,
+                    Invite.status == "pending",
+                    Invite.expiry_date > datetime.utcnow()
+                )
             )
         )
-    )
-    invite = invite_result.scalar_one_or_none()
-    
-    # Determine role - use invite role if available, otherwise default to provided role
-    user_role = invite.role if invite else (user_data.role or "user")
-    
-    # Create new user
-    hashed_password = get_password_hash(user_data.password)
-    db_user = User(
-        email=user_data.email,
-        password_hash=hashed_password,
-        role=user_role,
-        is_active=True
-    )
-    
-    db.add(db_user)
-    
-    # If invite was used, mark it as accepted
-    if invite:
-        invite.status = InviteStatus.ACCEPTED
+        invite = invite_result.scalar_one_or_none()
+
+        print("INVITE FOUND:", invite)
+
+        if not invite:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No valid invite found"
+            )
+
+        # Determine role from invite
+        user_role = invite.role if invite else "user"
+
+        # Hash password
+        hashed_password = get_password_hash(user_data.password)
+
+        # Create user
+        db_user = User(
+            email=user_data.email,
+            password_hash=hashed_password,
+            role=user_role,
+            is_active=True
+        )
+
+        db.add(db_user)
+
+        # Mark invite as used
+        invite.status = "accepted"
         invite.updated_at = datetime.utcnow()
-    
-    await db.commit()
-    await db.refresh(db_user)
-    
-    return db_user
+
+        await db.commit()
+        await db.refresh(db_user)
+
+        return db_user
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("REGISTER ERROR:", str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error"
+        )
 
 
 @router.post("/admin/register", response_model=UserResponse)
@@ -82,36 +103,34 @@ async def admin_register(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Register a new admin user."""
-    # Check if passwords match
     if admin_data.password != admin_data.confirm_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Passwords do not match"
         )
-    
-    # Check if admin already exists
+
     result = await db.execute(select(User).where(User.email == admin_data.email))
     existing_admin = result.scalar_one_or_none()
-    
+
     if existing_admin:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    
-    # Create new admin
+
     hashed_password = get_password_hash(admin_data.password)
+
     db_admin = User(
         email=admin_data.email,
         password_hash=hashed_password,
         role="admin",
         is_active=True
     )
-    
+
     db.add(db_admin)
     await db.commit()
     await db.refresh(db_admin)
-    
+
     return db_admin
 
 
@@ -121,30 +140,28 @@ async def login(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Authenticate user and return access token."""
-    # Find user by email
     result = await db.execute(select(User).where(User.email == user_credentials.email))
     user = result.scalar_one_or_none()
-    
+
     if not user or not verify_password(user_credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user"
         )
-    
-    # Create access token
+
     access_token_expires = timedelta(minutes=config.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": str(user.id)},
         expires_delta=access_token_expires
     )
-    
+
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -152,18 +169,7 @@ async def login(
 async def get_current_user_info(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
-    """
-    Get current user information.
-    
-    Returns the authenticated user's details including:
-    - id
-    - email  
-    - role
-    - is_active
-    - is_admin (computed property)
-    - created_at
-    - updated_at
-    """
+    """Get current user info."""
     return current_user
 
 
@@ -171,5 +177,5 @@ async def get_current_user_info(
 async def logout(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
-    """Logout user (client-side token removal)."""
+    """Logout user."""
     return {"message": "Successfully logged out"}

@@ -7,8 +7,9 @@ from fastapi_mail import ConnectionConfig, MessageSchema, MessageType
 from fastapi_mail.errors import ConnectionErrors
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import config
-from services.settings_service import settings_service
+# from config import config
+from backend.config import config
+from backend.services.settings_service import settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class EmailService:
 
     async def _get_frontend_url(self, db: AsyncSession) -> str:
         """Get frontend URL from database settings."""
-        from services.settings_service import settings_service
+        from backend.services.settings_service import settings_service
 
         settings = await settings_service.get_settings(db)
         if settings and settings.frontend_url:

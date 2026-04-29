@@ -99,7 +99,7 @@ make run-fe
 | Service | Port |
 |---------|------|
 | Frontend (dev) | 3030 |
-| Backend | 8005 |
+| Backend | 8000 |
 | PostgreSQL | 5454 (internal 5432) |
 
 ## Environment Variables
@@ -120,5 +120,5 @@ docker-compose up -d
 
 This starts:
 - PostgreSQL (port 5432)
-- Backend API (port 8005)
+- Backend API (port 8000)
 - Frontend dev server (port 3000)

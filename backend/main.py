@@ -14,11 +14,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import httpx
 
-from config import config
-from database import init_db, close_db
-from routers import auth, users, invites, settings, knowledge
-from knowledge_base import knowledge_base
-from llm_providers import LLMProvider, validate_api_key, get_available_models
+# from config import config
+from backend.config import config
+# from database import init_db, close_db
+from backend.database import init_db, close_db
+# from routers import auth, users, invites, settings, knowledge
+from backend.routers import auth, users, invites, settings, knowledge
+from backend.knowledge_base import knowledge_base
+from backend.llm_providers import LLMProvider, validate_api_key, get_available_models
 
 # Configure logging
 logging.basicConfig(
@@ -104,7 +107,7 @@ app.include_router(settings.router)
 app.include_router(knowledge.router)
 
 # Mount static files for frontend (deployment)
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
+# app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
 
 
 @app.get("/health")

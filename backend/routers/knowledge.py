@@ -6,11 +6,12 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from database import get_db
-from dependencies.auth import get_current_admin_user
-from models.user import User
-from models.settings import SystemSettings
-from services.knowledge import knowledge_service
+# from database import get_db
+from backend.database import get_db
+from backend.dependencies.auth import get_current_admin_user
+from backend.models.user import User
+from backend.models.settings import SystemSettings
+from backend.services.knowledge import knowledge_service
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -123,4 +124,5 @@ async def delete_document(
 
 
 # Import config at module level
-from config import config
+# from config import config
+from backend.config import config

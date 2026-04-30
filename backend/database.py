@@ -5,7 +5,8 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
-from config import config
+# from config import config
+from backend.config import config
 
 # Database URL from environment variable
 DATABASE_URL = config.DATABASE_URL
@@ -41,9 +42,10 @@ async def init_db():
     """Initialize database tables."""
     async with engine.begin() as conn:
         # Import all models here to ensure they are registered
-        from models.user import User
-        from models.invite import Invite
-        from models.settings import SystemSettings
+        # from models.user import User
+        from backend.models.user import User
+        from backend.models.invite import Invite
+        from backend.models.settings import SystemSettings
         
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)

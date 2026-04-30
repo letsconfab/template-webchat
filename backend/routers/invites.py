@@ -8,18 +8,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
 
-from database import get_db
-from middleware.auth import get_admin_user, get_current_active_user
-from models.user import User
-from models.invite import Invite, InviteStatus
-from schemas.invite import (
+# from database import get_db
+from backend.database import get_db
+from backend.middleware.auth import get_admin_user, get_current_active_user
+from backend.models.user import User
+from backend.models.invite import Invite, InviteStatus
+from backend.schemas.invite import (
     InviteCreate,
     InviteResponse,
     InviteAccept,
     InviteListResponse,
 )
-from services.auth import generate_secure_token
-from services.email import email_service
+# from services.auth import generate_secure_token
+from backend.services.auth import generate_secure_token
+from backend.services.email import email_service
 
 router = APIRouter(prefix="/api", tags=["invites"])
 

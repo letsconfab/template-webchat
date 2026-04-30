@@ -6,10 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
-from database import get_db
-from middleware.auth import get_admin_user, get_current_active_user
-from models.user import User, UserRole
-from schemas.user import UserResponse, UserUpdate
+# from database import get_db
+from backend.database import get_db
+from backend.middleware.auth import get_admin_user, get_current_active_user
+from backend.models.user import User, UserRole
+from backend.schemas.user import UserResponse, UserUpdate
 
 router = APIRouter(prefix="/api/admin", tags=["admin", "users"])
 

@@ -68,6 +68,17 @@ class SystemSettingsBase(BaseModel):
     )
     foundry_confab_id: Optional[int] = Field(None, description="Confab ID to sync from")
 
+    # Langfuse Configuration
+    langfuse_secret_key: Optional[str] = Field(
+        None, max_length=500, description="Langfuse secret key"
+    )
+    langfuse_public_key: Optional[str] = Field(
+        None, max_length=500, description="Langfuse public key"
+    )
+    langfuse_base_url: Optional[str] = Field(
+        "https://us.cloud.langfuse.com", max_length=500, description="Langfuse base URL"
+    )
+
 
 class SystemSettingsCreate(SystemSettingsBase):
     """Schema for creating system settings (initial configuration)."""

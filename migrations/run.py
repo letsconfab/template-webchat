@@ -1,64 +1,12 @@
-"""Database configuration and connection setup."""
+"""Database migrations runner."""
 
-import os
-from typing import AsyncGenerator
-
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import declarative_base
-
-# from config import config
-from backend.config import config
-
-# Database URL from environment variable
-DATABASE_URL = config.DATABASE_URL
-
-# Create async engine
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=True,  # Set to False in production
-    future=True,
-)
-
-# Create async session factory
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
-
-# Create base model class
-Base = declarative_base()
-
-
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Get database session."""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
-
-
-async def init_db():
-    """Initialize database tables."""
-    # Import all models here to ensure they are registered
-    from backend.models.user import User
-    from backend.models.invite import Invite
-    from backend.models.settings import SystemSettings
-    from backend.models.knowledge import KnowledgeDocument, KnowledgeChunk
-
-    async with engine.begin() as conn:
-        # Create all tables
-        await conn.run_sync(Base.metadata.create_all)
-
-    # Run migrations
-    await run_migrations()
+import asyncio
+from backend.database import AsyncSessionLocal
+from sqlalchemy import text
 
 
 async def run_migrations():
-    """Run database migrations."""
-    from sqlalchemy import text
-
+    """Run any pending database migrations."""
     async with AsyncSessionLocal() as db:
         # Check if langfuse columns exist, add if not
         try:
@@ -72,14 +20,14 @@ async def run_migrations():
                 await db.execute(
                     text("""
                     ALTER TABLE system_settings 
-                    ADD COLUMN IF NOT EXISTS langfuse_secret_key VARCHAR(500),
-                    ADD COLUMN IF NOT EXISTS langfuse_public_key VARCHAR(500),
-                    ADD COLUMN IF NOT EXISTS langfuse_base_url VARCHAR(500)
+                    ADD COLUMN langfuse_secret_key VARCHAR(500),
+                    ADD COLUMN langfuse_public_key VARCHAR(500),
+                    ADD COLUMN langfuse_base_url VARCHAR(500)
                 """)
                 )
                 print("Migration: Added langfuse columns to system_settings")
         except Exception as e:
-            pass  # Columns may already exist
+            print(f"Migration check failed (may already exist): {e}")
 
         # Check if knowledge_documents table exists
         try:
@@ -120,11 +68,11 @@ async def run_migrations():
                     "Migration: Created knowledge_documents and knowledge_chunks tables"
                 )
         except Exception as e:
-            pass  # Tables may already exist
+            print(f"Migration check failed (may already exist): {e}")
 
         await db.commit()
+        print("Migrations completed!")
 
 
-async def close_db():
-    """Close database connection."""
-    await engine.dispose()
+if __name__ == "__main__":
+    asyncio.run(run_migrations())

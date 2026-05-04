@@ -35,6 +35,10 @@ interface SystemSettings {
   // Foundry Configuration
   foundry_url: string
   foundry_confab_id: number | null
+  // Langfuse Configuration
+  langfuse_secret_key: string
+  langfuse_public_key: string
+  langfuse_base_url: string
   is_configured: boolean
   configured_at: string
   configured_by: string
@@ -618,6 +622,44 @@ export default function AdminSettings() {
                     value={settings.llm_api_key || ''}
                     onChange={(e) => handleInputChange('llm_api_key', e.target.value)}
                     placeholder="Enter your API key"
+                  />
+                </div>
+
+                <div className="pt-4 border-t">
+                  <h4 className="font-medium mb-3">Langfuse Tracing (Optional)</h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Configure Langfuse for observability and tracing
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="langfuse_secret_key">Secret Key</Label>
+                  <Input
+                    id="langfuse_secret_key"
+                    type="password"
+                    value={settings.langfuse_secret_key || ''}
+                    onChange={(e) => handleInputChange('langfuse_secret_key', e.target.value)}
+                    placeholder="sk-lf-..."
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="langfuse_public_key">Public Key</Label>
+                  <Input
+                    id="langfuse_public_key"
+                    value={settings.langfuse_public_key || ''}
+                    onChange={(e) => handleInputChange('langfuse_public_key', e.target.value)}
+                    placeholder="pk-lf-..."
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="langfuse_base_url">Base URL</Label>
+                  <Input
+                    id="langfuse_base_url"
+                    value={settings.langfuse_base_url || ''}
+                    onChange={(e) => handleInputChange('langfuse_base_url', e.target.value)}
+                    placeholder="https://cloud.langfuse.com"
                   />
                 </div>
               </CardContent>

@@ -18,12 +18,14 @@ import httpx
 from backend.config import config
 
 # from database import init_db, close_db
-from backend.database import init_db, close_db
+from backend.database import init_db, close_db, AsyncSessionLocal
 
 # from routers import auth, users, invites, settings, knowledge
 from backend.routers import auth, users, invites, settings, knowledge
 from backend.knowledge_base import knowledge_base
 from backend.llm_providers import LLMProvider, validate_api_key, get_available_models
+from backend.services.langfuse_service import langfuse_service
+from langfuse import propagate_attributes
 
 # Configure logging
 logging.basicConfig(
@@ -261,6 +263,33 @@ async def websocket_chat(websocket: WebSocket):
 
             print(f"WebSocket: Received message: {message[:50]}...")
 
+            # Initialize langfuse from settings
+            async with AsyncSessionLocal() as langfuse_db:
+                from backend.services.settings_service import settings_service
+
+                settings = await settings_service.get_settings(langfuse_db)
+                if (
+                    settings
+                    and settings.langfuse_public_key
+                    and settings.langfuse_secret_key
+                ):
+                    base_url = (
+                        settings.langfuse_base_url or "https://us.cloud.langfuse.com"
+                    )
+                    print(
+                        f"[Langfuse] Initializing with public_key: {settings.langfuse_public_key[:20]}..., base_url: {base_url}"
+                    )
+                    langfuse_service.initialize(
+                        public_key=settings.langfuse_public_key,
+                        secret_key=settings.langfuse_secret_key,
+                        base_url=base_url,
+                    )
+                else:
+                    langfuse_service._initialized = False
+
+            if langfuse_service.is_initialized():
+                print(f"[Langfuse] Tracking chat session: {session_id}")
+
             # Store user message in history
             if session_id not in chat_history:
                 chat_history[session_id] = []
@@ -319,16 +348,45 @@ async def websocket_chat(websocket: WebSocket):
                 )
                 continue
 
-            # Stream response
+            # Stream response with Langfuse tracing
             await websocket.send_json({"type": "start"})
             full_response = ""
 
-            for chunk in llm.stream(messages):
-                if chunk.content:
-                    full_response += chunk.content
-                    await websocket.send_json(
-                        {"type": "chunk", "content": chunk.content}
-                    )
+            client = langfuse_service.get_client()
+            if client and langfuse_service.is_initialized():
+                with propagate_attributes(session_id=session_id):
+                    with client.start_as_current_observation(
+                        as_type="span",
+                        name=f"chat-{session_id}",
+                    ) as span:
+                        span.update(input=message)
+
+                        with span.start_as_current_observation(
+                            as_type="generation",
+                            name="llm-response",
+                            model=model,
+                        ) as generation:
+                            for chunk in llm.stream(messages):
+                                if chunk.content:
+                                    full_response += chunk.content
+                                    await websocket.send_json(
+                                        {"type": "chunk", "content": chunk.content}
+                                    )
+
+                            generation.update(output=full_response)
+
+                        span.update(output=full_response)
+
+                langfuse_service.flush()
+                print(f"[Langfuse] Traced - response: {len(full_response)} chars")
+            else:
+                # No Langfuse - just stream without tracing
+                for chunk in llm.stream(messages):
+                    if chunk.content:
+                        full_response += chunk.content
+                        await websocket.send_json(
+                            {"type": "chunk", "content": chunk.content}
+                        )
 
             # Store assistant message in history
             chat_history[session_id].append(

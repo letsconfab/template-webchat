@@ -79,7 +79,9 @@ export default function ChatPage() {
 
     wsRef.current.onMessage((data) => {
       if (data.type === 'status') {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.message }])
+        // Don't add status messages to the chat thread - they're just informational
+        // Could show a toast notification instead if needed
+        console.log('System status:', data.message)
       } else if (data.type === 'history') {
         setMessages(data.messages || [])
       } else if (data.type === 'start') {

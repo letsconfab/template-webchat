@@ -79,24 +79,27 @@ class LLMProvider:
         self.model = model
         self.api_key = api_key
 
-    def get_llm(self):
+    def get_llm(self, callbacks=None):
         """Get the LLM instance for this provider."""
         if self.provider == "openai":
             return ChatOpenAI(
                 model=self.model,
                 api_key=self.api_key,
                 streaming=True,
+                callbacks=callbacks,
             )
         elif self.provider == "groq":
             return ChatGroq(
                 model=self.model,
                 api_key=self.api_key,
                 streaming=True,
+                callbacks=callbacks,
             )
         elif self.provider == "ollama":
             return ChatOllama(
                 model=self.model,
                 streaming=True,
+                callbacks=callbacks,
             )
         elif self.provider == "sarvam":
             return SarvamLLM(
@@ -108,6 +111,7 @@ class LLMProvider:
                 model="gpt-4o-mini",
                 api_key=self.api_key,
                 streaming=True,
+                callbacks=callbacks,
             )
 
     def get_embeddings(self):

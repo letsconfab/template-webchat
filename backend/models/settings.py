@@ -54,6 +54,11 @@ class SystemSettings(Base):
     foundry_url = Column(String(500), nullable=True)
     foundry_confab_id = Column(Integer, nullable=True)
 
+    # Langfuse Configuration
+    langfuse_secret_key = Column(String(500), nullable=True)
+    langfuse_public_key = Column(String(500), nullable=True)
+    langfuse_base_url = Column(String(500), nullable=True)
+
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(

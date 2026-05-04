@@ -25,9 +25,11 @@ const AdminRegister: React.FC = () => {
   const [inviteToken, setInviteToken] = useState<string | null>(null)
   const [inviteData, setInviteData] = useState<{ email: string; role: string } | null>(null)
   const [isInviteVerified, setIsInviteVerified] = useState(false)
-  const [emailInviteStatus, setEmailInviteStatus] = useState<{ has_invite: boolean; role: string | null; message: string | null } | null>(null)
+  const [inviteAccepted, setInviteAccepted] = useState(false)
+  const [emailInviteStatus, setEmailInviteStatus] = useState<{ has_invite: boolean; role: string | null; message: string | null; already_registered: boolean } | null>(null)
+  const [registrationSuccess, setRegistrationSuccess] = useState(false)
   const [searchParams] = useSearchParams()
-  const { register: registerUser } = useAuth()
+  const { register: registerUser, logout, isAuthenticated } = useAuth()
   const navigate = useNavigate()
 
   const {
@@ -40,10 +42,14 @@ const AdminRegister: React.FC = () => {
     resolver: zodResolver(registerSchema)
   })
 
-  // Check for invite token on component mount
+  // Check for invite token on component mount - logout any existing session first
   useEffect(() => {
     const token = searchParams.get('token')
     if (token) {
+      // Clear any existing session before proceeding with invite
+      if (isAuthenticated) {
+        logout()
+      }
       setInviteToken(token)
       verifyInviteToken(token)
     }
@@ -102,11 +108,11 @@ const AdminRegister: React.FC = () => {
           token: inviteToken,
           password: data.password
         })
-        navigate('/login')
+        setRegistrationSuccess(true)
       } else {
         // Regular registration with default role
         await registerUser(data.email, data.password)
-        navigate('/login')
+        setRegistrationSuccess(true)
       }
     } catch (error: any) {
       if (error.response?.data?.detail) {
@@ -117,6 +123,30 @@ const AdminRegister: React.FC = () => {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (registrationSuccess) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center">
+          <div className="mx-auto h-16 w-16 bg-green-500 rounded-full flex items-center justify-center mb-6">
+            <CheckCircle className="h-8 w-8 text-white" />
+          </div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">
+            Registration Successful!
+          </h2>
+          <p className="text-gray-600 mb-8">
+            Your account has been created. You can now login to access the chat application.
+          </p>
+          <a
+            href="/login"
+            className="inline-block w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
+          >
+            Go to Login
+          </a>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -142,12 +172,34 @@ const AdminRegister: React.FC = () => {
               </div>
             )}
 
-            {/* Invite Verification Message */}
-            {isInviteVerified && inviteData && (
+            {/* Invite Verification - Require explicit acceptance */}
+            {isInviteVerified && inviteData && !inviteAccepted && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-6 text-center">
+                <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-3" />
+                <h3 className="text-lg font-semibold text-green-800 mb-2">
+                  You've been invited!
+                </h3>
+                <p className="text-sm text-green-700 mb-4">
+                  You've been invited to join as a <span className="font-medium">{inviteData.role === 'admin' ? 'Admin' : 'General User'}</span>
+                </p>
+                <p className="text-sm text-gray-600 mb-4">
+                  Email: <span className="font-medium">{inviteData.email}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setInviteAccepted(true)}
+                  className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Accept Invitation
+                </button>
+              </div>
+            )}
+
+            {isInviteVerified && inviteData && inviteAccepted && (
               <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-md text-sm flex items-center">
                 <CheckCircle className="h-4 w-4 mr-2" />
                 <div>
-                  <div className="font-medium">You are invited by Admin</div>
+                  <div className="font-medium">Invitation Accepted</div>
                   <div className="text-xs mt-1">
                     Role: {inviteData.role === 'admin' ? 'Admin' : 'General User'}
                   </div>
@@ -163,7 +215,9 @@ const AdminRegister: React.FC = () => {
                 {...register('email')}
                 type="email"
                 id="email"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                readOnly={isInviteVerified && inviteAccepted}
+                disabled={isInviteVerified && !inviteAccepted}
+                className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isInviteVerified ? 'bg-gray-50 cursor-not-allowed' : ''}`}
                 placeholder="abc@example.com"
                 onChange={(e) => {
                   register('email').onChange(e)
@@ -190,7 +244,8 @@ const AdminRegister: React.FC = () => {
                   {...register('password')}
                   type={showPassword ? 'text' : 'password'}
                   id="password"
-                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={isInviteVerified && !inviteAccepted}
+                  className={`w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isInviteVerified && !inviteAccepted ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                   placeholder="••••••••"
                 />
                 <button
@@ -219,7 +274,8 @@ const AdminRegister: React.FC = () => {
                   {...register('confirmPassword')}
                   type={showConfirmPassword ? 'text' : 'password'}
                   id="confirmPassword"
-                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={isInviteVerified && !inviteAccepted}
+                  className={`w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${isInviteVerified && !inviteAccepted ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                   placeholder="••••••••"
                 />
                 <button
@@ -242,7 +298,7 @@ const AdminRegister: React.FC = () => {
             <div>
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || (isInviteVerified && !inviteAccepted)}
                 className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isLoading ? (
@@ -253,7 +309,7 @@ const AdminRegister: React.FC = () => {
                 ) : (
                   <div className="flex items-center">
                     <UserPlus className="h-4 w-4 mr-2" />
-                    Create Admin Account
+                    {inviteToken && isInviteVerified ? 'Complete Registration' : 'Create Account'}
                   </div>
                 )}
               </button>
@@ -261,9 +317,9 @@ const AdminRegister: React.FC = () => {
 
             <div className="text-center">
               <p className="text-sm text-gray-600">
-                Already have an admin account?{' '}
+                Already have an account?{' '}
                 <Link
-                  to="/admin/login"
+                  to="/login"
                   className="font-medium text-blue-600 hover:text-blue-500 transition-colors"
                 >
                   Sign in here

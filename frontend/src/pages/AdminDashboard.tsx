@@ -33,6 +33,8 @@ const AdminDashboard: React.FC = () => {
   const [invites, setInvites] = useState<Invite[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const invitesPerPage = 5
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
@@ -97,7 +99,7 @@ const AdminDashboard: React.FC = () => {
 
   const handleLogout = () => {
     logout()
-    navigate('/admin/login')
+    navigate('/login')
   }
 
   const scrollToInviteUsers = () => {
@@ -156,6 +158,7 @@ const AdminDashboard: React.FC = () => {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Admin Features Cards */}
+        <h2 className="text-xl font-semibold mb-4">Quick Links</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           {/* <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -276,7 +279,7 @@ const AdminDashboard: React.FC = () => {
 
         {/* Embed Section */}
         <div className="space-y-4 mb-8">
-          <h2 className="text-xl font-semibold">Embed Options</h2>
+          <h2 className="text-xl font-semibold">Analytics</h2>
           <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
            
           </div>
@@ -346,15 +349,14 @@ const AdminDashboard: React.FC = () => {
         </div>
 
         {/* Invite User Section */}
-        <div id="invite-users-section" className="bg-white/80 backdrop-blur-sm shadow-xl rounded-2xl border border-gray-100">
+        <h3 className="text-2xl font-bold text-gray-900 mb-4">
+          Users
+        </h3>
+        <p className="text-gray-600 mb-6">Manage team members and track their status</p>
+        
+<div id="invite-users-section" className="bg-white/80 backdrop-blur-sm shadow-xl rounded-2xl border border-gray-100">
           <div className="px-6 py-6 sm:p-8">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
-              <div>
-                <h3 className="text-2xl font-bold text-gray-900">
-                  Invite Users
-                </h3>
-                <p className="text-gray-600 mt-1">Manage team invitations and track their status</p>
-              </div>
+            <div className="flex justify-end mb-6 gap-4">
               <button
                 onClick={() => setShowRoleSelectionModal(true)}
                 className="inline-flex items-center px-6 py-3 border border-transparent text-sm font-medium rounded-xl shadow-lg text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 transform hover:scale-105"
@@ -400,7 +402,7 @@ const AdminDashboard: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-100">
-                        {invites.map((invite) => (
+                        {invites.slice((currentPage - 1) * invitesPerPage, currentPage * invitesPerPage).map((invite) => (
                           <tr key={invite.id} className="hover:bg-gray-50 transition-colors">
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                               {invite.email}
@@ -447,6 +449,31 @@ const AdminDashboard: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+                  
+                  {/* Pagination */}
+                  {invites.length > invitesPerPage && (
+                    <div className="px-6 py-4 bg-white border-t border-gray-200 flex items-center justify-between">
+                      <div className="text-sm text-gray-700">
+                        Showing {((currentPage - 1) * invitesPerPage) + 1} to {Math.min(currentPage * invitesPerPage, invites.length)} of {invites.length} invites
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={currentPage === 1}
+                          className="px-3 py-1 text-sm rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          onClick={() => setCurrentPage(p => Math.min(Math.ceil(invites.length / invitesPerPage), p + 1))}
+                          disabled={currentPage >= Math.ceil(invites.length / invitesPerPage)}
+                          className="px-3 py-1 text-sm rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import ConfigurationChecker from './components/ConfigurationChecker'
@@ -8,6 +8,11 @@ import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import ConfigurationWizard from './pages/ConfigurationWizard'
 import AdminSettings from './pages/AdminSettings'
+
+const InviteRedirect = () => {
+  const { token } = useParams()
+  return <Navigate to={`/register?token=${token}`} replace />
+}
 import ChatPage from './pages/ChatPage'
 
 function AppContent() {
@@ -53,21 +58,12 @@ function AppContent() {
         <h1 className="text-4xl font-bold mb-8">
           {configStatus?.app_name || 'WebChat'}
         </h1>
-        <p className="text-muted-foreground mb-8">Please login to continue</p>
-        <div className="space-x-4">
-          <a
-            href="/login"
-            className="inline-block px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            Login
-          </a>
-          <a
-            href="/register"
-            className="inline-block px-6 py-3 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/90 transition-colors"
-          >
-            Register
-          </a>
-        </div>
+        <a
+          href="/login"
+          className="inline-block px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+        >
+          Login
+        </a>
       </div>
     </div>
   )
@@ -88,8 +84,7 @@ function App() {
                 {/* Public Routes */}
                 <Route path="/login" element={<AdminLogin />} />
                 <Route path="/register" element={<AdminRegister />} />
-                <Route path="/admin/login" element={<AdminLogin />} />
-                <Route path="/admin/register" element={<AdminRegister />} />
+                <Route path="/accept-invite/:token" element={<InviteRedirect />} />
                 
                 {/* Protected Routes - require authentication */}
                 <Route 

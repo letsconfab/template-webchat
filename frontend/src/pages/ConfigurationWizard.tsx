@@ -44,7 +44,7 @@ export default function ConfigurationWizard() {
   const [currentStep, setCurrentStep] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | React.ReactNode | null>(null)
   const [success, setSuccess] = useState(false)
   
   // Foundry confabs
@@ -84,7 +84,6 @@ export default function ConfigurationWizard() {
     { id: 'basic', title: 'Basic Setup', icon: Settings },
     { id: 'email', title: 'Email Configuration', icon: Mail },
     { id: 'llm', title: 'AI Configuration', icon: Bot },
-    { id: 'foundry', title: 'Knowledge Base (Optional)', icon: Database },
   ]
 
   const totalSteps = steps.length
@@ -99,8 +98,26 @@ export default function ConfigurationWizard() {
       const response = await api.get('/settings/config-status')
       const data = response.data
       
+      if (data.needs_setup) {
+        // Fresh install - show setup wizard
+        return
+      }
+      
+      if (data.state === 'partial') {
+        // Partially configured - show appropriate message
+        if (data.admin_exists) {
+          // Admin exists but settings incomplete - prompt to login
+          setError('An admin account exists but system settings are incomplete. Please login to complete setup.')
+        } else if (data.settings_exists) {
+          // Settings exist but no admin - allow setup
+          setError(null) // Allow continuing with setup
+        }
+        return
+      }
+      
+      // Fully configured - redirect to login
       if (data.is_configured) {
-        navigate('/admin/login')
+        navigate('/login')
       }
     } catch (error) {
       console.error('Failed to check configuration status:', error)
@@ -207,7 +224,6 @@ export default function ConfigurationWizard() {
 
     setIsLoading(true)
     try {
-      // Prepare payload with admin credentials
       const payload = {
         ...settings,
         admin_email: adminEmail,
@@ -219,10 +235,33 @@ export default function ConfigurationWizard() {
 
       setSuccess(true)
       setTimeout(() => {
-        navigate('/admin/login')
+        navigate('/login')
       }, 2000)
     } catch (error: any) {
-      setError(error.response?.data?.detail || error.message || 'Configuration failed')
+      const detail = error.response?.data?.detail || error.message || 'Configuration failed'
+      
+      // Better error messages for specific cases
+      if (detail.includes('Admin user already exists') || detail.includes('admin account already exists')) {
+        setError(
+          <div>
+            <p className="mb-2">An admin account already exists. Please login to complete setup.</p>
+            <a href="/login" className="text-blue-600 underline hover:text-blue-800">
+              Go to Login →
+            </a>
+          </div>
+        )
+      } else if (detail.includes('already fully configured')) {
+        setError(
+          <div>
+            <p className="mb-2">System is already fully configured.</p>
+            <a href="/login" className="text-blue-600 underline hover:text-blue-800">
+              Go to Login →
+            </a>
+          </div>
+        )
+      } else {
+        setError(detail)
+      }
     } finally {
       setIsLoading(false)
     }
@@ -290,7 +329,7 @@ export default function ConfigurationWizard() {
                 id="app_description"
                 value={settings.app_description}
                 onChange={(e) => handleInputChange('app_description', e.target.value)}
-                placeholder="Describe your application..."
+                placeholder="An AI-powered chat assistant that helps you get instant answers and assistance..."
                 rows={3}
               />
             </div>
@@ -437,98 +476,7 @@ export default function ConfigurationWizard() {
           </div>
         )
         
-      case 4: // Knowledge Base (Foundry)
-        return (
-          <div className="space-y-4">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-              <h4 className="font-medium text-green-800">Knowledge Base (Optional)</h4>
-              <p className="text-sm text-green-600 mt-1">
-                Connect to a Foundry confab to automatically sync documents to your knowledge base. You can also skip this and add documents later.
-              </p>
-            </div>
-            
-            <div>
-              <Label htmlFor="foundry_url">Foundry URL</Label>
-              <Input
-                id="foundry_url"
-                value={settings.foundry_url}
-                onChange={(e) => handleInputChange('foundry_url', e.target.value)}
-                placeholder="https://foundry.yourcompany.com"
-              />
-            </div>
-            
-            <div>
-              <Label htmlFor="foundry_token">Foundry Access Token</Label>
-              <Input
-                id="foundry_token"
-                type="password"
-                value={foundryToken}
-                onChange={(e) => setFoundryToken(e.target.value)}
-                placeholder="Your Foundry access token"
-              />
-            </div>
-            
-            <Button
-              type="button"
-              variant="outline"
-              onClick={fetchConfabs}
-              disabled={isLoadingConfabs || !settings.foundry_url || !foundryToken}
-              className="w-full"
-            >
-              {isLoadingConfabs ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Loading Confabs...
-                </>
-              ) : (
-                'Fetch Available Confabs'
-              )}
-            </Button>
-            
-            {confabs.length > 0 && (
-              <div>
-                <Label htmlFor="confab_select">Select Confab to Sync</Label>
-                <select
-                  id="confab_select"
-                  value={selectedConfabId || ''}
-                  onChange={(e) => {
-                    const id = parseInt(e.target.value)
-                    setSelectedConfabId(id)
-                    handleInputChange('foundry_confab_id', id)
-                  }}
-                  className="w-full h-10 px-3 rounded-md border border-input bg-background"
-                >
-                  <option value="">Select a confab...</option>
-                  {confabs.map((confab) => (
-                    <option key={confab.id} value={confab.id}>
-                      {confab.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            
-            {selectedConfabId && (
-              <div className="bg-green-100 border border-green-300 rounded-lg p-3">
-                <p className="text-sm text-green-800">
-                  ✓ Documents from the selected confab will be synced during setup.
-                </p>
-              </div>
-            )}
-            
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleSubmit}
-              disabled={isLoading}
-              className="w-full"
-            >
-              Skip - Complete Setup Without Knowledge Base
-            </Button>
-          </div>
-        )
-        
-      default:
+default:
         return null
     }
   }
@@ -574,16 +522,17 @@ export default function ConfigurationWizard() {
           
           {/* Step Tabs */}
           <Tabs value={steps[currentStep].id} className="w-full">
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-1">
               {steps.map((step, index) => (
                 <TabsTrigger
                   key={step.id}
                   value={step.id}
                   disabled={index > currentStep}
-                  className="text-xs"
+                  className="text-xs px-1 py-1 md:px-2"
                 >
-                  <step.icon className="h-4 w-4 mr-1" />
-                  {step.title}
+                  <step.icon className="h-3 w-3 md:h-4 md:w-4 mr-1 flex-shrink-0" />
+                  <span className="hidden sm:inline truncate">{step.title}</span>
+                  <span className="sm:hidden" title={step.title}>{step.title.charAt(0)}</span>
                 </TabsTrigger>
               ))}
             </TabsList>

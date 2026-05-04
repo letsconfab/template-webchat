@@ -19,6 +19,7 @@ from backend.schemas.invite import (
     InviteAccept,
     InviteListResponse,
 )
+
 # from services.auth import generate_secure_token
 from backend.services.auth import generate_secure_token
 from backend.services.email import email_service
@@ -122,13 +123,28 @@ async def get_invites(
 
 @router.get("/check-invite/{email}")
 async def check_invite_by_email(email: str, db: AsyncSession = Depends(get_db)) -> Any:
-    """Check if email has a pending invite."""
+    """Check if email has a pending invite or already registered."""
+    from backend.models.user import User
+
+    # Check if user already exists
+    result = await db.execute(select(User).where(User.email == email))
+    existing_user = result.scalar_one_or_none()
+
+    if existing_user:
+        return {
+            "has_invite": False,
+            "role": None,
+            "message": "You already have an account. Please login instead.",
+            "already_registered": True,
+        }
+
+    # Check if has pending invite
     result = await db.execute(
         select(Invite).where(
             and_(
                 Invite.email == email,
                 Invite.status == InviteStatus.PENDING,
-                Invite.expiry_date > datetime.utcnow()
+                Invite.expiry_date > datetime.utcnow(),
             )
         )
     )
@@ -138,13 +154,15 @@ async def check_invite_by_email(email: str, db: AsyncSession = Depends(get_db)) 
         return {
             "has_invite": True,
             "role": invite.role,
-            "message": f"You've been invited by an admin to join as {invite.role}"
+            "message": f"You've been invited to join as {invite.role}. Complete your registration below.",
+            "already_registered": False,
         }
     else:
         return {
             "has_invite": False,
             "role": None,
-            "message": None
+            "message": None,
+            "already_registered": False,
         }
 
 
@@ -180,11 +198,13 @@ async def accept_invite(
     token: str, accept_data: InviteAccept, db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Accept invitation and create user account."""
-    # Find and validate invite
+    from sqlalchemy.orm import selectinload
+
+    # Find and validate invite - eager load created_by relationship
     result = await db.execute(
-        select(Invite).where(
-            and_(Invite.token == token, Invite.status == InviteStatus.PENDING)
-        )
+        select(Invite)
+        .options(selectinload(Invite.created_by))
+        .where(and_(Invite.token == token, Invite.status == InviteStatus.PENDING))
     )
     invite = result.scalar_one_or_none()
 
@@ -247,10 +267,12 @@ async def accept_invite(
     )
 
     # Send notification to admin who created the invite
-    if invite.created_by:
-        await email_service.send_invite_accepted_notification(
-            admin_email=invite.created_by.email, user_email=db_user.email, db=db
-        )
+    if invite.created_by_id:
+        admin_email = invite.created_by.email if invite.created_by else None
+        if admin_email:
+            await email_service.send_invite_accepted_notification(
+                admin_email=admin_email, user_email=db_user.email, db=db
+            )
 
     return {
         "message": "Account created successfully",

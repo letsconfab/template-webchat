@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Badge } from '../components/ui/badge'
-import { Loader2, Save, RotateCcw, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings, Bot, Database, Upload, RefreshCw } from 'lucide-react'
+import { Loader2, Save, RotateCcw, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings, Bot, Database, Upload, RefreshCw, Trash2, Download } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 interface SystemSettings {
@@ -54,15 +54,17 @@ export default function AdminSettings() {
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
   const [knowledgeStatus, setKnowledgeStatus] = useState<{document_count: number, llm_provider: string, llm_model: string} | null>(null)
+  const [documents, setDocuments] = useState<{id: number, filename: string, size: number, file_type: string, created_at: string}[]>([])
   const [activeTab, setActiveTab] = useState('basic')
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
-      navigate('/admin/login')
+      navigate('/login')
       return
     }
     loadSettings()
     loadKnowledgeStatus()
+    loadDocuments()
   }, [user, navigate])
 
   const loadSettings = async () => {
@@ -95,6 +97,73 @@ export default function AdminSettings() {
       }
     } catch (error) {
       console.error('Failed to load knowledge status:', error)
+    }
+  }
+
+  const loadDocuments = async () => {
+    try {
+      const response = await fetch('/api/knowledge/documents', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setDocuments(data)
+      }
+    } catch (error) {
+      console.error('Failed to load documents:', error)
+    }
+  }
+
+  const deleteDocument = async (docId: number) => {
+    if (!confirm('Are you sure you want to delete this document? This will also remove all related chunks.')) {
+      return
+    }
+    
+    try {
+      const response = await fetch(`/api/knowledge/documents/${docId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete document')
+      }
+      
+      setSuccess('Document deleted successfully')
+      loadDocuments()
+      loadKnowledgeStatus()
+    } catch (error: any) {
+      setError(error.message || 'Failed to delete document')
+    }
+  }
+
+  const downloadDocument = async (docId: number, filename: string) => {
+    try {
+      const response = await fetch(`/api/knowledge/documents/${docId}/download`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to download document')
+      }
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      a.remove()
+    } catch (error: any) {
+      setError(error.message || 'Failed to download document')
     }
   }
 
@@ -147,44 +216,47 @@ export default function AdminSettings() {
   const handleUploadDocument = async () => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.pdf,.doc,.docx,.txt,.csv,.xlsx'
+    input.accept = '.pdf,.docx,.md,.txt'
     
     input.onchange = async (e: any) => {
       const file = e.target.files[0]
       if (!file) return
+      
+      // Check file type
+      const allowedTypes = ['.pdf', '.docx', '.md', '.txt']
+      const fileExt = '.' + file.name.split('.').pop()?.toLowerCase()
+      if (!allowedTypes.includes(fileExt)) {
+        setError(`File type not allowed. Allowed types: ${allowedTypes.join(', ')}`)
+        return
+      }
       
       setIsUploading(true)
       setError(null)
       setSuccess(null)
       
       try {
-        const reader = new FileReader()
-        reader.readAsDataURL(file)
-        reader.onload = async () => {
-          const base64 = (reader.result as string).split(',')[1]
-          
-          const response = await fetch('/api/knowledge/documents', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-              filename: file.name,
-              content_base64: base64
-            })
-          })
-          
-          if (!response.ok) {
-            throw new Error('Failed to upload document')
-          }
-          
-          setSuccess(`Uploaded: ${file.name}`)
-          loadKnowledgeStatus()
-          setIsUploading(false)
+        const formData = new FormData()
+        formData.append('file', file)
+        
+        const response = await fetch('/api/knowledge/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: formData
+        })
+        
+        if (!response.ok) {
+          const err = await response.json()
+          throw new Error(err.detail || 'Failed to upload document')
         }
+        
+        setSuccess(`Uploaded: ${file.name}`)
+        loadDocuments()
+        loadKnowledgeStatus()
       } catch (error: any) {
         setError(error.message || 'Failed to upload document')
+      } finally {
         setIsUploading(false)
       }
     }
@@ -285,11 +357,20 @@ export default function AdminSettings() {
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-3xl font-bold">System Settings</h1>
-            <p className="text-muted-foreground">
-              Manage your application configuration
-            </p>
+          <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/admin/dashboard')}
+            >
+              ← Back
+            </Button>
+            <div>
+              <h1 className="text-3xl font-bold">System Settings</h1>
+              <p className="text-muted-foreground">
+                Manage your application configuration
+              </p>
+            </div>
           </div>
           <div className="flex gap-2">
             <Button
@@ -548,59 +629,14 @@ export default function AdminSettings() {
               <CardHeader>
                 <CardTitle>Knowledge Base</CardTitle>
                 <CardDescription>
-                  Manage documents and sync from Foundry
+                  Upload documents (PDF, DOCX, MD, TXT) for the AI to use in chat responses
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="bg-muted rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium">Documents</span>
-                    <Button variant="outline" size="sm" onClick={loadKnowledgeStatus}>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Refresh
-                    </Button>
-                  </div>
-                  {knowledgeStatus ? (
-                    <div className="space-y-1">
-                      <p className="text-sm">
-                        <span className="font-medium">{knowledgeStatus.document_count}</span> documents in knowledge base
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        AI: {knowledgeStatus.llm_provider} / {knowledgeStatus.llm_model}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Click refresh to load status
-                    </p>
-                  )}
-                </div>
-                
-                <div>
-                  <Label htmlFor="foundry_url">Foundry URL</Label>
-                  <Input
-                    id="foundry_url"
-                    value={settings.foundry_url || ''}
-                    onChange={(e) => handleInputChange('foundry_url', e.target.value)}
-                    placeholder="https://foundry.yourcompany.com"
-                  />
-                </div>
-                
-                <div>
-                  <Label htmlFor="foundry_confab_id">Connected Confab ID</Label>
-                  <Input
-                    id="foundry_confab_id"
-                    type="number"
-                    value={settings.foundry_confab_id || ''}
-                    onChange={(e) => handleInputChange('foundry_confab_id', e.target.value ? parseInt(e.target.value) : null)}
-                    placeholder="Leave empty to disconnect"
-                  />
-                </div>
-                
                 <div className="flex gap-2">
                   <Button 
                     variant="outline" 
-                    onClick={handleUploadDocument}
+                    onClick={() => { handleUploadDocument(); loadDocuments(); }}
                     disabled={isUploading}
                   >
                     {isUploading ? (
@@ -610,19 +646,66 @@ export default function AdminSettings() {
                     )}
                     Upload Document
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    onClick={handleSyncFromFoundry}
-                    disabled={isSyncing}
-                  >
-                    {isSyncing ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                    )}
-                    Sync from Foundry
+                  <Button variant="outline" size="sm" onClick={() => { loadDocuments(); loadKnowledgeStatus(); }}>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
                   </Button>
                 </div>
+                
+                {knowledgeStatus && (
+                  <div className="bg-muted rounded-lg p-3">
+                    <span className="font-medium">{knowledgeStatus.document_count}</span> documents | 
+                    AI: {knowledgeStatus.llm_provider} / {knowledgeStatus.llm_model}
+                  </div>
+                )}
+                
+                {documents.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No documents uploaded yet. Upload PDF, DOCX, MD, or TXT files to get started.
+                  </div>
+                ) : (
+                  <div className="border rounded-lg">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Filename</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Type</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Size</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Uploaded</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {documents.map((doc) => (
+                          <tr key={doc.id}>
+                            <td className="px-4 py-2 text-sm">{doc.filename}</td>
+                            <td className="px-4 py-2 text-sm">{doc.file_type}</td>
+                            <td className="px-4 py-2 text-sm">{(doc.size / 1024).toFixed(1)} KB</td>
+                            <td className="px-4 py-2 text-sm">{new Date(doc.created_at).toLocaleDateString()}</td>
+                            <td className="px-4 py-2 text-right space-x-2">
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                className="text-blue-600 hover:text-blue-700"
+                                onClick={() => downloadDocument(doc.id, doc.filename)}
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                className="text-red-600 hover:text-red-700"
+                                onClick={() => deleteDocument(doc.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

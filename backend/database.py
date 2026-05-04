@@ -1,4 +1,5 @@
 """Database configuration and connection setup."""
+
 import os
 from typing import AsyncGenerator
 
@@ -46,7 +47,8 @@ async def init_db():
         from backend.models.user import User
         from backend.models.invite import Invite
         from backend.models.settings import SystemSettings
-        
+        from backend.models.knowledge import KnowledgeDocument, KnowledgeChunk
+
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)
 

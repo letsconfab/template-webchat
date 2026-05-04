@@ -29,7 +29,7 @@ const AdminLogin: React.FC = () => {
   })
 
   // Handle navigation after successful login
-  useEffect(() => {
+useEffect(() => {
     if (user) {
       if (user.role === 'admin') {
         navigate('/admin/dashboard')
@@ -66,7 +66,7 @@ const AdminLogin: React.FC = () => {
             Login Here!
           </h2>
           <p className="mt-3 text-base text-gray-600 leading-relaxed">
-            Sign in to access your admin dashboard
+            Sign in to start chat
           </p>
         </div>
 
@@ -143,17 +143,19 @@ const AdminLogin: React.FC = () => {
               </button>
             </div>
 
-            <div className="text-center pt-4 border-t border-gray-100">
+<div className="text-center pt-4 border-t border-gray-100">
               <p className="text-sm text-gray-600">
                 Don't have an account?{' '}
                 <Link
-                  to="/admin/register"
+                  to="/register"
                   className="font-semibold text-blue-600 hover:text-blue-700 transition-colors duration-200 hover:underline"
                 >
                   Register here
                 </Link>
               </p>
             </div>
+            
+            
           </form>
         </div>
       </div>

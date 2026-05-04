@@ -46,9 +46,13 @@ class EmailService:
         """Get frontend URL from database settings."""
         from backend.services.settings_service import settings_service
 
-        settings = await settings_service.get_settings(db)
-        if settings and settings.frontend_url:
-            return settings.frontend_url
+        try:
+            settings = await settings_service.get_settings(db)
+            if settings and settings.frontend_url:
+                return settings.frontend_url
+        except Exception as e:
+            logger.warning(f"Could not get settings for frontend_url: {e}")
+
         return config.FRONTEND_URL
 
     async def send_invite_email(
@@ -73,12 +77,32 @@ class EmailService:
             return True
 
         try:
+            # Get settings for app name
+            settings = None
+            try:
+                settings = await settings_service.get_settings(db)
+            except Exception as e:
+                logger.warning(f"Could not get settings: {e}")
+
+            app_name = (
+                settings.app_name if settings and settings.app_name else "Confab Chat"
+            )
+            app_description = (
+                settings.app_description
+                if settings and settings.app_description
+                else "an AI-powered chat platform"
+            )
+
             # Create invite link
-            frontend_url = await self._get_frontend_url(db)
-            invite_link = f"{frontend_url}/accept-invite/{invite_token}"
+            try:
+                frontend_url = await self._get_frontend_url(db)
+            except Exception:
+                frontend_url = "http://localhost:3030"
+
+            invite_link = f"{frontend_url}/register?token={invite_token}"
 
             # Prepare email content
-            subject = "You're invited to join Confab Chat"
+            subject = f"You're invited to join {app_name}"
 
             # HTML email template
             html_content = f"""
@@ -86,7 +110,7 @@ class EmailService:
             <html>
             <head>
                 <meta charset="utf-8">
-                <title>Invitation to Join Confab Chat</title>
+                <title>Invitation to Join {app_name}</title>
                 <style>
                     body {{
                         font-family: Arial, sans-serif;
@@ -103,12 +127,13 @@ class EmailService:
                     }}
                     .button {{
                         display: inline-block;
-                        background-color: #4f46e5;
-                        color: white;
-                        padding: 12px 24px;
+                        background-color: #22c55e;
+                        color: #ffffff;
+                        padding: 14px 28px;
                         text-decoration: none;
-                        border-radius: 6px;
+                        border-radius: 8px;
                         margin: 20px 0;
+                        font-weight: bold;
                     }}
                     .footer {{
                         text-align: center;
@@ -121,8 +146,8 @@ class EmailService:
             <body>
                 <div class="content">
                     <p>Hello,</p>
-                    <p>You've been invited to join Confab Chat{f" by {inviter_name}" if inviter_name else ""}!</p>
-                    <p>Confab Chat is an AI-powered chat platform that helps you get answers and assistance using advanced AI technology.</p>
+                    <p>You've been invited to join {app_name}{f" by {inviter_name}" if inviter_name else ""}!</p>
+                    <p>{app_name} is {app_description}</p>
                     <p>To get started, simply click the button below to accept your invitation and create your account:</p>
                     <div style="text-align: center;">
                         <a href="{invite_link}" class="button">Accept Invitation</a>
@@ -133,7 +158,7 @@ class EmailService:
                     <p>We look forward to having you join our community!</p>
                 </div>
                 <div class="footer">
-                    <p>Best regards,<br>The Confab Chat Team</p>
+                    <p>Warm regards,<br>The {app_name} Team</p>
                 </div>
             </body>
             </html>
@@ -208,11 +233,15 @@ class EmailService:
                         padding: 20px;
                     }}
                     .header {{
-                        background-color: #10b981;
-                        color: white;
-                        padding: 20px;
+                        background-color: #16a34a;
+                        color: #ffffff;
+                        padding: 25px;
                         text-align: center;
                         border-radius: 8px 8px 0 0;
+                    }}
+                    .header h1 {{
+                        margin: 0;
+                        color: #ffffff;
                     }}
                     .content {{
                         background-color: #f9fafb;
@@ -221,12 +250,13 @@ class EmailService:
                     }}
                     .button {{
                         display: inline-block;
-                        background-color: #10b981;
-                        color: white;
-                        padding: 12px 24px;
+                        background-color: #22c55e;
+                        color: #ffffff;
+                        padding: 14px 28px;
                         text-decoration: none;
-                        border-radius: 6px;
+                        border-radius: 8px;
                         margin: 20px 0;
+                        font-weight: bold;
                     }}
                     .footer {{
                         text-align: center;
@@ -302,6 +332,16 @@ class EmailService:
             return True
 
         try:
+            # Get settings for app name
+            try:
+                settings = await settings_service.get_settings(db)
+            except Exception:
+                settings = None
+
+            app_name = (
+                settings.app_name if settings and settings.app_name else "Confab Chat"
+            )
+
             subject = "Invitation Accepted!"
 
             # HTML email template
@@ -321,11 +361,15 @@ class EmailService:
                         padding: 20px;
                     }}
                     .header {{
-                        background-color: #10b981;
-                        color: white;
-                        padding: 20px;
+                        background-color: #16a34a;
+                        color: #ffffff;
+                        padding: 25px;
                         text-align: center;
                         border-radius: 8px 8px 0 0;
+                    }}
+                    .header h1 {{
+                        margin: 0;
+                        color: #ffffff;
                     }}
                     .content {{
                         background-color: #f9fafb;
@@ -334,8 +378,8 @@ class EmailService:
                     }}
                     .status-badge {{
                         display: inline-block;
-                        background-color: #10b981;
-                        color: white;
+                        background-color: #059669;
+                        color: #ffffff;
                         padding: 6px 12px;
                         border-radius: 4px;
                         font-weight: bold;
@@ -355,15 +399,15 @@ class EmailService:
                     <h1>Invitation Accepted!</h1>
                 </div>
                 <div class="content">
-                    <p>Hello Admin,</p>
-                    <p>Great news! Your invitation has been accepted.</p>
+                    <p>Hello,</p>
+                    <p>Great news! A user has accepted your invitation.</p>
                     <p><strong>User Email:</strong> {user_email}</p>
                     <p><strong>Status:</strong> <span class="status-badge">Accepted</span></p>
-                    <p>The user has successfully created their account and can now start using Confab Chat.</p>
+                    <p>The user has successfully created their account and can now start using {app_name}.</p>
                     <p>You can view the updated invitation status in your admin dashboard.</p>
                 </div>
                 <div class="footer">
-                    <p>Best regards,<br>The Confab Chat Team</p>
+                    <p>Warm regards,<br>The {app_name} Team</p>
                 </div>
             </body>
             </html>

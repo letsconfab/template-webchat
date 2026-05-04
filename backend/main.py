@@ -16,8 +16,10 @@ import httpx
 
 # from config import config
 from backend.config import config
+
 # from database import init_db, close_db
 from backend.database import init_db, close_db
+
 # from routers import auth, users, invites, settings, knowledge
 from backend.routers import auth, users, invites, settings, knowledge
 from backend.knowledge_base import knowledge_base
@@ -214,17 +216,32 @@ async def websocket_chat(websocket: WebSocket):
                 {"type": "history", "messages": [msg.model_dump() for msg in history]}
             )
 
-        # Initialize knowledge base if not done
-        if knowledge_base.vector_store is None:
+        # Initialize knowledge base - always try to load latest files
+        # This ensures new documents are picked up when added
+        kb_files = (
+            list(config.KB_ASSETS_DIR.iterdir())
+            if config.KB_ASSETS_DIR.exists()
+            else []
+        )
+        has_files = any(f.is_file() for f in kb_files)
+
+        if has_files or knowledge_base.vector_store is not None:
             try:
                 llm_provider = LLMProvider(provider, model, api_key)
                 embeddings = llm_provider.get_embeddings()
                 knowledge_base.initialize(embeddings)
+                doc_count = sum(1 for f in kb_files if f.is_file())
                 await websocket.send_json(
-                    {"type": "status", "message": "Welcome! I'm ready to help you."}
+                    {
+                        "type": "status",
+                        "message": f"Welcome! I'm ready to help you. ({doc_count} docs loaded)",
+                    }
                 )
             except Exception as e:
+                import traceback
+
                 print(f"Error initializing knowledge base: {e}")
+                print(traceback.format_exc())
                 print("Continuing without knowledge base")
                 await websocket.send_json(
                     {
@@ -232,6 +249,10 @@ async def websocket_chat(websocket: WebSocket):
                         "message": "Welcome! I'm ready to help you. Note: Knowledge base not available.",
                     }
                 )
+        else:
+            await websocket.send_json(
+                {"type": "status", "message": "Welcome! I'm ready to help you."}
+            )
 
         # Chat loop
         while True:

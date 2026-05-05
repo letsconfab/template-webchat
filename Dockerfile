@@ -68,6 +68,11 @@ COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 # Switch to non-root user
 USER appuser
 
+# Container image metadata - links package to repository
+LABEL org.opencontainers.image.source=https://github.com/letsconfab/template-webchat
+LABEL org.opencontainers.image.description="Webchat application with AI capabilities"
+LABEL org.opencontainers.image.title="Template Webchat"
+
 # Expose port
 EXPOSE 8000
 

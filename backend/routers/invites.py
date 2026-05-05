@@ -190,7 +190,12 @@ async def check_invite_token(token: str, db: AsyncSession = Depends(get_db)) -> 
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation has expired"
         )
 
-    return {"valid": True, "email": invite.email, "expiry_date": invite.expiry_date}
+    return {
+        "valid": True,
+        "email": invite.email,
+        "role": invite.role,
+        "expiry_date": invite.expiry_date,
+    }
 
 
 @router.post("/accept-invite/{token}")

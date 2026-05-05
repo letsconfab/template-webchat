@@ -35,8 +35,8 @@ async def get_config_status(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(SystemSettings).limit(1))
     settings = result.scalar_one_or_none()
 
-    # Check if admin user exists
-    result = await db.execute(select(User).where(User.role == "admin"))
+    # Check if admin user exists (use limit(1) to handle multiple admins)
+    result = await db.execute(select(User).where(User.role == "admin").limit(1))
     admin_user = result.scalar_one_or_none()
 
     if not settings and not admin_user:

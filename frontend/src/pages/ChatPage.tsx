@@ -45,7 +45,7 @@ export default function ChatPage() {
   const loadSettingsAndConnect = async () => {
     // Get LLM settings from backend
     try {
-      const response = await fetch('/api/settings/current', {
+      const response = await fetch('/api/settings/chat-config', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -55,7 +55,7 @@ export default function ChatPage() {
         const chatSettings: ChatSettings = {
           provider: data.llm_provider || 'openai',
           model: data.llm_model || 'gpt-4o-mini',
-          apiKey: data.llm_api_key || ''
+          apiKey: '' // API key is handled by backend from database
         }
         setSettings(chatSettings)
         connectWebSocket(chatSettings)

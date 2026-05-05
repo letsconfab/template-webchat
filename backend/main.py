@@ -200,12 +200,36 @@ async def websocket_chat(websocket: WebSocket):
     await manager.connect(websocket)
 
     try:
-        # Receive initial settings
+        # Receive initial settings from client
         data = await websocket.receive_json()
         session_id = data.get("session_id", "default")
-        provider = data.get("provider", "openai")
-        model = data.get("model", "gpt-4o-mini")
-        api_key = data.get("api_key", "")
+        client_provider = data.get("provider", "openai")
+        client_model = data.get("model", "gpt-4o-mini")
+
+        # Get API key from database settings (not from client - more secure)
+        from sqlalchemy import select
+        from backend.models.settings import SystemSettings
+
+        async with AsyncSessionLocal() as settings_db:
+            result = await settings_db.execute(select(SystemSettings).limit(1))
+            settings = result.scalar_one_or_none()
+
+            if settings:
+                provider = (
+                    client_provider
+                    if client_provider != "openai"
+                    else (settings.llm_provider or "openai")
+                )
+                model = (
+                    client_model
+                    if client_model != "gpt-4o-mini"
+                    else (settings.llm_model or "gpt-4o-mini")
+                )
+                api_key = settings.llm_api_key or ""
+            else:
+                provider = client_provider
+                model = client_model
+                api_key = ""
 
         print(
             f"WebSocket: Received settings - session: {session_id}, provider: {provider}, model: {model}"

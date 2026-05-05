@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # from database import get_db
 from backend.database import get_db
-from backend.dependencies.auth import get_current_admin_user
+from backend.dependencies.auth import get_current_admin_user, get_current_active_user
 from backend.models.settings import SystemSettings
 from backend.models.user import User
 from backend.schemas.settings import (
@@ -218,4 +218,29 @@ async def reset_configuration(
 
     return {
         "message": "System configuration reset. You can now reconfigure the system."
+    }
+
+
+@router.get("/chat-config")
+async def get_chat_config(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get LLM settings for chat (any authenticated user).
+
+    Returns provider and model, but NOT the API key.
+    The API key is retrieved from the backend during WebSocket connection.
+    """
+    result = await db.execute(select(SystemSettings).limit(1))
+    settings = result.scalar_one_or_none()
+
+    if not settings:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="System settings not found.",
+        )
+
+    return {
+        "llm_provider": settings.llm_provider or "openai",
+        "llm_model": settings.llm_model or "gpt-4o-mini",
     }

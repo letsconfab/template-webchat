@@ -56,6 +56,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
+# Create kb_assets directory and ensure /app is writable by appuser (updated for coolify)
+RUN mkdir -p /app/kb_assets && \
+    chown -R appuser:appgroup /app && \
+    chmod -R 755 /app
+
 # Copy backend code
 COPY --chown=appuser:appgroup backend/ ./backend/
 COPY --chown=appuser:appgroup requirements.txt .

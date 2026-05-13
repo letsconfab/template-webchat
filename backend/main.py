@@ -20,8 +20,17 @@ from backend.config import config
 # from database import init_db, close_db
 from backend.database import init_db, close_db, AsyncSessionLocal
 
-# from routers import auth, users, invites, settings, knowledge
-from backend.routers import auth, users, invites, settings, knowledge
+# from routers import auth, users, invites, settings, knowledge, feedback, insights
+from backend.routers import (
+    auth,
+    users,
+    invites,
+    settings,
+    knowledge,
+    feedback,
+    insights,
+    wiki,
+)
 from backend.knowledge_base import knowledge_base
 from backend.llm_providers import LLMProvider, validate_api_key, get_available_models
 from backend.services.langfuse_service import langfuse_service
@@ -69,6 +78,80 @@ async def lifespan(app: FastAPI):
     print("Initializing database...")
     await init_db()
 
+    # Try to initialize RAG-Anything if LLM is configured
+    try:
+        from backend.database import engine, AsyncSessionLocal
+        from sqlalchemy import select
+        from backend.models.settings import SystemSettings
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(SystemSettings).limit(1))
+            settings = result.scalar_one_or_none()
+            print(f"Settings object: {settings}, type: {type(settings)}")
+
+            if settings and settings.llm_api_key:
+                from backend.services.rag_anything_service import rag_anything_service
+
+                # Determine base URL based on LLM provider
+                if settings.llm_provider == "sarvam":
+                    base_url = "https://api.sarvam.ai"
+                elif settings.llm_provider == "ollama":
+                    base_url = "http://localhost:11434"
+                else:
+                    base_url = "https://api.openai.com/v1"
+
+                await rag_anything_service.initialize(
+                    api_key=settings.llm_api_key,
+                    base_url=base_url,
+                    llm_model=settings.llm_model or "gpt-4o-mini",
+                )
+                print(
+                    f"RAG-Anything initialized: {rag_anything_service.is_initialized}"
+                )
+
+                # Index existing wiki pages
+                if rag_anything_service.is_initialized:
+                    try:
+                        from backend.models.wiki import WikiPage
+                        from sqlalchemy import select
+                        from backend.database import AsyncSessionLocal
+
+                        async with AsyncSessionLocal() as session:
+                            result = await session.execute(
+                                select(WikiPage).where(
+                                    WikiPage.is_processed == True,
+                                    WikiPage.is_folder == False,
+                                    WikiPage.content.isnot(None),
+                                )
+                            )
+                            wiki_pages = result.scalars().all()
+                            print(f"Found {len(wiki_pages)} wiki pages to index")
+
+                            for page in wiki_pages:
+                                if page.content:
+                                    import tempfile
+                                    import os
+
+                                    temp_file = None
+                                    try:
+                                        with tempfile.NamedTemporaryFile(
+                                            mode="w", suffix=".md", delete=False
+                                        ) as f:
+                                            f.write(f"# {page.title}\n\n{page.content}")
+                                            temp_file = f.name
+                                        await rag_anything_service.process_document(
+                                            file_path=temp_file, parse_method="auto"
+                                        )
+                                        print(f"Indexed wiki: {page.title}")
+                                    finally:
+                                        if temp_file and os.path.exists(temp_file):
+                                            os.remove(temp_file)
+                            print("Wiki indexing complete")
+                    except Exception as e:
+                        print(f"Wiki indexing failed: {e}")
+    except Exception as e:
+        print(f"RAG-Anything auto-init failed: {e}")
+
     # Mount static files for React frontend
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
@@ -109,6 +192,9 @@ app.include_router(users.router)
 app.include_router(invites.router)
 app.include_router(settings.router)
 app.include_router(knowledge.router)
+app.include_router(feedback.router)
+app.include_router(insights.router)
+app.include_router(wiki.router)
 
 # Mount static files for frontend (deployment)
 # app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
@@ -257,10 +343,32 @@ async def websocket_chat(websocket: WebSocket):
                 embeddings = llm_provider.get_embeddings()
                 knowledge_base.initialize(embeddings)
                 doc_count = sum(1 for f in kb_files if f.is_file())
+
+                # Also count wiki pages
+                wiki_count = 0
+                try:
+                    from sqlalchemy import select
+                    from backend.models.wiki import WikiPage
+
+                    result = await db.execute(
+                        select(WikiPage)
+                        .where(WikiPage.is_processed == True)
+                        .where(WikiPage.is_folder == False)
+                    )
+                    wiki_count = len(result.scalars().all())
+                except:
+                    pass
+
+                msg = f"Welcome! I'm ready to help you."
+                if wiki_count > 0:
+                    msg += f" ({wiki_count} wiki pages loaded)"
+                elif doc_count > 0:
+                    msg += f" ({doc_count} docs loaded)"
+
                 await websocket.send_json(
                     {
                         "type": "status",
-                        "message": f"Welcome! I'm ready to help you. ({doc_count} docs loaded)",
+                        "message": msg,
                     }
                 )
             except Exception as e:
@@ -319,18 +427,61 @@ async def websocket_chat(websocket: WebSocket):
                 chat_history[session_id] = []
             chat_history[session_id].append(ChatMessage(role="user", content=message))
 
-            # Search knowledge base (only if initialized)
+            # Search using RAG-Anything or fallback to wiki text search
             relevant_docs = []
-            if knowledge_base.vector_store is not None:
-                relevant_docs = knowledge_base.search(message, k=5)
+            try:
+                from backend.services.rag_anything_service import rag_anything_service
+
+                if rag_anything_service.is_initialized:
+                    # Use RAG-Anything for semantic search
+                    result = await rag_anything_service.query(message, mode="hybrid")
+                    if result.get("success"):
+                        # Extract relevant content from RAG result
+                        rag_content = result.get("result", "")
+                        relevant_docs.append(
+                            {
+                                "title": "RAG-Anything Knowledge",
+                                "content": rag_content[:1000]
+                                if len(rag_content) > 1000
+                                else rag_content,
+                            }
+                        )
+                else:
+                    # Fallback to text search in wiki
+                    from sqlalchemy import select
+                    from backend.models.wiki import WikiPage
+
+                    result = await db.execute(
+                        select(WikiPage)
+                        .where(WikiPage.is_processed == True)
+                        .where(WikiPage.is_folder == False)
+                        .where(WikiPage.content.isnot(None))
+                    )
+                    pages = result.scalars().all()
+
+                    q_lower = message.lower()
+                    for page in pages:
+                        if page.content and (
+                            q_lower in page.content.lower()
+                            or q_lower in page.title.lower()
+                        ):
+                            relevant_docs.append(
+                                {
+                                    "title": page.title,
+                                    "content": page.content[:500]
+                                    if len(page.content) > 500
+                                    else page.content,
+                                }
+                            )
+            except Exception as e:
+                print(f"Wiki/RAG search error: {e}")
 
             # Build context
             context = ""
             if relevant_docs:
                 context_parts = []
-                for i, doc in enumerate(relevant_docs, 1):
-                    source = doc.metadata.get("source", "Unknown")
-                    context_parts.append(f"[{i}] Source: {source}\n{doc.page_content}")
+                for i, doc in enumerate(relevant_docs[:5], 1):
+                    context_parts.append(f"[{i}] {doc['title']}\n{doc['content']}")
                 context = "\n\n".join(context_parts)
 
             # Build messages with conversation history
@@ -339,11 +490,11 @@ async def websocket_chat(websocket: WebSocket):
             )
             messages = [SystemMessage(content=system_prompt)]
 
-            # Add knowledge base context if available
+            # Add wiki context if available
             if context:
                 messages.append(
                     SystemMessage(
-                        content=f"Relevant knowledge base documents:\n\n{context}\n\nUse the above information to answer the user's question."
+                        content=f"Relevant information from knowledge base:\n\n{context}\n\nUse the above information to answer the user's question."
                     )
                 )
 

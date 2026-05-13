@@ -46,6 +46,13 @@ async def init_db():
     from backend.models.invite import Invite
     from backend.models.settings import SystemSettings
     from backend.models.knowledge import KnowledgeDocument, KnowledgeChunk
+    from backend.models.wiki import (
+        WikiPage,
+        WikiVersion,
+        KnowledgeInsight,
+        UserFeedback,
+        ChatMessage,
+    )
 
     async with engine.begin() as conn:
         # Create all tables

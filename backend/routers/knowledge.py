@@ -1,6 +1,6 @@
 """Knowledge base management endpoints."""
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ from backend.dependencies.auth import get_current_admin_user
 from backend.models.user import User
 from backend.models.settings import SystemSettings
 from backend.services.knowledge import knowledge_service
+from backend.services.rag_anything_service import rag_anything_service
 from backend.config import config
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -126,6 +127,28 @@ async def upload_document(
         file_type=file_ext[1:],  # Remove the dot
     )
 
+    # Update RAG-Anything index
+    if rag_anything_service.is_initialized:
+        try:
+            import tempfile
+            import os
+
+            temp_file = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", suffix=file_ext, delete=False
+                ) as f:
+                    f.write(content)
+                    temp_file = f.name
+                await rag_anything_service.process_document(
+                    file_path=temp_file, parse_method="auto"
+                )
+            finally:
+                if temp_file and os.path.exists(temp_file):
+                    os.remove(temp_file)
+        except Exception as e:
+            print(f"Failed to update RAG-Anything: {e}")
+
     return result
 
 
@@ -198,3 +221,91 @@ async def search_knowledge_base(
     """Search the knowledge base for relevant documents."""
     results = await knowledge_service.search(db, query, limit)
     return {"results": results}
+
+
+@router.post("/rag-anything/init")
+async def init_rag_anything(
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Initialize RAG-Anything with LLM configuration."""
+    result = await db.execute(select(SystemSettings).limit(1))
+    settings = result.scalar_one_or_none()
+
+    if not settings or not settings.llm_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="LLM API key not configured"
+        )
+
+    await rag_anything_service.initialize(
+        api_key=settings.llm_api_key,
+        base_url="https://api.openai.com/v1",
+        llm_model=settings.llm_model or "gpt-4o",
+    )
+
+    return {"status": "initialized", "success": rag_anything_service.is_initialized}
+
+
+@router.post("/rag-anything/process")
+async def process_with_rag_anything(
+    document_id: int,
+    parse_method: str = "auto",
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Process an existing document with RAG-Anything."""
+    if not rag_anything_service.is_initialized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="RAG-Anything not initialized. Call /rag-anything/init first.",
+        )
+
+    doc = await knowledge_service.get_document(db, document_id)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+
+    result = await rag_anything_service.process_document(
+        file_path=doc["file_path"],
+        parse_method=parse_method,
+    )
+
+    return result
+
+
+@router.post("/rag-anything/query")
+async def query_rag_anything(
+    query: str,
+    mode: str = "hybrid",
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Query the RAG-Anything knowledge base."""
+    if not rag_anything_service.is_initialized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="RAG-Anything not initialized. Call /rag-anything/init first.",
+        )
+
+    result = await rag_anything_service.query(query, mode=mode)
+    return result
+
+
+@router.post("/rag-anything/query/multimodal")
+async def query_rag_anything_multimodal(
+    query: str,
+    multimodal_content: List[Dict[str, Any]],
+    mode: str = "hybrid",
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Query RAG-Anything with multimodal content."""
+    if not rag_anything_service.is_initialized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="RAG-Anything not initialized. Call /rag-anything/init first.",
+        )
+
+    result = await rag_anything_service.query_multimodal(
+        query, multimodal_content, mode=mode
+    )
+    return result

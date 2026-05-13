@@ -8,6 +8,9 @@ import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import ConfigurationWizard from './pages/ConfigurationWizard'
 import AdminSettings from './pages/AdminSettings'
+import FeedbackDashboard from './pages/FeedbackDashboard'
+import InsightsReview from './pages/InsightsReview'
+import KnowledgeBook from './pages/KnowledgeBook'
 
 const InviteRedirect = () => {
   const { token } = useParams()
@@ -118,6 +121,30 @@ function App() {
                   element={
                     <ProtectedRoute requireAdmin>
                       <AdminSettings />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/feedback" 
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <FeedbackDashboard />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/insights" 
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <InsightsReview />
+                    </ProtectedRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin/knowledge" 
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <KnowledgeBook />
                     </ProtectedRoute>
                   } 
                 />

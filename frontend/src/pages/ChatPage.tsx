@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Send, Loader2, Settings, LogOut, MessageSquare } from 'lucide-react'
-import { ChatWebSocket, type Settings as ChatSettings, getSessionId } from '../services/api'
+import { Send, Loader2, Settings, LogOut, MessageSquare, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { ChatWebSocket, type Settings as ChatSettings, getSessionId, api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  feedback?: 'thumbs_up' | 'thumbs_down' | null
 }
 
 export default function ChatPage() {
@@ -137,6 +138,26 @@ export default function ChatPage() {
     navigate('/login')
   }
 
+  const handleFeedback = async (messageIndex: number, feedbackType: 'thumbs_up' | 'thumbs_down') => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+
+    try {
+      await api.post('/api/feedback', {
+        feedback_type: feedbackType,
+        rating: feedbackType === 'thumbs_up' ? 5 : 1
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      
+      setMessages(prev => prev.map((msg, idx) => 
+        idx === messageIndex ? { ...msg, feedback: feedbackType } : msg
+      ))
+    } catch (error) {
+      console.error('Failed to submit feedback:', error)
+    }
+  }
+
   if (!user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -201,6 +222,33 @@ export default function ChatPage() {
                   }`}
                 >
                   <div className="whitespace-pre-wrap">{msg.content}</div>
+                  
+                  {msg.role === 'assistant' && (
+                    <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/50">
+                      {msg.feedback ? (
+                        <span className="text-xs text-muted-foreground">
+                          {msg.feedback === 'thumbs_up' ? '👍 Thanks!' : '👎 Sorry about that'}
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleFeedback(idx, 'thumbs_up')}
+                            className="p-1 hover:bg-secondary rounded transition-colors"
+                            title="Helpful"
+                          >
+                            <ThumbsUp className="w-4 h-4 text-muted-foreground" />
+                          </button>
+                          <button
+                            onClick={() => handleFeedback(idx, 'thumbs_down')}
+                            className="p-1 hover:bg-secondary rounded transition-colors"
+                            title="Not helpful"
+                          >
+                            <ThumbsDown className="w-4 h-4 text-muted-foreground" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { LogOut, Users, Mail, CheckCircle, Copy, Settings, MessageSquare, Code } from 'lucide-react'
+import { LogOut, Users, Mail, CheckCircle, Copy, Settings, MessageSquare, Code, ThumbsUp, Lightbulb, BookOpen } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 import { Button } from '../components/ui/button'
@@ -207,27 +207,6 @@ const AdminDashboard: React.FC = () => {
               </CardContent>
             </Card>
 
-          <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-purple-50/30">
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
-                  <div className="p-2 bg-gradient-to-br from-purple-500 to-pink-600 rounded-lg">
-                    <Users className="h-5 w-5 text-white" />
-                  </div>
-                  <div className="text-xs text-purple-600 font-medium bg-purple-50 px-2 py-1 rounded-full">Management</div>
-                </div>
-                <CardTitle className="text-lg font-bold text-gray-900 mt-3">User Management</CardTitle>
-                <CardDescription className="text-gray-600">
-                  Manage invited users and view registrations
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" className="w-full bg-white/80 hover:bg-white border-purple-200 hover:border-purple-300 text-purple-700 hover:text-purple-800 shadow-sm hover:shadow-md transition-all duration-200" onClick={scrollToInviteUsers}>
-                  <Users className="h-4 w-4 mr-2" />
-                  View Users
-                </Button>
-              </CardContent>
-            </Card>
-
           <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-green-50/30">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
@@ -236,7 +215,7 @@ const AdminDashboard: React.FC = () => {
                   </div>
                   <div className="text-xs text-green-600 font-medium bg-green-50 px-2 py-1 rounded-full">Quick Access</div>
                 </div>
-                <CardTitle className="text-lg font-bold text-gray-900 mt-3">Quick Actions</CardTitle>
+                <CardTitle className="text-lg font-bold text-gray-900 mt-3">Quick Chat</CardTitle>
                 <CardDescription className="text-gray-600">
                   Access the chat interface directly
                 </CardDescription>
@@ -246,6 +225,75 @@ const AdminDashboard: React.FC = () => {
                   <Button variant="outline" className="w-full bg-white/80 hover:bg-white border-green-200 hover:border-green-300 text-green-700 hover:text-green-800 shadow-sm hover:shadow-md transition-all duration-200">
                     <MessageSquare className="h-4 w-4 mr-2" />
                     Open Chat
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+
+          <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-amber-50/30">
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg">
+                    <ThumbsUp className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="text-xs text-amber-600 font-medium bg-amber-50 px-2 py-1 rounded-full">Review</div>
+                </div>
+                <CardTitle className="text-lg font-bold text-gray-900 mt-3">User Feedback</CardTitle>
+                <CardDescription className="text-gray-600">
+                  Review thumbs up/down feedback from users
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link to="/admin/feedback">
+                  <Button variant="outline" className="w-full bg-white/80 hover:bg-white border-amber-200 hover:border-amber-300 text-amber-700 hover:text-amber-800 shadow-sm hover:shadow-md transition-all duration-200">
+                    <ThumbsUp className="h-4 w-4 mr-2" />
+                    View Feedback
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+
+          <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-indigo-50/30">
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg">
+                    <Lightbulb className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="text-xs text-indigo-600 font-medium bg-indigo-50 px-2 py-1 rounded-full">Review</div>
+                </div>
+                <CardTitle className="text-lg font-bold text-gray-900 mt-3">Insights Review</CardTitle>
+                <CardDescription className="text-gray-600">
+                  Review and approve auto-detected knowledge insights
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link to="/admin/insights">
+                  <Button variant="outline" className="w-full bg-white/80 hover:bg-white border-indigo-200 hover:border-indigo-300 text-indigo-700 hover:text-indigo-800 shadow-sm hover:shadow-md transition-all duration-200">
+                    <Lightbulb className="h-4 w-4 mr-2" />
+                    Review Insights
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+
+          <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-cyan-50/30">
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="p-2 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg">
+                    <BookOpen className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="text-xs text-cyan-600 font-medium bg-cyan-50 px-2 py-1 rounded-full">Knowledge</div>
+                </div>
+                <CardTitle className="text-lg font-bold text-gray-900 mt-3">Knowledge Book</CardTitle>
+                <CardDescription className="text-gray-600">
+                  View shared knowledge base from uploads and insights
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link to="/admin/knowledge">
+                  <Button variant="outline" className="w-full bg-white/80 hover:bg-white border-cyan-200 hover:border-cyan-300 text-cyan-700 hover:text-cyan-800 shadow-sm hover:shadow-md transition-all duration-200">
+                    <BookOpen className="h-4 w-4 mr-2" />
+                    View Knowledge
                   </Button>
                 </Link>
               </CardContent>

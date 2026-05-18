@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Badge } from '../components/ui/badge'
-import { Loader2, Save, RotateCcw, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings, Bot, Database, Upload, RefreshCw, Trash2, Download } from 'lucide-react'
+import { Loader2, Save, RotateCcw, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings, Bot } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 
 interface SystemSettings {
@@ -32,6 +32,11 @@ interface SystemSettings {
   llm_provider: string
   llm_model: string
   llm_api_key: string
+  // Knowledge Book / RAG Configuration
+  rag_provider: string
+  rag_model: string
+  rag_api_key: string
+  rag_base_url: string
   // Foundry Configuration
   foundry_url: string
   foundry_confab_id: number | null
@@ -51,14 +56,10 @@ export default function AdminSettings() {
   const { user } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
-  const [knowledgeStatus, setKnowledgeStatus] = useState<{document_count: number, llm_provider: string, llm_model: string} | null>(null)
-  const [documents, setDocuments] = useState<{id: number, filename: string, size: number, file_type: string, created_at: string}[]>([])
   const [activeTab, setActiveTab] = useState('basic')
 
   useEffect(() => {
@@ -67,8 +68,6 @@ export default function AdminSettings() {
       return
     }
     loadSettings()
-    loadKnowledgeStatus()
-    loadDocuments()
   }, [user, navigate])
 
   const loadSettings = async () => {
@@ -90,182 +89,6 @@ export default function AdminSettings() {
     } finally {
       setIsLoading(false)
     }
-  }
-
-  const loadKnowledgeStatus = async () => {
-    try {
-      const response = await fetch('/api/knowledge/status')
-      if (response.ok) {
-        const data = await response.json()
-        setKnowledgeStatus(data)
-      }
-    } catch (error) {
-      console.error('Failed to load knowledge status:', error)
-    }
-  }
-
-  const loadDocuments = async () => {
-    try {
-      const response = await fetch('/api/knowledge/documents', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setDocuments(data)
-      }
-    } catch (error) {
-      console.error('Failed to load documents:', error)
-    }
-  }
-
-  const deleteDocument = async (docId: number) => {
-    if (!confirm('Are you sure you want to delete this document? This will also remove all related chunks.')) {
-      return
-    }
-    
-    try {
-      const response = await fetch(`/api/knowledge/documents/${docId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error('Failed to delete document')
-      }
-      
-      setSuccess('Document deleted successfully')
-      loadDocuments()
-      loadKnowledgeStatus()
-    } catch (error: any) {
-      setError(error.message || 'Failed to delete document')
-    }
-  }
-
-  const downloadDocument = async (docId: number, filename: string) => {
-    try {
-      const response = await fetch(`/api/knowledge/documents/${docId}/download`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error('Failed to download document')
-      }
-      
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      a.remove()
-    } catch (error: any) {
-      setError(error.message || 'Failed to download document')
-    }
-  }
-
-  const handleSyncFromFoundry = async () => {
-    if (!settings?.foundry_url || !settings.foundry_confab_id) {
-      setError('Please configure Foundry URL and Confab ID first')
-      return
-    }
-    
-    setIsSyncing(true)
-    setError(null)
-    setSuccess(null)
-    
-    try {
-      // For now, we need the user's Foundry token - in production this would be stored
-      // For demo, we'll show an alert asking for token
-      const token = prompt('Please enter your Foundry access token:')
-      if (!token) {
-        setIsSyncing(false)
-        return
-      }
-      
-      const response = await fetch('/api/knowledge/sync-foundry', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          foundry_url: settings.foundry_url,
-          access_token: token,
-          confab_id: settings.foundry_confab_id
-        })
-      })
-      
-      if (!response.ok) {
-        throw new Error('Failed to sync from Foundry')
-      }
-      
-      const result = await response.json()
-      setSuccess(`Synced ${result.synced_count} documents from Foundry`)
-      loadKnowledgeStatus()
-    } catch (error: any) {
-      setError(error.message || 'Failed to sync from Foundry')
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
-  const handleUploadDocument = async () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.pdf,.docx,.md,.txt'
-    
-    input.onchange = async (e: any) => {
-      const file = e.target.files[0]
-      if (!file) return
-      
-      // Check file type
-      const allowedTypes = ['.pdf', '.docx', '.md', '.txt']
-      const fileExt = '.' + file.name.split('.').pop()?.toLowerCase()
-      if (!allowedTypes.includes(fileExt)) {
-        setError(`File type not allowed. Allowed types: ${allowedTypes.join(', ')}`)
-        return
-      }
-      
-      setIsUploading(true)
-      setError(null)
-      setSuccess(null)
-      
-      try {
-        const formData = new FormData()
-        formData.append('file', file)
-        
-        const response = await fetch('/api/knowledge/upload', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          },
-          body: formData
-        })
-        
-        if (!response.ok) {
-          const err = await response.json()
-          throw new Error(err.detail || 'Failed to upload document')
-        }
-        
-        setSuccess(`Uploaded: ${file.name}`)
-        loadDocuments()
-        loadKnowledgeStatus()
-      } catch (error: any) {
-        setError(error.message || 'Failed to upload document')
-      } finally {
-        setIsUploading(false)
-      }
-    }
-    
-    input.click()
   }
 
   const handleInputChange = (field: keyof SystemSettings, value: string | number | boolean) => {
@@ -433,7 +256,7 @@ export default function AdminSettings() {
         )}
 
        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="basic">
               <Settings className="h-4 w-4 mr-2" />
               Basic
@@ -445,10 +268,6 @@ export default function AdminSettings() {
             <TabsTrigger value="llm">
               <Bot className="h-4 w-4 mr-2" />
               AI
-            </TabsTrigger>
-            <TabsTrigger value="knowledge">
-              <Database className="h-4 w-4 mr-2" />
-              Knowledge
             </TabsTrigger>
             <TabsTrigger value="security">
               <Shield className="h-4 w-4 mr-2" />
@@ -662,92 +481,60 @@ export default function AdminSettings() {
                     placeholder="https://cloud.langfuse.com"
                   />
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
-          <TabsContent value="knowledge" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Knowledge Base</CardTitle>
-                <CardDescription>
-                  Upload documents (PDF, DOCX, MD, TXT) for the AI to use in chat responses
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => { handleUploadDocument(); loadDocuments(); }}
-                    disabled={isUploading}
-                  >
-                    {isUploading ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Upload className="h-4 w-4 mr-2" />
-                    )}
-                    Upload Document
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => { loadDocuments(); loadKnowledgeStatus(); }}>
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Refresh
-                  </Button>
+                <div className="pt-4 border-t">
+                  <h4 className="font-medium mb-3">Knowledge Book / RAG Service</h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Configure the separate multimodal RAG service used to ground chat in the knowledge book.
+                    These settings are synced to the container independently from the main chat LLM settings.
+                  </p>
                 </div>
-                
-                {knowledgeStatus && (
-                  <div className="bg-muted rounded-lg p-3">
-                    <span className="font-medium">{knowledgeStatus.document_count}</span> documents | 
-                    AI: {knowledgeStatus.llm_provider} / {knowledgeStatus.llm_model}
-                  </div>
-                )}
-                
-                {documents.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No documents uploaded yet. Upload PDF, DOCX, MD, or TXT files to get started.
-                  </div>
-                ) : (
-                  <div className="border rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Filename</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Type</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Size</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Uploaded</th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {documents.map((doc) => (
-                          <tr key={doc.id}>
-                            <td className="px-4 py-2 text-sm">{doc.filename}</td>
-                            <td className="px-4 py-2 text-sm">{doc.file_type}</td>
-                            <td className="px-4 py-2 text-sm">{(doc.size / 1024).toFixed(1)} KB</td>
-                            <td className="px-4 py-2 text-sm">{new Date(doc.created_at).toLocaleDateString()}</td>
-                            <td className="px-4 py-2 text-right space-x-2">
-                              <Button 
-                                variant="ghost" 
-                                size="sm"
-                                className="text-blue-600 hover:text-blue-700"
-                                onClick={() => downloadDocument(doc.id, doc.filename)}
-                              >
-                                <Download className="h-4 w-4" />
-                              </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="sm"
-                                className="text-red-600 hover:text-red-700"
-                                onClick={() => deleteDocument(doc.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+
+                <div>
+                  <Label htmlFor="rag_provider">RAG Provider</Label>
+                  <select
+                    id="rag_provider"
+                    value={settings.rag_provider || settings.llm_provider || 'openai'}
+                    onChange={(e) => handleInputChange('rag_provider', e.target.value)}
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background"
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="groq">Groq</option>
+                    <option value="ollama">Ollama</option>
+                    <option value="sarvam">Sarvam</option>
+                  </select>
+                </div>
+
+                <div>
+                  <Label htmlFor="rag_model">RAG Model</Label>
+                  <Input
+                    id="rag_model"
+                    value={settings.rag_model || settings.llm_model || ''}
+                    onChange={(e) => handleInputChange('rag_model', e.target.value)}
+                    placeholder="gpt-4o-mini"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="rag_api_key">RAG API Key</Label>
+                  <Input
+                    id="rag_api_key"
+                    type="password"
+                    value={settings.rag_api_key || ''}
+                    onChange={(e) => handleInputChange('rag_api_key', e.target.value)}
+                    placeholder="Enter the RAG service API key"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="rag_base_url">RAG Base URL</Label>
+                  <Input
+                    id="rag_base_url"
+                    value={settings.rag_base_url || ''}
+                    onChange={(e) => handleInputChange('rag_base_url', e.target.value)}
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

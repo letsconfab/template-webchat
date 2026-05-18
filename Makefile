@@ -6,13 +6,29 @@ VENV = .venv
 # Python path
 PYTHONPATH = $(CURDIR)
 
-.PHONY: help setup install install-fe run run-be run-fe run-db build build-fe dev clean docker-build docker-login docker-push docker-publish
+# Container runtime detection
+CONTAINER_RUNTIME = $(shell if command -v podman >/dev/null 2>&1; then echo podman; else echo docker; fi)
+COMPOSE_RUNTIME = $(shell \
+	if command -v podman >/dev/null 2>&1; then \
+		if podman compose version >/dev/null 2>&1; then \
+			echo "podman compose"; \
+		elif command -v podman-compose >/dev/null 2>&1; then \
+			echo podman-compose; \
+		else \
+			echo "docker compose"; \
+		fi; \
+	else \
+		echo "docker compose"; \
+	fi)
+
+.PHONY: help setup install install-full install-fe run run-be run-fe run-db build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
 
 # Default target
 help:
 	@echo "template-webchat - Available commands:"
 	@echo "  make setup         - Initial setup (create db, install deps)"
 	@echo "  make install      - Install backend dependencies (creates venv)"
+	@echo "  make install-full - Install backend dependencies and note containerized RAG service"
 	@echo "  make install-fe   - Install frontend dependencies"
 	@echo "  make run          - Run both backend and frontend"
 	@echo "  make run-be       - Run backend only"
@@ -21,12 +37,18 @@ help:
 	@echo "  make build        - Build frontend"
 	@echo "  make dev          - Run in development mode"
 	@echo "  make clean        - Clean build artifacts"
+	@echo "  make smoke-rag    - Start the RAG service and check its health"
 	@echo "  make docker-push  - Push Docker image to GitHub Packages (requires CR_PAT env var)"
+	@echo "  Runtime          - $(CONTAINER_RUNTIME) / $(COMPOSE_RUNTIME)"
 
 # Initial setup
 setup:
 	@echo "Creating database..."
-	-createdb webchat_db 2>/dev/null || true
+	@if [ -x "$(VENV)/bin/python" ]; then \
+		$(VENV)/bin/python scripts/ensure_database.py; \
+	else \
+		python3 -m venv $(VENV) && $(VENV)/bin/pip install asyncpg && $(VENV)/bin/python scripts/ensure_database.py; \
+	fi
 	@echo "Database ready. Install dependencies with: make install && make install-fe"
 
 # Create virtual environment if it doesn't exist
@@ -35,7 +57,14 @@ $(VENV):
 
 # Install dependencies (creates venv if needed)
 install: $(VENV)
+	@echo "Installing core backend dependencies..."
 	$(VENV)/bin/pip install -r requirements.txt
+	@echo "RAG-Anything runs in the separate Docker container. Use 'docker compose up' to start it."
+
+# Install backend dependencies and surface the containerized RAG service note
+install-full: $(VENV)
+	@$(MAKE) install
+	@echo "AnythingRAG is now containerized. Start the full stack with 'docker compose up'."
 
 install-fe:
 	cd frontend && npm install
@@ -51,7 +80,22 @@ run-fe:
 
 # Run database
 run-db:
-	docker compose up postgres
+	$(COMPOSE_RUNTIME) up postgres
+
+# Smoke test the isolated RAG service
+smoke-rag:
+	$(COMPOSE_RUNTIME) up -d rag-anything
+	@echo "Waiting for RAG service health..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if curl -fsS http://localhost:8010/health >/dev/null; then \
+			curl -fsS http://localhost:8010/status; \
+			echo ""; \
+			exit 0; \
+		fi; \
+		sleep 2; \
+	done; \
+	echo "RAG service did not become healthy in time" >&2; \
+	exit 1
 
 # Build
 build:
@@ -77,7 +121,7 @@ IMAGE = $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
 # Docker build
 docker-build:
-	docker build -t $(IMAGE) .
+	$(CONTAINER_RUNTIME) build -t $(IMAGE) .
 
 # Docker login (requires CR_PAT env var)
 docker-login:
@@ -85,11 +129,11 @@ docker-login:
 		echo "Error: CR_PAT env var not set. Run: export CR_PAT=your_pat"; \
 		exit 1; \
 	fi
-	@echo "$$CR_PAT" | docker login $(REGISTRY) -u letsconfab --password-stdin
+	@echo "$$CR_PAT" | $(CONTAINER_RUNTIME) login $(REGISTRY) -u letsconfab --password-stdin
 
 # Docker push
 docker-push:
-	docker push $(IMAGE)
+	$(CONTAINER_RUNTIME) push $(IMAGE)
 
 # Docker publish (login + build + push)
 docker-publish: docker-login docker-build docker-push

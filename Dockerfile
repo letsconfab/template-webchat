@@ -53,11 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     curl \
     git \
-    libreoffice \
     && rm -rf /var/lib/apt/lists/*
-
-# Install raganything and mineru for multimodal document processing
-RUN pip install --no-cache-dir git+https://github.com/HKUDS/RAG-Anything.git
 
 # Create non-root user
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser

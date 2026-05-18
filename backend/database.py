@@ -46,6 +46,13 @@ async def init_db():
     from backend.models.invite import Invite
     from backend.models.settings import SystemSettings
     from backend.models.knowledge import KnowledgeDocument, KnowledgeChunk
+    from backend.models.knowledge_book import (
+        KnowledgeSource,
+        KnowledgeBookPatch,
+        KnowledgeBookAuditLog,
+        KnowledgeBookNode,
+        KnowledgeBookJob,
+    )
     from backend.models.wiki import (
         WikiPage,
         WikiVersion,
@@ -81,7 +88,11 @@ async def run_migrations():
                     ALTER TABLE system_settings 
                     ADD COLUMN IF NOT EXISTS langfuse_secret_key VARCHAR(500),
                     ADD COLUMN IF NOT EXISTS langfuse_public_key VARCHAR(500),
-                    ADD COLUMN IF NOT EXISTS langfuse_base_url VARCHAR(500)
+                    ADD COLUMN IF NOT EXISTS langfuse_base_url VARCHAR(500),
+                    ADD COLUMN IF NOT EXISTS rag_provider VARCHAR(50) DEFAULT 'openai',
+                    ADD COLUMN IF NOT EXISTS rag_model VARCHAR(100) DEFAULT 'gpt-4o-mini',
+                    ADD COLUMN IF NOT EXISTS rag_api_key VARCHAR(500),
+                    ADD COLUMN IF NOT EXISTS rag_base_url VARCHAR(500)
                 """)
                 )
                 print("Migration: Added langfuse columns to system_settings")

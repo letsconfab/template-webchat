@@ -62,6 +62,20 @@ class SystemSettingsBase(BaseModel):
     )
     llm_api_key: Optional[str] = Field(None, max_length=500, description="LLM API key")
 
+    # Knowledge Book / RAG Configuration
+    rag_provider: Optional[str] = Field(
+        "openai", max_length=50, description="Knowledge book LLM provider"
+    )
+    rag_model: Optional[str] = Field(
+        "gpt-4o-mini", max_length=100, description="Knowledge book LLM model"
+    )
+    rag_api_key: Optional[str] = Field(
+        None, max_length=500, description="Knowledge book LLM API key"
+    )
+    rag_base_url: Optional[str] = Field(
+        None, max_length=500, description="Knowledge book LLM base URL"
+    )
+
     # Foundry Configuration
     foundry_url: Optional[str] = Field(
         None, max_length=500, description="Foundry instance URL"

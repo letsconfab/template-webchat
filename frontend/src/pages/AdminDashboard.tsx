@@ -286,7 +286,7 @@ const AdminDashboard: React.FC = () => {
                 </div>
                 <CardTitle className="text-lg font-bold text-gray-900 mt-3">Knowledge Book</CardTitle>
                 <CardDescription className="text-gray-600">
-                  View shared knowledge base from uploads and insights
+                  View the generated knowledge book and draft pipeline
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -307,12 +307,12 @@ const AdminDashboard: React.FC = () => {
             
 
             <Card>
-              <CardHeader>
-                <CardTitle>System Settings</CardTitle>
-                <CardDescription>
-                  Configure application settings, LLM, and knowledge base
-                </CardDescription>
-              </CardHeader>
+                <CardHeader>
+                  <CardTitle>System Settings</CardTitle>
+                  <CardDescription>
+                  Configure application settings and LLM settings
+                  </CardDescription>
+                </CardHeader>
               <CardContent>
                 <Link to="/admin/settings">
                   <Button variant="outline" className="w-full">

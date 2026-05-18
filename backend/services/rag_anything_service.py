@@ -1,23 +1,101 @@
-"""RAG-Anything service for multimodal document processing."""
+"""Client wrapper for the separate RAG-Anything service container."""
 
-import os
+from __future__ import annotations
+
 import asyncio
 import logging
+import os
 from pathlib import Path
-from typing import Optional, List, Dict, Any
-from functools import partial
+from typing import Any, Dict, List, Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
 
 class RAGAnythingService:
-    """Service wrapper for RAG-Anything multimodal RAG."""
+    """HTTP client for the external RAG-Anything service."""
 
-    def __init__(self):
-        self.rag = None
+    def __init__(self) -> None:
+        self.base_url = os.getenv("RAG_SERVICE_URL", "http://localhost:8010").rstrip(
+            "/"
+        )
+        self.timeout = float(os.getenv("RAG_SERVICE_TIMEOUT", "180"))
         self.is_initialized = False
-        self.output_dir = Path("./rag_anything_output")
-        self.output_dir.mkdir(exist_ok=True)
+        self._last_config: Dict[str, Any] = {}
+
+    def _normalize_base_url(self, provider: str, base_url: Optional[str]) -> str:
+        if base_url:
+            return base_url.rstrip("/")
+        if provider == "groq":
+            return "https://api.groq.com/openai/v1"
+        if provider == "ollama":
+            return "http://host.docker.internal:11434/v1"
+        if provider == "sarvam":
+            return "https://api.sarvam.ai/v1"
+        return "https://api.openai.com/v1"
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_data: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        url = f"{self.base_url}{path}"
+        async with httpx.AsyncClient(timeout=timeout or self.timeout) as client:
+            response = await client.request(
+                method,
+                url,
+                json=json_data,
+                files=files,
+                data=data,
+            )
+        response.raise_for_status()
+        if response.content:
+            return response.json()
+        return {}
+
+    async def health(self) -> bool:
+        try:
+            data = await self._request("GET", "/health", timeout=5.0)
+            return data.get("status") == "healthy" and data.get("ready", False)
+        except Exception as exc:
+            logger.debug("RAG-Anything health check failed: %s", exc)
+            return False
+
+    async def status(self) -> Dict[str, Any]:
+        try:
+            return await self._request("GET", "/status", timeout=5.0)
+        except Exception as exc:
+            logger.debug("RAG-Anything status check failed: %s", exc)
+            return {
+                "initialized": self.is_initialized,
+                "base_url": self.base_url,
+                "error": str(exc),
+            }
+
+    async def sync_from_settings(self, settings: Any) -> Dict[str, Any]:
+        provider = getattr(settings, "rag_provider", None) or getattr(
+            settings, "llm_provider", None
+        ) or "openai"
+        model = getattr(settings, "rag_model", None) or getattr(
+            settings, "llm_model", None
+        ) or "gpt-4o-mini"
+        api_key = getattr(settings, "rag_api_key", None)
+        if api_key is None:
+            api_key = getattr(settings, "llm_api_key", None)
+        base_url = getattr(settings, "rag_base_url", None)
+        payload = {
+            "provider": provider,
+            "model": model,
+            "api_key": api_key or "",
+            "base_url": self._normalize_base_url(provider, base_url),
+        }
+        return await self.initialize(**payload)
 
     async def initialize(
         self,
@@ -25,163 +103,126 @@ class RAGAnythingService:
         base_url: str = "https://api.openai.com/v1",
         llm_model: str = "gpt-4o",
         embedding_model: str = "text-embedding-3-large",
-    ):
-        """Initialize RAG-Anything with LLM and embedding functions."""
+        provider: str = "openai",
+    ) -> Dict[str, Any]:
+        """Sync the configured settings to the container."""
+        return await self.sync_config(
+            provider=provider,
+            model=llm_model,
+            api_key=api_key,
+            base_url=base_url,
+            embedding_model=embedding_model,
+        )
+
+    async def sync_config(
+        self,
+        *,
+        provider: str,
+        model: str,
+        api_key: str,
+        base_url: str,
+        embedding_model: str = "fastembed",
+    ) -> Dict[str, Any]:
+        payload = {
+            "provider": provider,
+            "model": model,
+            "api_key": api_key,
+            "base_url": base_url,
+            "embedding_model": embedding_model,
+        }
         try:
-            from raganything import RAGAnything, RAGAnythingConfig
-            from lightrag.llm.openai import openai_complete_if_cache, openai_embed
-
-            config = RAGAnythingConfig(
-                working_dir=str(self.output_dir),
-                enable_image_processing=True,
-                enable_table_processing=True,
-                enable_equation_processing=True,
-            )
-
-            def llm_model_func(
-                prompt: str,
-                system_prompt: Optional[str] = None,
-                history_messages: Optional[List[Dict]] = None,
-                **kwargs,
-            ):
-                messages = []
-                if system_prompt:
-                    messages.append({"role": "system", "content": system_prompt})
-                if history_messages:
-                    messages.extend(history_messages)
-                messages.append({"role": "user", "content": prompt})
-
-                return openai_complete_if_cache(
-                    model=llm_model,
-                    api_key=api_key,
-                    base_url=base_url,
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    history_messages=history_messages or [],
-                    **kwargs,
-                )
-
-            def vision_model_func(
-                prompt: str,
-                image_data: Optional[str] = None,
-                system_prompt: Optional[str] = None,
-                history_messages: Optional[List[Dict]] = None,
-                **kwargs,
-            ):
-                messages = []
-                if system_prompt:
-                    messages.append({"role": "system", "content": system_prompt})
-                if history_messages:
-                    messages.extend(history_messages)
-
-                if image_data:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{image_data}"
-                                    },
-                                },
-                            ],
-                        }
-                    )
-                else:
-                    messages.append({"role": "user", "content": prompt})
-
-                return openai_complete_if_cache(
-                    model=llm_model,
-                    api_key=api_key,
-                    base_url=base_url,
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    history_messages=history_messages or [],
-                    **kwargs,
-                )
-
-            def embedding_func(input: List[str]) -> List[List[float]]:
-                return openai_embed(
-                    model=embedding_model,
-                    api_key=api_key,
-                    base_url=base_url,
-                    input=input,
-                )
-
-            self.rag = RAGAnything(
-                config=config,
-                llm_model_func=llm_model_func,
-                vision_model_func=vision_model_func,
-                embedding_func=embedding_func,
-            )
-
-            await self.rag.finalize_storages()
-            self.is_initialized = True
-            logger.info("RAG-Anything initialized successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to initialize RAG-Anything: {e}")
+            data = await self._request("POST", "/config/sync", json_data=payload)
+            self._last_config = payload
+            self.is_initialized = bool(data.get("initialized", False))
+            return {"success": True, **data}
+        except Exception as exc:
             self.is_initialized = False
+            logger.error("Failed to sync RAG-Anything config: %s", exc)
+            return {"success": False, "error": str(exc)}
 
-    async def process_document(
+    async def ingest_file(
         self,
         file_path: str,
+        *,
+        source_name: Optional[str] = None,
         parse_method: str = "auto",
     ) -> Dict[str, Any]:
-        """Process a document with RAG-Anything."""
-        if not self.is_initialized or not self.rag:
+        if not self.is_initialized:
             return {"success": False, "error": "RAG-Anything not initialized"}
 
+        path = Path(file_path)
         try:
-            result = await self.rag.process_document_complete(
-                file_path=file_path,
-                output_dir=str(self.output_dir),
-                parse_method=parse_method,
+            content = await asyncio.to_thread(path.read_bytes)
+            files = {
+                "file": (
+                    source_name or path.name,
+                    content,
+                    "application/octet-stream",
+                )
+            }
+            data = {
+                "parse_method": parse_method,
+                "source_name": source_name or path.name,
+            }
+            result = await self._request(
+                "POST",
+                "/ingest",
+                files=files,
+                data=data,
             )
-            logger.info(f"Processed document: {file_path}")
             return {"success": True, "result": result}
-        except Exception as e:
-            logger.error(f"Failed to process document: {e}")
-            return {"success": False, "error": str(e)}
+        except Exception as exc:
+            logger.error("RAG-Anything ingest_file failed: %s", exc)
+            return {"success": False, "error": str(exc)}
 
-    async def process_folder(
+    async def ingest_markdown(
         self,
-        folder_path: str,
-        parse_method: str = "auto",
+        title: str,
+        content: str,
+        *,
+        source_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Process all documents in a folder."""
-        if not self.is_initialized or not self.rag:
+        if not self.is_initialized:
             return {"success": False, "error": "RAG-Anything not initialized"}
 
+        payload = {
+            "title": title,
+            "content": content,
+            "source_name": source_name or f"{title}.md",
+        }
         try:
-            result = await self.rag.process_folder_complete(
-                folder_path=folder_path,
-                output_dir=str(self.output_dir),
-                parse_method=parse_method,
-            )
-            logger.info(f"Processed folder: {folder_path}")
+            result = await self._request("POST", "/ingest-markdown", json_data=payload)
             return {"success": True, "result": result}
-        except Exception as e:
-            logger.error(f"Failed to process folder: {e}")
-            return {"success": False, "error": str(e)}
+        except Exception as exc:
+            logger.error("RAG-Anything ingest_markdown failed: %s", exc)
+            return {"success": False, "error": str(exc)}
 
     async def query(
         self,
         query_text: str,
         mode: str = "hybrid",
     ) -> Dict[str, Any]:
-        """Query the processed knowledge base."""
-        if not self.is_initialized or not self.rag:
+        if not self.is_initialized:
             return {"success": False, "error": "RAG-Anything not initialized"}
 
         try:
-            result = await self.rag.aquery(query_text, mode=mode)
-            return {"success": True, "result": result}
-        except Exception as e:
-            logger.error(f"Query failed: {e}")
-            return {"success": False, "error": str(e)}
+            result = await self._request(
+                "POST",
+                "/query",
+                json_data={"query_text": query_text, "mode": mode},
+            )
+            answer = result.get("result")
+            if answer is None:
+                answer = result.get("answer", "")
+            return {
+                "success": True,
+                "result": answer,
+                "raw_result": result.get("raw_result", answer),
+                "mode": result.get("mode", mode),
+            }
+        except Exception as exc:
+            logger.error("RAG-Anything query failed: %s", exc)
+            return {"success": False, "error": str(exc)}
 
     async def query_multimodal(
         self,
@@ -189,27 +230,58 @@ class RAGAnythingService:
         multimodal_content: List[Dict[str, Any]],
         mode: str = "hybrid",
     ) -> Dict[str, Any]:
-        """Query with multimodal content (images, equations, tables)."""
-        if not self.is_initialized or not self.rag:
+        if not self.is_initialized:
             return {"success": False, "error": "RAG-Anything not initialized"}
 
         try:
-            result = await self.rag.aquery_with_multimodal(
-                query_text,
-                multimodal_content=multimodal_content,
-                mode=mode,
+            result = await self._request(
+                "POST",
+                "/query-multimodal",
+                json_data={
+                    "query_text": query_text,
+                    "multimodal_content": multimodal_content,
+                    "mode": mode,
+                },
+            )
+            answer = result.get("result")
+            if answer is None:
+                answer = result.get("answer", "")
+            return {
+                "success": True,
+                "result": answer,
+                "raw_result": result.get("raw_result", answer),
+                "mode": result.get("mode", mode),
+            }
+        except Exception as exc:
+            logger.error("RAG-Anything multimodal query failed: %s", exc)
+            return {"success": False, "error": str(exc)}
+
+    async def reindex_markdown(
+        self,
+        title: str,
+        content: str,
+        *,
+        source_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if not self.is_initialized:
+            return {"success": False, "error": "RAG-Anything not initialized"}
+
+        try:
+            result = await self._request(
+                "POST",
+                "/reindex",
+                json_data={
+                    "title": title,
+                    "content": content,
+                    "source_name": source_name or f"{title}.md",
+                },
             )
             return {"success": True, "result": result}
-        except Exception as e:
-            logger.error(f"Multimodal query failed: {e}")
-            return {"success": False, "error": str(e)}
+        except Exception as exc:
+            logger.error("RAG-Anything reindex failed: %s", exc)
+            return {"success": False, "error": str(exc)}
 
-    async def search(
-        self,
-        query: str,
-        top_k: int = 5,
-    ) -> List[Dict[str, Any]]:
-        """Search the knowledge base for relevant documents."""
+    async def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         result = await self.query(query, mode="hybrid")
         if result.get("success"):
             return [{"content": result.get("result", ""), "score": 1.0}]

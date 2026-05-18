@@ -18,6 +18,7 @@ from backend.schemas.settings import (
     SystemSettingsUpdate,
 )
 from backend.services.auth import get_password_hash
+from backend.services.rag_anything_service import rag_anything_service
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -145,6 +146,11 @@ async def configure_system(
     if not existing_admin:
         await db.refresh(admin_user)
 
+    try:
+        await rag_anything_service.sync_from_settings(settings)
+    except Exception as exc:
+        print(f"Failed to sync RAG service during configuration: {exc}")
+
     return settings
 
 
@@ -191,6 +197,11 @@ async def update_settings(
 
     await db.commit()
     await db.refresh(settings)
+
+    try:
+        await rag_anything_service.sync_from_settings(settings)
+    except Exception as exc:
+        print(f"Failed to sync RAG service during settings update: {exc}")
 
     return settings
 

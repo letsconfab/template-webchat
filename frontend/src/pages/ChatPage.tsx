@@ -1,13 +1,38 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Send, Loader2, Settings, LogOut, MessageSquare, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { Send, Loader2, Settings, LogOut, MessageSquare, ThumbsUp, ThumbsDown, CircleCheck, AlertTriangle } from 'lucide-react'
 import { ChatWebSocket, type Settings as ChatSettings, getSessionId, api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { Badge } from '../components/ui/badge'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
   feedback?: 'thumbs_up' | 'thumbs_down' | null
+}
+
+interface KnowledgeStatus {
+  source_counts: Record<'uploaded' | 'processing' | 'draft_ready' | 'committed' | 'failed', number>
+  patch_counts: { draft: number; committed: number }
+  active_nodes: number
+  processing_sources: number
+  processing_progress: number
+  rag_initialized: boolean
+  rag_healthy: boolean
+  chat_ready: boolean
+  storage_root: string
+}
+
+const ProgressBar: React.FC<{ value: number }> = ({ value }) => {
+  const clamped = Math.max(0, Math.min(100, value))
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+      <div
+        className="h-full rounded-full bg-gradient-to-r from-amber-400 via-orange-400 to-sky-500 transition-all duration-300"
+        style={{ width: `${clamped}%` }}
+      />
+    </div>
+  )
 }
 
 export default function ChatPage() {
@@ -19,6 +44,7 @@ export default function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentResponse, setCurrentResponse] = useState('')
   const [settings, setSettings] = useState<ChatSettings | null>(null)
+  const [knowledgeStatus, setKnowledgeStatus] = useState<KnowledgeStatus | null>(null)
   
   const currentResponseRef = useRef('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -32,6 +58,36 @@ export default function ChatPage() {
     loadSettingsAndConnect()
     return () => {
       wsRef.current?.disconnect()
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (!user) {
+      return
+    }
+
+    let active = true
+
+    const loadKnowledgeStatus = async () => {
+      try {
+        const response = await api.get('/knowledge/status')
+        if (active) {
+          setKnowledgeStatus(response.data)
+        }
+      } catch (error) {
+        console.error('Failed to load knowledge status:', error)
+        if (active) {
+          setKnowledgeStatus(null)
+        }
+      }
+    }
+
+    loadKnowledgeStatus()
+    const timer = window.setInterval(loadKnowledgeStatus, 5000)
+
+    return () => {
+      active = false
+      window.clearInterval(timer)
     }
   }, [user])
 
@@ -158,6 +214,19 @@ export default function ChatPage() {
     }
   }
 
+  const status = knowledgeStatus
+  const isProcessing = Boolean(status && !status.chat_ready && status.processing_sources > 0)
+  const isReady = Boolean(status?.chat_ready)
+  const statusLabel = !status
+    ? 'Knowledge status unavailable'
+    : isReady
+      ? 'Knowledge book ready'
+      : isProcessing
+        ? `Indexing ${status.processing_sources} source${status.processing_sources === 1 ? '' : 's'}`
+        : status.rag_initialized
+          ? 'Knowledge book initializing'
+          : 'RAG service offline'
+
   if (!user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -198,6 +267,60 @@ export default function ChatPage() {
           </div>
         </div>
       </header>
+
+      {status && (
+        <div className="border-b border-slate-200 bg-slate-50">
+          <div className="mx-auto max-w-4xl px-4 py-3">
+            <div
+              className={`rounded-2xl border px-4 py-3 shadow-sm ${
+                isReady
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                  : isProcessing
+                    ? 'border-amber-200 bg-amber-50 text-amber-900'
+                    : 'border-slate-200 bg-white text-slate-900'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    {isReady ? (
+                      <CircleCheck className="h-4 w-4 text-emerald-600" />
+                    ) : isProcessing ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-slate-500" />
+                    )}
+                    <span>{statusLabel}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-600">
+                    {isReady
+                      ? 'Grounded answers are available now.'
+                      : isProcessing
+                        ? 'The knowledge book is still being indexed. This can take a little while after uploads or commits.'
+                        : 'Grounded answers are not available until the RAG service is initialized and the book is indexed.'}
+                  </div>
+                </div>
+                <Badge
+                  className={
+                    isReady
+                      ? 'border-emerald-200 bg-white text-emerald-800'
+                      : isProcessing
+                        ? 'border-amber-200 bg-white text-amber-800'
+                        : 'border-slate-200 bg-white text-slate-700'
+                  }
+                >
+                  {isReady ? 'Ready' : isProcessing ? `${status.processing_progress}%` : 'Offline'}
+                </Badge>
+              </div>
+              {isProcessing && (
+                <div className="mt-3">
+                  <ProgressBar value={status.processing_progress} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chat Messages */}
       <main className="flex-1 max-w-4xl mx-auto w-full p-4">

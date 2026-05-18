@@ -31,8 +31,8 @@ from backend.routers import (
     insights,
     wiki,
 )
-from backend.knowledge_base import knowledge_base
 from backend.llm_providers import LLMProvider, validate_api_key, get_available_models
+from backend.services.knowledge_book_service import knowledge_book_service
 from backend.services.langfuse_service import langfuse_service
 from langfuse import propagate_attributes
 
@@ -68,6 +68,28 @@ chat_history: Dict[str, List[ChatMessage]] = {}
 user_sessions = {}
 
 
+def _knowledge_status_message(status: Dict[str, object]) -> str:
+    source_counts = status.get("source_counts") or {}
+    processing_sources = int(status.get("processing_sources") or source_counts.get("processing") or 0)
+    processing_progress = int(status.get("processing_progress") or 0)
+
+    if status.get("chat_ready"):
+        return "Knowledge book is ready for chat."
+
+    if processing_sources > 0:
+        if processing_progress > 0:
+            return f"Knowledge book is still processing ({processing_progress}% complete)."
+        return "Knowledge book is still processing."
+
+    if not status.get("rag_initialized"):
+        return "Knowledge book grounding is not initialized yet."
+
+    if not status.get("rag_healthy"):
+        return "Knowledge book grounding service is offline."
+
+    return "Knowledge book grounding is unavailable."
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
@@ -78,9 +100,8 @@ async def lifespan(app: FastAPI):
     print("Initializing database...")
     await init_db()
 
-    # Try to initialize RAG-Anything if LLM is configured
+    # Try to initialize the external RAG-Anything service if settings exist
     try:
-        from backend.database import engine, AsyncSessionLocal
         from sqlalchemy import select
         from backend.models.settings import SystemSettings
 
@@ -89,68 +110,25 @@ async def lifespan(app: FastAPI):
             settings = result.scalar_one_or_none()
             print(f"Settings object: {settings}, type: {type(settings)}")
 
-            if settings and settings.llm_api_key:
+            if settings:
                 from backend.services.rag_anything_service import rag_anything_service
 
-                # Determine base URL based on LLM provider
-                if settings.llm_provider == "sarvam":
-                    base_url = "https://api.sarvam.ai"
-                elif settings.llm_provider == "ollama":
-                    base_url = "http://localhost:11434"
-                else:
-                    base_url = "https://api.openai.com/v1"
-
-                await rag_anything_service.initialize(
-                    api_key=settings.llm_api_key,
-                    base_url=base_url,
-                    llm_model=settings.llm_model or "gpt-4o-mini",
-                )
-                print(
-                    f"RAG-Anything initialized: {rag_anything_service.is_initialized}"
-                )
-
-                # Index existing wiki pages
+                sync_result = await rag_anything_service.sync_from_settings(settings)
+                print(f"RAG-Anything sync result: {sync_result}")
                 if rag_anything_service.is_initialized:
                     try:
-                        from backend.models.wiki import WikiPage
-                        from sqlalchemy import select
-                        from backend.database import AsyncSessionLocal
-
-                        async with AsyncSessionLocal() as session:
-                            result = await session.execute(
-                                select(WikiPage).where(
-                                    WikiPage.is_processed == True,
-                                    WikiPage.is_folder == False,
-                                    WikiPage.content.isnot(None),
-                                )
-                            )
-                            wiki_pages = result.scalars().all()
-                            print(f"Found {len(wiki_pages)} wiki pages to index")
-
-                            for page in wiki_pages:
-                                if page.content:
-                                    import tempfile
-                                    import os
-
-                                    temp_file = None
-                                    try:
-                                        with tempfile.NamedTemporaryFile(
-                                            mode="w", suffix=".md", delete=False
-                                        ) as f:
-                                            f.write(f"# {page.title}\n\n{page.content}")
-                                            temp_file = f.name
-                                        await rag_anything_service.process_document(
-                                            file_path=temp_file, parse_method="auto"
-                                        )
-                                        print(f"Indexed wiki: {page.title}")
-                                    finally:
-                                        if temp_file and os.path.exists(temp_file):
-                                            os.remove(temp_file)
-                            print("Wiki indexing complete")
+                        await knowledge_book_service.resume_pending_sources()
+                        await knowledge_book_service.reindex_current_book()
+                        print("Knowledge book indexing complete")
                     except Exception as e:
-                        print(f"Wiki indexing failed: {e}")
+                        print(f"Knowledge book warmup failed: {e}")
     except Exception as e:
-        print(f"RAG-Anything auto-init failed: {e}")
+        print(f"RAG-Anything auto-sync failed: {e}")
+
+    try:
+        await knowledge_book_service.resume_pending_sources()
+    except Exception as e:
+        print(f"Knowledge book resume failed: {e}")
 
     # Mount static files for React frontend
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
@@ -328,64 +306,25 @@ async def websocket_chat(websocket: WebSocket):
                 {"type": "history", "messages": [msg.model_dump() for msg in history]}
             )
 
-        # Initialize knowledge base - always try to load latest files
-        # This ensures new documents are picked up when added
-        kb_files = (
-            list(config.KB_ASSETS_DIR.iterdir())
-            if config.KB_ASSETS_DIR.exists()
-            else []
-        )
-        has_files = any(f.is_file() for f in kb_files)
+        # Report knowledge book readiness
+        try:
+            from backend.services.knowledge_book_service import knowledge_book_service
 
-        if has_files or knowledge_base.vector_store is not None:
-            try:
-                llm_provider = LLMProvider(provider, model, api_key)
-                embeddings = llm_provider.get_embeddings()
-                knowledge_base.initialize(embeddings)
-                doc_count = sum(1 for f in kb_files if f.is_file())
-
-                # Also count wiki pages
-                wiki_count = 0
-                try:
-                    from sqlalchemy import select
-                    from backend.models.wiki import WikiPage
-
-                    result = await db.execute(
-                        select(WikiPage)
-                        .where(WikiPage.is_processed == True)
-                        .where(WikiPage.is_folder == False)
-                    )
-                    wiki_count = len(result.scalars().all())
-                except:
-                    pass
-
-                msg = f"Welcome! I'm ready to help you."
-                if wiki_count > 0:
-                    msg += f" ({wiki_count} wiki pages loaded)"
-                elif doc_count > 0:
-                    msg += f" ({doc_count} docs loaded)"
-
+            async with AsyncSessionLocal() as kb_db:
+                status = await knowledge_book_service.get_status(kb_db)
                 await websocket.send_json(
                     {
                         "type": "status",
-                        "message": msg,
+                        "message": _knowledge_status_message(status),
                     }
                 )
-            except Exception as e:
-                import traceback
-
-                print(f"Error initializing knowledge base: {e}")
-                print(traceback.format_exc())
-                print("Continuing without knowledge base")
-                await websocket.send_json(
-                    {
-                        "type": "status",
-                        "message": "Welcome! I'm ready to help you. Note: Knowledge base not available.",
-                    }
-                )
-        else:
+        except Exception as e:
+            print(f"Failed to load knowledge book status: {e}")
             await websocket.send_json(
-                {"type": "status", "message": "Welcome! I'm ready to help you."}
+                {
+                    "type": "status",
+                    "message": "Knowledge book status unavailable.",
+                }
             )
 
         # Chat loop
@@ -427,147 +366,32 @@ async def websocket_chat(websocket: WebSocket):
                 chat_history[session_id] = []
             chat_history[session_id].append(ChatMessage(role="user", content=message))
 
-            # Search using RAG-Anything or fallback to wiki text search
-            relevant_docs = []
             try:
                 from backend.services.rag_anything_service import rag_anything_service
 
-                if rag_anything_service.is_initialized:
-                    # Use RAG-Anything for semantic search
-                    result = await rag_anything_service.query(message, mode="hybrid")
-                    if result.get("success"):
-                        # Extract relevant content from RAG result
-                        rag_content = result.get("result", "")
-                        relevant_docs.append(
-                            {
-                                "title": "RAG-Anything Knowledge",
-                                "content": rag_content[:1000]
-                                if len(rag_content) > 1000
-                                else rag_content,
-                            }
-                        )
+                if not rag_anything_service.is_initialized:
+                    response_text = "Knowledge book grounding is not initialized yet."
                 else:
-                    # Fallback to text search in wiki
-                    from sqlalchemy import select
-                    from backend.models.wiki import WikiPage
+                    async with AsyncSessionLocal() as kb_db:
+                        status = await knowledge_book_service.get_status(kb_db)
 
-                    result = await db.execute(
-                        select(WikiPage)
-                        .where(WikiPage.is_processed == True)
-                        .where(WikiPage.is_folder == False)
-                        .where(WikiPage.content.isnot(None))
-                    )
-                    pages = result.scalars().all()
-
-                    q_lower = message.lower()
-                    for page in pages:
-                        if page.content and (
-                            q_lower in page.content.lower()
-                            or q_lower in page.title.lower()
-                        ):
-                            relevant_docs.append(
-                                {
-                                    "title": page.title,
-                                    "content": page.content[:500]
-                                    if len(page.content) > 500
-                                    else page.content,
-                                }
-                            )
+                    if not status.get("chat_ready"):
+                        response_text = _knowledge_status_message(status)
+                    else:
+                        result = await rag_anything_service.query(message, mode="hybrid")
+                        if result.get("success"):
+                            response_text = str(result.get("result") or "").strip()
+                        else:
+                            response_text = _knowledge_status_message(status)
             except Exception as e:
-                print(f"Wiki/RAG search error: {e}")
+                print(f"RAG-Anything query error: {e}")
+                response_text = "Knowledge book grounding is unavailable."
 
-            # Build context
-            context = ""
-            if relevant_docs:
-                context_parts = []
-                for i, doc in enumerate(relevant_docs[:5], 1):
-                    context_parts.append(f"[{i}] {doc['title']}\n{doc['content']}")
-                context = "\n\n".join(context_parts)
-
-            # Build messages with conversation history
-            system_prompt = getattr(
-                config, "system_prompt", "You are a helpful AI assistant."
-            )
-            messages = [SystemMessage(content=system_prompt)]
-
-            # Add wiki context if available
-            if context:
-                messages.append(
-                    SystemMessage(
-                        content=f"Relevant information from knowledge base:\n\n{context}\n\nUse the above information to answer the user's question."
-                    )
-                )
-
-            # Add conversation history (last 10 messages to stay within token limits)
-            history = chat_history.get(session_id, [])
-            recent_history = history[-10:] if len(history) > 10 else history
-
-            for hist_msg in recent_history[:-1]:
-                if hist_msg.role == "user":
-                    messages.append(HumanMessage(content=hist_msg.content))
-                elif hist_msg.role == "assistant":
-                    messages.append(AIMessage(content=hist_msg.content))
-
-            # Add current message
-            messages.append(HumanMessage(content=message))
-
-            # Get LLM and stream response
-            llm_provider = LLMProvider(provider, model, api_key)
-            llm = llm_provider.get_llm()
-
-            if llm is None:
-                error_msg = "Failed to initialize LLM provider"
-                await websocket.send_json({"type": "error", "message": error_msg})
-                chat_history[session_id].append(
-                    ChatMessage(role="assistant", content=error_msg)
-                )
-                continue
-
-            # Stream response with Langfuse tracing
             await websocket.send_json({"type": "start"})
-            full_response = ""
-
-            client = langfuse_service.get_client()
-            if client and langfuse_service.is_initialized():
-                with propagate_attributes(session_id=session_id):
-                    with client.start_as_current_observation(
-                        as_type="span",
-                        name=f"chat-{session_id}",
-                    ) as span:
-                        span.update(input=message)
-
-                        with span.start_as_current_observation(
-                            as_type="generation",
-                            name="llm-response",
-                            model=model,
-                        ) as generation:
-                            for chunk in llm.stream(messages):
-                                if chunk.content:
-                                    full_response += chunk.content
-                                    await websocket.send_json(
-                                        {"type": "chunk", "content": chunk.content}
-                                    )
-
-                            generation.update(output=full_response)
-
-                        span.update(output=full_response)
-
-                langfuse_service.flush()
-                print(f"[Langfuse] Traced - response: {len(full_response)} chars")
-            else:
-                # No Langfuse - just stream without tracing
-                for chunk in llm.stream(messages):
-                    if chunk.content:
-                        full_response += chunk.content
-                        await websocket.send_json(
-                            {"type": "chunk", "content": chunk.content}
-                        )
-
-            # Store assistant message in history
+            await websocket.send_json({"type": "chunk", "content": response_text})
             chat_history[session_id].append(
-                ChatMessage(role="assistant", content=full_response)
+                ChatMessage(role="assistant", content=response_text)
             )
-
             await websocket.send_json({"type": "end"})
 
     except WebSocketDisconnect:

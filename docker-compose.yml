@@ -12,6 +12,7 @@ services:
       QDRANT_URL: http://qdrant:6333
       S3_ENDPOINT: http://garage:3900
       S3_BUCKET: webchat-storage
+      RAG_SERVICE_URL: http://rag-anything:8010
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,10 +69,32 @@ services:
     networks:
       - webchat
 
+  rag-anything:
+    build:
+      context: .
+      dockerfile: rag_service/Dockerfile
+    container_name: webchat-rag-anything
+    environment:
+      RAG_WORKDIR: /data/rag
+    volumes:
+      - rag_data:/data/rag
+    ports:
+      - "8010:8010"
+    expose:
+      - "8010"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8010/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - webchat
+
 volumes:
   postgres_data:
   qdrant_data:
   garage_data:
+  rag_data:
 
 networks:
   webchat:

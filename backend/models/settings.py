@@ -50,6 +50,12 @@ class SystemSettings(Base):
     llm_model = Column(String(100), default="gpt-4o-mini", nullable=False)
     llm_api_key = Column(String(500), nullable=True)
 
+    # Knowledge Book / RAG Configuration
+    rag_provider = Column(String(50), default="openai", nullable=False)
+    rag_model = Column(String(100), default="gpt-4o-mini", nullable=False)
+    rag_api_key = Column(String(500), nullable=True)
+    rag_base_url = Column(String(500), nullable=True)
+
     # Foundry Configuration
     foundry_url = Column(String(500), nullable=True)
     foundry_confab_id = Column(Integer, nullable=True)

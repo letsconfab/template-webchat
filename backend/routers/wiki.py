@@ -1,6 +1,7 @@
 """Wiki/Knowledge Book router."""
 
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -31,6 +32,25 @@ from backend.services.rag_anything_service import rag_anything_service
 
 
 router = APIRouter(prefix="/api/wiki", tags=["wiki"])
+
+
+def _wiki_source_name(title: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", title.strip().lower()).strip("-")
+    return f"{slug or 'wiki-page'}.md"
+
+
+async def _sync_wiki_markdown(title: str, content: str) -> None:
+    if not rag_anything_service.is_initialized:
+        return
+    try:
+        await rag_anything_service.ingest_markdown(
+            title=title,
+            content=f"# {title}\n\n{content}",
+            source_name=_wiki_source_name(title),
+        )
+        logger.info("Updated RAG service index for wiki page: %s", title)
+    except Exception as exc:
+        logger.error("Failed to update RAG service for wiki page %s: %s", title, exc)
 
 
 class WikiPageResponse(BaseModel):
@@ -347,30 +367,7 @@ Return the updated wiki content in markdown format."""
                     await db.commit()
                     logger.info(f"Merged note into wiki: {best_wiki.id}")
 
-                    # Update RAG-Anything index
-                    if rag_anything_service.is_initialized:
-                        try:
-                            import tempfile
-                            import os
-
-                            temp_file = None
-                            try:
-                                with tempfile.NamedTemporaryFile(
-                                    mode="w", suffix=".md", delete=False
-                                ) as f:
-                                    f.write(
-                                        f"# {best_wiki.title}\n\n{best_wiki.content}"
-                                    )
-                                    temp_file = f.name
-                                await rag_anything_service.process_document(
-                                    file_path=temp_file, parse_method="auto"
-                                )
-                                logger.info("Updated RAG-Anything index after merge")
-                            finally:
-                                if temp_file and os.path.exists(temp_file):
-                                    os.remove(temp_file)
-                        except Exception as e:
-                            logger.error(f"Failed to update RAG-Anything: {e}")
+                    await _sync_wiki_markdown(best_wiki.title, best_wiki.content)
 
                     return  # Done, don't create new
             else:
@@ -420,28 +417,7 @@ Example: {{"title": "Important Dates", "content": "# Important Dates\\n\\n..."}}
                 await db.commit()
                 logger.info(f"Created new wiki from note")
 
-                # Update RAG-Anything index
-                if rag_anything_service.is_initialized:
-                    try:
-                        import tempfile
-                        import os
-
-                        temp_file = None
-                        try:
-                            with tempfile.NamedTemporaryFile(
-                                mode="w", suffix=".md", delete=False
-                            ) as f:
-                                f.write(f"# {wiki_title}\n\n{wiki_content}")
-                                temp_file = f.name
-                            await rag_anything_service.process_document(
-                                file_path=temp_file, parse_method="auto"
-                            )
-                            logger.info("Updated RAG-Anything index")
-                        finally:
-                            if temp_file and os.path.exists(temp_file):
-                                os.remove(temp_file)
-                    except Exception as e:
-                        logger.error(f"Failed to update RAG-Anything: {e}")
+                await _sync_wiki_markdown(wiki_title, wiki_content)
                 return
 
         # No existing wikis, create new wiki directly
@@ -490,27 +466,7 @@ Example: {{"title": "Important Dates", "content": "# Important Dates\\n\\n..."}}
         await db.commit()
         logger.info(f"Created new wiki from note")
 
-        if rag_anything_service.is_initialized:
-            try:
-                import tempfile
-                import os
-
-                temp_file = None
-                try:
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".md", delete=False
-                    ) as f:
-                        f.write(f"# {wiki_title}\n\n{wiki_content}")
-                        temp_file = f.name
-                    await rag_anything_service.process_document(
-                        file_path=temp_file, parse_method="auto"
-                    )
-                    logger.info("Updated RAG-Anything index")
-                finally:
-                    if temp_file and os.path.exists(temp_file):
-                        os.remove(temp_file)
-            except Exception as e:
-                logger.error(f"Failed to update RAG-Anything: {e}")
+        await _sync_wiki_markdown(wiki_title, wiki_content)
 
     except Exception as e:
         logger.error(f"Auto-merge failed: {e}")
@@ -623,7 +579,7 @@ async def process_wiki_page(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Process a wiki page with RAG-Anything and regenerate insights."""
+    """Process a wiki page and regenerate insights."""
     result = await db.execute(
         select(WikiPage)
         .options(selectinload(WikiPage.versions))
@@ -636,7 +592,7 @@ async def process_wiki_page(
             status_code=status.HTTP_404_NOT_FOUND, detail="Wiki page not found"
         )
 
-    # Regenerate insights and process with RAG-Anything
+    # Regenerate insights and sync the page to the external RAG service
     await generate_insights_from_note(db, page.title, page.content, current_user.id)
 
     return {"message": "Page processed successfully"}
@@ -670,8 +626,6 @@ async def generate_insights_from_note(
     import json
     import re
     import logging
-    import tempfile
-    import os
 
     logger = logging.getLogger(__name__)
 
@@ -727,23 +681,4 @@ Return ONLY a JSON array of insights, like:
     except Exception as e:
         logger.error(f"Failed to generate insights: {e}")
 
-    if rag_anything_service.is_initialized:
-        try:
-            temp_file = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".md", delete=False
-                ) as f:
-                    f.write(f"# {title}\n\n{content}")
-                    temp_file = f.name
-
-                await rag_anything_service.process_document(
-                    file_path=temp_file,
-                    parse_method="auto",
-                )
-                logger.info("Processed with RAG-Anything")
-            finally:
-                if temp_file and os.path.exists(temp_file):
-                    os.remove(temp_file)
-        except Exception as e:
-            logger.error(f"Failed to process with RAG-Anything: {e}")
+    await _sync_wiki_markdown(title, content)

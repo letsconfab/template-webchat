@@ -12,8 +12,17 @@ from sqlalchemy.orm import selectinload
 from backend.database import get_db
 from backend.dependencies.auth import get_current_admin_user
 from backend.models.user import User
-from backend.models.wiki import WikiPage, KnowledgeInsight
+from backend.models.knowledge import KnowledgeDocument
+from backend.models.wiki import (
+    WikiDraftRevision,
+    WikiGenerationJob,
+    WikiGraphBinding,
+    WikiPage,
+    WikiVersion,
+    KnowledgeInsight,
+)
 from backend.llm_providers import LLMProvider
+from backend.services.wiki_graph_service import wiki_graph_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -27,7 +36,6 @@ console_handler.setFormatter(formatter)
 if not logger.handlers:
     logger.addHandler(console_handler)
 from backend.models.settings import SystemSettings
-from backend.services.rag_anything_service import rag_anything_service
 
 
 router = APIRouter(prefix="/api/wiki", tags=["wiki"])
@@ -43,6 +51,9 @@ class WikiPageResponse(BaseModel):
     created_at: str
     updated_at: str
     version: int = 1
+    slug: Optional[str] = None
+    summary: Optional[str] = None
+    source_confidence: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -54,6 +65,27 @@ class WikiPageCreate(BaseModel):
     source_type: str = "note"
     parent_id: Optional[int] = None
     is_folder: bool = False
+
+
+class WikiDraftResponse(BaseModel):
+    id: int
+    page_id: Optional[int]
+    title: str
+    proposed_content: str
+    previous_content: Optional[str]
+    status: str
+    generation_job_id: Optional[int]
+    created_at: str
+    metadata: Dict[str, Any] = {}
+    source_documents: List[Dict[str, Any]] = []
+
+
+class WikiJobResponse(BaseModel):
+    id: int
+    status: str
+    pages_created: int = 0
+    pages_updated: int = 0
+    error_message: Optional[str] = None
 
 
 @router.get("")
@@ -87,6 +119,9 @@ async def get_wiki_pages(
             created_at=p.created_at.isoformat(),
             updated_at=p.updated_at.isoformat(),
             version=len(p.versions) + 1 if p.versions else 1,
+            slug=p.slug,
+            summary=p.summary,
+            source_confidence=p.source_confidence,
         )
         if p.is_processed:
             outputs.append(page_resp)
@@ -161,6 +196,129 @@ async def search_wiki(
     return {"results": results[:limit]}
 
 
+@router.get("/jobs/{job_id}", response_model=WikiJobResponse)
+async def get_generation_job(
+    job_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Get graph/wiki generation job status."""
+    result = await db.execute(
+        select(WikiGenerationJob).where(WikiGenerationJob.id == job_id)
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Generation job not found"
+        )
+    return WikiJobResponse(
+        id=job.id,
+        status=job.status,
+        pages_created=job.pages_created or 0,
+        pages_updated=job.pages_updated or 0,
+        error_message=job.error_message,
+    )
+
+
+async def draft_response(db: AsyncSession, draft: WikiDraftRevision) -> WikiDraftResponse:
+    metadata = wiki_graph_service.parse_draft_metadata(draft)
+    source_documents = []
+    source_doc_ids = []
+    for value in metadata.get("source_doc_ids") or []:
+        try:
+            source_doc_ids.append(int(value))
+        except Exception:
+            continue
+    if source_doc_ids:
+        result = await db.execute(
+            select(KnowledgeDocument).where(KnowledgeDocument.id.in_(source_doc_ids))
+        )
+        source_documents = [
+            {"id": doc.id, "filename": doc.filename}
+            for doc in result.scalars().all()
+        ]
+    return WikiDraftResponse(
+        id=draft.id,
+        page_id=draft.page_id,
+        title=draft.title,
+        proposed_content=draft.proposed_content,
+        previous_content=draft.previous_content,
+        status=draft.status,
+        generation_job_id=draft.generation_job_id,
+        created_at=draft.created_at.isoformat(),
+        metadata=metadata,
+        source_documents=source_documents,
+    )
+
+
+@router.get("/drafts", response_model=List[WikiDraftResponse])
+async def get_wiki_drafts(
+    status_filter: str = "pending",
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """List graph-generated wiki drafts."""
+    query = select(WikiDraftRevision).order_by(desc(WikiDraftRevision.created_at))
+    if status_filter:
+        query = query.where(WikiDraftRevision.status == status_filter)
+    result = await db.execute(query)
+    drafts = result.scalars().all()
+    return [await draft_response(db, draft) for draft in drafts]
+
+
+@router.post("/drafts/{draft_id}/approve")
+async def approve_wiki_draft(
+    draft_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Approve a graph-generated draft into the published wiki."""
+    try:
+        draft = await wiki_graph_service.approve_draft(db, draft_id, current_user.id)
+        return await draft_response(db, draft)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/drafts/{draft_id}/reject")
+async def reject_wiki_draft(
+    draft_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Reject a graph-generated draft without changing wiki pages."""
+    try:
+        draft = await wiki_graph_service.reject_draft(db, draft_id, current_user.id)
+        return await draft_response(db, draft)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/graph/status")
+async def get_graph_status(
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Return graph diagnostics for admins."""
+    return await wiki_graph_service.graph_status(db)
+
+
+@router.post("/graph/sync", response_model=WikiJobResponse)
+async def sync_graph_to_wiki(
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Run a manual graph-to-wiki delta sync."""
+    job = await wiki_graph_service.sync_graph_to_wiki(db=db, user_id=current_user.id)
+    return WikiJobResponse(
+        id=job.id,
+        status=job.status,
+        pages_created=job.pages_created or 0,
+        pages_updated=job.pages_updated or 0,
+        error_message=job.error_message,
+    )
+
+
 @router.get("/{page_id}", response_model=WikiPageResponse)
 async def get_wiki_page(
     page_id: int,
@@ -188,6 +346,9 @@ async def get_wiki_page(
         created_at=page.created_at.isoformat(),
         updated_at=page.updated_at.isoformat(),
         version=len(page.versions) + 1 if page.versions else 1,
+        slug=page.slug,
+        summary=page.summary,
+        source_confidence=page.source_confidence,
     )
 
 
@@ -238,6 +399,9 @@ async def create_wiki_page(
         created_at=db_page.created_at.isoformat(),
         updated_at=db_page.updated_at.isoformat(),
         version=1,
+        slug=db_page.slug,
+        summary=db_page.summary,
+        source_confidence=db_page.source_confidence,
     )
 
 
@@ -347,31 +511,6 @@ Return the updated wiki content in markdown format."""
                     await db.commit()
                     logger.info(f"Merged note into wiki: {best_wiki.id}")
 
-                    # Update RAG-Anything index
-                    if rag_anything_service.is_initialized:
-                        try:
-                            import tempfile
-                            import os
-
-                            temp_file = None
-                            try:
-                                with tempfile.NamedTemporaryFile(
-                                    mode="w", suffix=".md", delete=False
-                                ) as f:
-                                    f.write(
-                                        f"# {best_wiki.title}\n\n{best_wiki.content}"
-                                    )
-                                    temp_file = f.name
-                                await rag_anything_service.process_document(
-                                    file_path=temp_file, parse_method="auto"
-                                )
-                                logger.info("Updated RAG-Anything index after merge")
-                            finally:
-                                if temp_file and os.path.exists(temp_file):
-                                    os.remove(temp_file)
-                        except Exception as e:
-                            logger.error(f"Failed to update RAG-Anything: {e}")
-
                     return  # Done, don't create new
             else:
                 # No existing wikis, create new wiki directly
@@ -420,28 +559,6 @@ Example: {{"title": "Important Dates", "content": "# Important Dates\\n\\n..."}}
                 await db.commit()
                 logger.info(f"Created new wiki from note")
 
-                # Update RAG-Anything index
-                if rag_anything_service.is_initialized:
-                    try:
-                        import tempfile
-                        import os
-
-                        temp_file = None
-                        try:
-                            with tempfile.NamedTemporaryFile(
-                                mode="w", suffix=".md", delete=False
-                            ) as f:
-                                f.write(f"# {wiki_title}\n\n{wiki_content}")
-                                temp_file = f.name
-                            await rag_anything_service.process_document(
-                                file_path=temp_file, parse_method="auto"
-                            )
-                            logger.info("Updated RAG-Anything index")
-                        finally:
-                            if temp_file and os.path.exists(temp_file):
-                                os.remove(temp_file)
-                    except Exception as e:
-                        logger.error(f"Failed to update RAG-Anything: {e}")
                 return
 
         # No existing wikis, create new wiki directly
@@ -489,28 +606,6 @@ Example: {{"title": "Important Dates", "content": "# Important Dates\\n\\n..."}}
         db.add(db_wiki)
         await db.commit()
         logger.info(f"Created new wiki from note")
-
-        if rag_anything_service.is_initialized:
-            try:
-                import tempfile
-                import os
-
-                temp_file = None
-                try:
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".md", delete=False
-                    ) as f:
-                        f.write(f"# {wiki_title}\n\n{wiki_content}")
-                        temp_file = f.name
-                    await rag_anything_service.process_document(
-                        file_path=temp_file, parse_method="auto"
-                    )
-                    logger.info("Updated RAG-Anything index")
-                finally:
-                    if temp_file and os.path.exists(temp_file):
-                        os.remove(temp_file)
-            except Exception as e:
-                logger.error(f"Failed to update RAG-Anything: {e}")
 
     except Exception as e:
         logger.error(f"Auto-merge failed: {e}")
@@ -614,6 +709,9 @@ Return the merged document in markdown format with a clear structure."""
         created_at=db_wiki.created_at.isoformat(),
         updated_at=db_wiki.updated_at.isoformat(),
         version=1,
+        slug=db_wiki.slug,
+        summary=db_wiki.summary,
+        source_confidence=db_wiki.source_confidence,
     )
 
 
@@ -623,7 +721,7 @@ async def process_wiki_page(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Process a wiki page with RAG-Anything and regenerate insights."""
+    """Regenerate insights for a wiki page without re-indexing generated wiki content."""
     result = await db.execute(
         select(WikiPage)
         .options(selectinload(WikiPage.versions))
@@ -636,7 +734,6 @@ async def process_wiki_page(
             status_code=status.HTTP_404_NOT_FOUND, detail="Wiki page not found"
         )
 
-    # Regenerate insights and process with RAG-Anything
     await generate_insights_from_note(db, page.title, page.content, current_user.id)
 
     return {"message": "Page processed successfully"}
@@ -670,8 +767,6 @@ async def generate_insights_from_note(
     import json
     import re
     import logging
-    import tempfile
-    import os
 
     logger = logging.getLogger(__name__)
 
@@ -726,24 +821,3 @@ Return ONLY a JSON array of insights, like:
 
     except Exception as e:
         logger.error(f"Failed to generate insights: {e}")
-
-    if rag_anything_service.is_initialized:
-        try:
-            temp_file = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".md", delete=False
-                ) as f:
-                    f.write(f"# {title}\n\n{content}")
-                    temp_file = f.name
-
-                await rag_anything_service.process_document(
-                    file_path=temp_file,
-                    parse_method="auto",
-                )
-                logger.info("Processed with RAG-Anything")
-            finally:
-                if temp_file and os.path.exists(temp_file):
-                    os.remove(temp_file)
-        except Exception as e:
-            logger.error(f"Failed to process with RAG-Anything: {e}")

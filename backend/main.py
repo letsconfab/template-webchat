@@ -108,47 +108,6 @@ async def lifespan(app: FastAPI):
                 print(
                     f"RAG-Anything initialized: {rag_anything_service.is_initialized}"
                 )
-
-                # Index existing wiki pages
-                if rag_anything_service.is_initialized:
-                    try:
-                        from backend.models.wiki import WikiPage
-                        from sqlalchemy import select
-                        from backend.database import AsyncSessionLocal
-
-                        async with AsyncSessionLocal() as session:
-                            result = await session.execute(
-                                select(WikiPage).where(
-                                    WikiPage.is_processed == True,
-                                    WikiPage.is_folder == False,
-                                    WikiPage.content.isnot(None),
-                                )
-                            )
-                            wiki_pages = result.scalars().all()
-                            print(f"Found {len(wiki_pages)} wiki pages to index")
-
-                            for page in wiki_pages:
-                                if page.content:
-                                    import tempfile
-                                    import os
-
-                                    temp_file = None
-                                    try:
-                                        with tempfile.NamedTemporaryFile(
-                                            mode="w", suffix=".md", delete=False
-                                        ) as f:
-                                            f.write(f"# {page.title}\n\n{page.content}")
-                                            temp_file = f.name
-                                        await rag_anything_service.process_document(
-                                            file_path=temp_file, parse_method="auto"
-                                        )
-                                        print(f"Indexed wiki: {page.title}")
-                                    finally:
-                                        if temp_file and os.path.exists(temp_file):
-                                            os.remove(temp_file)
-                            print("Wiki indexing complete")
-                    except Exception as e:
-                        print(f"Wiki indexing failed: {e}")
     except Exception as e:
         print(f"RAG-Anything auto-init failed: {e}")
 
@@ -167,6 +126,12 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     print("Shutting down FastAPI application...")
+    try:
+        from backend.services.rag_anything_service import rag_anything_service
+
+        await rag_anything_service.shutdown()
+    except Exception as e:
+        print(f"RAG-Anything shutdown failed: {e}")
     await close_db()
 
 
@@ -350,13 +315,14 @@ async def websocket_chat(websocket: WebSocket):
                     from sqlalchemy import select
                     from backend.models.wiki import WikiPage
 
-                    result = await db.execute(
-                        select(WikiPage)
-                        .where(WikiPage.is_processed == True)
-                        .where(WikiPage.is_folder == False)
-                    )
+                    async with AsyncSessionLocal() as wiki_db:
+                        result = await wiki_db.execute(
+                            select(WikiPage)
+                            .where(WikiPage.is_processed == True)
+                            .where(WikiPage.is_folder == False)
+                        )
                     wiki_count = len(result.scalars().all())
-                except:
+                except Exception:
                     pass
 
                 msg = f"Welcome! I'm ready to help you."
@@ -451,13 +417,14 @@ async def websocket_chat(websocket: WebSocket):
                     from sqlalchemy import select
                     from backend.models.wiki import WikiPage
 
-                    result = await db.execute(
-                        select(WikiPage)
-                        .where(WikiPage.is_processed == True)
-                        .where(WikiPage.is_folder == False)
-                        .where(WikiPage.content.isnot(None))
-                    )
-                    pages = result.scalars().all()
+                    async with AsyncSessionLocal() as wiki_db:
+                        result = await wiki_db.execute(
+                            select(WikiPage)
+                            .where(WikiPage.is_processed == True)
+                            .where(WikiPage.is_folder == False)
+                            .where(WikiPage.content.isnot(None))
+                        )
+                        pages = result.scalars().all()
 
                     q_lower = message.lower()
                     for page in pages:

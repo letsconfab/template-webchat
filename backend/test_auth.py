@@ -1,10 +1,11 @@
 """Test script for authentication flow."""
 import asyncio
+import os
 import httpx
 import json
 from datetime import datetime
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 async def test_authentication():
     """Test the complete authentication flow."""

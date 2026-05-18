@@ -2,6 +2,7 @@
 
 import base64
 import shutil
+from io import BytesIO
 from typing import List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -45,6 +46,7 @@ class KnowledgeService:
         content: bytes = None,
         content_base64: str = None,
         file_type: str = None,
+        created_by_id: int = None,
     ) -> dict:
         """Add a document to the KB directory and database."""
         from backend.models.knowledge import KnowledgeDocument
@@ -82,6 +84,7 @@ class KnowledgeService:
             file_path=str(file_path),
             file_size=len(content),
             content_text=content_text,
+            created_by_id=created_by_id,
             created_at=datetime.utcnow(),
         )
         db.add(doc)
@@ -97,17 +100,39 @@ class KnowledgeService:
             "filename": doc.filename,
             "size": doc.file_size,
             "file_type": doc.file_type,
+            "file_path": doc.file_path,
             "created_at": doc.created_at.isoformat(),
+            "content_text": content_text,
         }
 
     def _extract_text(self, content: bytes, file_type: str) -> str:
         """Extract text from file content based on file type."""
         try:
-            if file_type == "txt" or file_type == "md":
-                return content.decode("utf-8", errors="ignore")
+            file_type = file_type.lower().lstrip(".")
 
-            # For now, just return empty for PDF/DOCX - would need proper extraction libraries
-            # In production, you'd use libraries like PyPDF2, python-docx
+            if file_type == "txt" or file_type == "md":
+                return content.decode("utf-8", errors="ignore").strip()
+
+            if file_type == "pdf":
+                from pypdf import PdfReader
+
+                reader = PdfReader(BytesIO(content))
+                pages = []
+                for page in reader.pages:
+                    page_text = page.extract_text() or ""
+                    if page_text.strip():
+                        pages.append(page_text.strip())
+                return "\n\n".join(pages).strip()
+
+            if file_type == "docx":
+                from docx import Document
+
+                document = Document(BytesIO(content))
+                paragraphs = [
+                    p.text.strip() for p in document.paragraphs if p.text.strip()
+                ]
+                return "\n\n".join(paragraphs).strip()
+
             return ""
         except Exception as e:
             print(f"Error extracting text: {e}")

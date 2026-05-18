@@ -1,7 +1,7 @@
 """Knowledge base management endpoints."""
 
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,11 +14,32 @@ from backend.models.user import User
 from backend.models.settings import SystemSettings
 from backend.services.knowledge import knowledge_service
 from backend.services.rag_anything_service import rag_anything_service
+from backend.services.rag_anything_service import make_lightrag_doc_id
+from backend.services.wiki_graph_service import wiki_graph_service
 from backend.config import config
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".md", ".txt"}
+
+
+async def run_graph_wiki_generation_job(
+    job_id: int,
+    file_path: str,
+    filename: str,
+    user_id: int,
+):
+    """Run graph/wiki generation outside the request database session."""
+    from backend.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        await wiki_graph_service.process_existing_job(
+            db=session,
+            job_id=job_id,
+            file_path=file_path,
+            filename=filename,
+            user_id=user_id,
+        )
 
 
 class SyncFromFoundryRequest(BaseModel):
@@ -98,6 +119,7 @@ async def sync_from_foundry(
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
@@ -125,31 +147,56 @@ async def upload_document(
         filename=file.filename,
         content=content,
         file_type=file_ext[1:],  # Remove the dot
+        created_by_id=current_user.id,
     )
 
-    # Update RAG-Anything index
-    if rag_anything_service.is_initialized:
-        try:
-            import tempfile
-            import os
+    content_text = result.pop("content_text", "") or ""
 
-            temp_file = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    mode="wb", suffix=file_ext, delete=False
-                ) as f:
-                    f.write(content)
-                    temp_file = f.name
-                await rag_anything_service.process_document(
-                    file_path=temp_file, parse_method="auto"
-                )
-            finally:
-                if temp_file and os.path.exists(temp_file):
-                    os.remove(temp_file)
-        except Exception as e:
-            print(f"Failed to update RAG-Anything: {e}")
+    # Mirror uploaded documents into the Knowledge Book input history. The
+    # Knowledge Book UI reads /api/wiki, so storing only KnowledgeDocument rows
+    # makes successful uploads look like they disappeared.
+    from backend.models.wiki import WikiPage
 
-    return result
+    wiki_content = content_text.strip()
+    if not wiki_content:
+        wiki_content = (
+            f"Uploaded document: {result['filename']}\n\n"
+            "No text could be extracted from this file."
+        )
+
+    db_page = WikiPage(
+        title=result["filename"],
+        content=wiki_content,
+        source_type="upload",
+        source_id=result["id"],
+        is_draft=False,
+        is_processed=False,
+        created_by_id=current_user.id,
+    )
+    db.add(db_page)
+    await db.commit()
+    await db.refresh(db_page)
+    job = await wiki_graph_service.create_generation_job(
+        db=db,
+        document_id=result["id"],
+        user_id=current_user.id,
+        status="queued",
+    )
+    background_tasks.add_task(
+        run_graph_wiki_generation_job,
+        job.id,
+        result["file_path"],
+        result["filename"],
+        current_user.id,
+    )
+
+    return {
+        "id": result["id"],
+        "filename": result["filename"],
+        "wiki_input_id": db_page.id,
+        "generation_job_id": job.id,
+        "status": "processing",
+    }
 
 
 @router.post("/documents", status_code=status.HTTP_201_CREATED)
@@ -170,12 +217,22 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a document and its chunks from knowledge base (admin only)."""
+    doc = await knowledge_service.get_document(db, document_id)
     success = await knowledge_service.delete_document(db, document_id)
 
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document with id {document_id} not found",
+        )
+
+    if doc:
+        lightrag_doc_id = make_lightrag_doc_id(document_id)
+        await rag_anything_service.delete_document_from_graph(lightrag_doc_id)
+        await wiki_graph_service.sync_graph_to_wiki(
+            db=db,
+            user_id=current_user.id,
+            changed_doc_id=document_id,
         )
 
     return {"message": "Document deleted successfully"}
@@ -269,7 +326,15 @@ async def process_with_rag_anything(
     result = await rag_anything_service.process_document(
         file_path=doc["file_path"],
         parse_method=parse_method,
+        doc_id=make_lightrag_doc_id(document_id),
+        file_name=doc["filename"],
     )
+    if result.get("success"):
+        await wiki_graph_service.sync_graph_to_wiki(
+            db=db,
+            user_id=current_user.id,
+            changed_doc_id=document_id,
+        )
 
     return result
 

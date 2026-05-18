@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { LogOut, BookOpen, Plus, FileText, Clock, Upload, FileEdit, RefreshCw, File, X, Folder, FolderOpen, ChevronRight, ChevronDown, Eye, History } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeSanitize from 'rehype-sanitize'
+import { LogOut, BookOpen, FileText, Upload, FileEdit, X, Folder, FolderOpen, ChevronRight, ChevronDown, History } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -10,16 +13,36 @@ interface WikiPage {
   id: number
   title: string
   content?: string
-  source_type: 'upload' | 'insight' | 'note' | 'folder'
+  source_type: string
   parent_id?: number
   is_folder: boolean
   created_at: string
   updated_at: string
   version: number
+  slug?: string
+  summary?: string
+  source_confidence?: string
 }
 
 interface TreeNode extends WikiPage {
   children: TreeNode[]
+}
+
+interface WikiDraft {
+  id: number
+  page_id?: number | null
+  title: string
+  proposed_content: string
+  previous_content?: string | null
+  status: string
+  generation_job_id?: number | null
+  created_at: string
+  metadata?: {
+    confidence?: string
+    entity_id?: string
+    entity_type?: string
+  }
+  source_documents?: Array<{ id: number; filename: string }>
 }
 
 const TreeItem: React.FC<{ 
@@ -85,14 +108,18 @@ const TreeItem: React.FC<{
 const KnowledgeBook: React.FC = () => {
   const [inputs, setInputs] = useState<WikiPage[]>([])
   const [outputs, setOutputs] = useState<WikiPage[]>([])
+  const [drafts, setDrafts] = useState<WikiDraft[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedPage, setSelectedPage] = useState<WikiPage | null>(null)
 const [showAddInputModal, setShowAddInputModal] = useState(false)
   const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [showDraftsModal, setShowDraftsModal] = useState(false)
+  const [selectedDraft, setSelectedDraft] = useState<WikiDraft | null>(null)
   const [addInputTab, setAddInputTab] = useState<'note' | 'document'>('note')
   const [noteContent, setNoteContent] = useState('')
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [generationStatus, setGenerationStatus] = useState<string | null>(null)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
@@ -106,10 +133,22 @@ const [showAddInputModal, setShowAddInputModal] = useState(false)
       const data = response.data
       setInputs(data.inputs || [])
       setOutputs(data.outputs || [])
+      await loadDrafts()
     } catch (error) {
       console.error('Failed to load wiki pages:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadDrafts = async () => {
+    try {
+      const response = await api.get('/wiki/drafts')
+      const nextDrafts = response.data || []
+      setDrafts(nextDrafts)
+      setSelectedDraft((current) => current ? nextDrafts.find((draft: WikiDraft) => draft.id === current.id) || nextDrafts[0] || null : nextDrafts[0] || null)
+    } catch (error) {
+      console.error('Failed to load wiki drafts:', error)
     }
   }
 
@@ -122,6 +161,32 @@ const [showAddInputModal, setShowAddInputModal] = useState(false)
     } catch (error) {
       console.error('Failed to delete:', error)
     }
+  }
+
+  const pollGenerationJob = (jobId: number) => {
+    const poll = async () => {
+      try {
+        const response = await api.get(`/wiki/jobs/${jobId}`)
+        const job = response.data
+        setGenerationStatus(`Graph job ${job.id}: ${job.status}`)
+        if (job.status === 'queued' || job.status === 'processing') {
+          window.setTimeout(poll, 2000)
+          return
+        }
+        if (job.status === 'completed') {
+          setGenerationStatus(`Graph drafting complete: ${job.pages_created} new, ${job.pages_updated} updated`)
+          await loadWikiPages()
+        } else if (job.status === 'failed') {
+          setGenerationStatus(`Graph drafting failed: ${job.error_message || 'unknown error'}`)
+          await loadDrafts()
+        }
+      } catch (error) {
+        console.error('Failed to poll generation job:', error)
+        setGenerationStatus('Unable to read graph generation status')
+      }
+    }
+
+    poll()
   }
 
   const buildTree = (pages: WikiPage[]): TreeNode[] => {
@@ -149,12 +214,16 @@ const [showAddInputModal, setShowAddInputModal] = useState(false)
     try {
       const formData = new FormData()
       formData.append('file', uploadFile)
-      await api.post('/knowledge/upload', formData, {
+      const response = await api.post('/knowledge/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       setShowAddInputModal(false)
       setUploadFile(null)
+      setGenerationStatus('Processing graph and drafting wiki updates.')
       loadWikiPages()
+      if (response.data?.generation_job_id) {
+        pollGenerationJob(response.data.generation_job_id)
+      }
     } catch (error) {
       console.error('Failed to upload document:', error)
     } finally {
@@ -210,6 +279,64 @@ const [showAddInputModal, setShowAddInputModal] = useState(false)
     }
   }
 
+  const handleApproveDraft = async (draftId: number) => {
+    try {
+      await api.post(`/wiki/drafts/${draftId}/approve`)
+      await loadWikiPages()
+    } catch (error) {
+      console.error('Failed to approve draft:', error)
+    }
+  }
+
+  const handleRejectDraft = async (draftId: number) => {
+    try {
+      await api.post(`/wiki/drafts/${draftId}/reject`)
+      await loadDrafts()
+    } catch (error) {
+      console.error('Failed to reject draft:', error)
+    }
+  }
+
+  const contentWithWikiLinks = (content?: string) => {
+    return (content || '').replace(/\[\[([^\]]+)\]\]/g, (_match, title) => {
+      return `[${title}](#wiki-${encodeURIComponent(title)})`
+    })
+  }
+
+  const renderMarkdown = (content?: string) => (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      rehypePlugins={[rehypeSanitize]}
+      components={{
+        a: ({ href, children }) => {
+          if (href?.startsWith('#wiki-')) {
+            const title = decodeURIComponent(href.replace('#wiki-', ''))
+            const page = outputs.find((candidate) => candidate.title === title)
+            if (page) {
+              return (
+                <button
+                  type="button"
+                  className="text-blue-600 underline underline-offset-2"
+                  onClick={() => setSelectedPage(page)}
+                >
+                  {children}
+                </button>
+              )
+            }
+            return <span className="text-gray-700">{children}</span>
+          }
+          return (
+            <a href={href} className="text-blue-600 underline underline-offset-2">
+              {children}
+            </a>
+          )
+        },
+      }}
+    >
+      {contentWithWikiLinks(content)}
+    </ReactMarkdown>
+  )
+
   const handleLogout = () => {
     logout()
     navigate('/login')
@@ -262,6 +389,9 @@ const [showAddInputModal, setShowAddInputModal] = useState(false)
                 Contents
               </CardTitle>
               <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setShowDraftsModal(true)}>
+                  Drafts {drafts.length > 0 ? `(${drafts.length})` : ''}
+                </Button>
                 <Button size="sm" variant="outline" onClick={() => setShowHistoryModal(true)}>
                   <History className="h-4 w-4 mr-1" /> History
                 </Button>
@@ -274,13 +404,18 @@ const [showAddInputModal, setShowAddInputModal] = useState(false)
               </div>
             </CardHeader>
             <CardContent>
+              {(generationStatus || drafts.length > 0) && (
+                <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                  {generationStatus || `${drafts.length} pending graph draft${drafts.length === 1 ? '' : 's'} ready for review.`}
+                </div>
+              )}
               {outputs.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="mx-auto w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-3">
                     <BookOpen className="h-6 w-6 text-gray-400" />
                   </div>
                   <p className="text-sm text-gray-600">No contents yet</p>
-                  <p className="text-xs text-gray-500 mt-1">Add notes to create content</p>
+                  <p className="text-xs text-gray-500 mt-1">Upload source documents to draft concept pages</p>
                 </div>
               ) : (
                 <div className="space-y-1">
@@ -318,7 +453,14 @@ const [showAddInputModal, setShowAddInputModal] = useState(false)
             <CardContent>
               {selectedPage ? (
                 <div className="prose prose-sm max-w-none">
-                  <div className="text-gray-700 whitespace-pre-wrap">{selectedPage.content}</div>
+                  {selectedPage.content?.trim() ? (
+                    renderMarkdown(selectedPage.content)
+                  ) : (
+                    <div className="text-center py-12 text-gray-500">
+                      <FileText className="h-8 w-8 text-gray-400 mx-auto mb-3" />
+                      <p>This page does not have generated wiki content yet.</p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-16 text-gray-500">
@@ -428,6 +570,105 @@ const [showAddInputModal, setShowAddInputModal] = useState(false)
                   className="mt-3 w-full sm:mt-0 sm:ml-3 sm:w-auto"
                 >
                   Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Draft Review Modal */}
+      {showDraftsModal && (
+        <div className="fixed z-50 inset-0 overflow-y-auto">
+          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 bg-gray-900/75 backdrop-blur-sm" aria-hidden="true"></div>
+
+            <div className="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-5xl sm:w-full max-h-[90vh]">
+              <div className="bg-gradient-to-br from-white to-blue-50/30 px-6 pt-6 pb-4">
+                <h3 className="text-xl font-bold text-gray-900 flex items-center justify-between">
+                  <span className="flex items-center">
+                    <FileText className="h-5 w-5 mr-2 text-blue-600" />
+                    Graph Drafts
+                  </span>
+                  <button onClick={() => setShowDraftsModal(false)} className="text-gray-500 hover:text-gray-800">
+                    <X className="h-5 w-5" />
+                  </button>
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-0 max-h-[70vh] overflow-hidden">
+                <div className="border-r border-gray-200 overflow-y-auto max-h-[70vh] p-4">
+                  {drafts.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">No pending drafts</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {drafts.map((draft) => (
+                        <button
+                          key={draft.id}
+                          type="button"
+                          onClick={() => setSelectedDraft(draft)}
+                          className={`w-full text-left p-3 rounded-lg border text-sm ${selectedDraft?.id === draft.id ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
+                        >
+                          <div className="font-medium text-gray-900 truncate">{draft.title}</div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {draft.page_id ? 'Update draft' : 'New concept'} · Job {draft.generation_job_id || 'n/a'}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="md:col-span-2 overflow-y-auto max-h-[70vh] p-6">
+                  {selectedDraft ? (
+                    <div className="space-y-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h4 className="text-lg font-semibold text-gray-900">{selectedDraft.title}</h4>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {selectedDraft.metadata?.entity_type || 'Concept'} · Confidence {selectedDraft.metadata?.confidence || 'unknown'}
+                          </div>
+                          {selectedDraft.source_documents && selectedDraft.source_documents.length > 0 && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              Sources: {selectedDraft.source_documents.map((doc) => doc.filename).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => handleRejectDraft(selectedDraft.id)}>
+                            Reject
+                          </Button>
+                          <Button size="sm" onClick={() => handleApproveDraft(selectedDraft.id)} className="bg-blue-600 hover:bg-blue-700">
+                            Approve
+                          </Button>
+                        </div>
+                      </div>
+
+                      {selectedDraft.previous_content && (
+                        <div>
+                          <h5 className="text-sm font-semibold text-gray-700 mb-2">Previous Content</h5>
+                          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 max-h-56 overflow-y-auto prose prose-sm max-w-none">
+                            {renderMarkdown(selectedDraft.previous_content)}
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <h5 className="text-sm font-semibold text-gray-700 mb-2">Proposed Markdown Preview</h5>
+                        <div className="rounded-lg border border-gray-200 bg-white p-4 prose prose-sm max-w-none">
+                          {renderMarkdown(selectedDraft.proposed_content)}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 text-gray-500">Select a draft to review</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-gray-50 px-6 py-4 sm:px-6">
+                <Button variant="outline" onClick={() => setShowDraftsModal(false)} className="w-full">
+                  Close
                 </Button>
               </div>
             </div>

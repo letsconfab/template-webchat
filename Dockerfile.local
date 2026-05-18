@@ -1,0 +1,66 @@
+# Local deployment image for the port-safe Docker Compose stack.
+# Includes RAG-Anything so graph-backed Knowledge Book features can be tested.
+
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    libmagic1 \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONPATH=/app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch torchvision torchaudio \
+    && pip install --no-cache-dir -r requirements.txt
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    libsm6 \
+    libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r appgroup && useradd -r -g appgroup -m -d /home/appuser appuser
+RUN mkdir -p /app/kb_assets /app/.cache/huggingface /app/.cache/mineru /home/appuser/.cache && \
+    chown -R appuser:appgroup /app /home/appuser && \
+    chmod -R 755 /app /home/appuser
+
+ENV HOME=/home/appuser
+ENV XDG_CACHE_HOME=/app/.cache
+ENV HF_HOME=/app/.cache/huggingface
+ENV HUGGINGFACE_HUB_CACHE=/app/.cache/huggingface/hub
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
+
+COPY --chown=appuser:appgroup backend/ ./backend/
+COPY --chown=appuser:appgroup requirements.txt .
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

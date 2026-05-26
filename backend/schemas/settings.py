@@ -76,6 +76,41 @@ class SystemSettingsBase(BaseModel):
         None, max_length=500, description="Knowledge book LLM base URL"
     )
 
+    # Google Drive OAuth
+    google_drive_enabled: Optional[bool] = Field(
+        False, description="Enable Google Drive sync"
+    )
+    google_drive_refresh_token: Optional[str] = Field(
+        None, description="Google Drive OAuth refresh token"
+    )
+    google_drive_root_folder_id: Optional[str] = Field(
+        None, max_length=500, description="Google Drive root folder ID"
+    )
+
+    # Neo4j Configuration
+    neo4j_url: Optional[str] = Field(
+        "bolt://localhost:7687", max_length=500, description="Neo4j connection URL"
+    )
+    neo4j_user: Optional[str] = Field(
+        "neo4j", max_length=100, description="Neo4j username"
+    )
+    neo4j_password: Optional[str] = Field(
+        None, max_length=500, description="Neo4j password"
+    )
+    neo4j_database: Optional[str] = Field(
+        "neo4j", max_length=100, description="Neo4j database name"
+    )
+
+    # CocoIndex / GraphRAG Configuration
+    cocoindex_embedding_model: Optional[str] = Field(
+        "sentence-transformers/all-MiniLM-L6-v2",
+        max_length=200,
+        description="Embedding model for CocoIndex",
+    )
+    graphrag_enabled: Optional[bool] = Field(
+        False, description="Enable GraphRAG querying"
+    )
+
     # Foundry Configuration
     foundry_url: Optional[str] = Field(
         None, max_length=500, description="Foundry instance URL"

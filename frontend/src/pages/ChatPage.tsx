@@ -11,28 +11,13 @@ interface Message {
   feedback?: 'thumbs_up' | 'thumbs_down' | null
 }
 
-interface KnowledgeStatus {
-  source_counts: Record<'uploaded' | 'processing' | 'draft_ready' | 'committed' | 'failed', number>
-  patch_counts: { draft: number; committed: number }
-  active_nodes: number
-  processing_sources: number
-  processing_progress: number
-  rag_initialized: boolean
-  rag_healthy: boolean
-  chat_ready: boolean
-  storage_root: string
-}
-
-const ProgressBar: React.FC<{ value: number }> = ({ value }) => {
-  const clamped = Math.max(0, Math.min(100, value))
-  return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
-      <div
-        className="h-full rounded-full bg-gradient-to-r from-amber-400 via-orange-400 to-sky-500 transition-all duration-300"
-        style={{ width: `${clamped}%` }}
-      />
-    </div>
-  )
+interface GraphRAGStatus {
+  connected: boolean
+  files_cached: number
+  last_sync: string | null
+  pipeline_running: boolean
+  pipeline_last_update: string | null
+  ready: boolean
 }
 
 export default function ChatPage() {
@@ -44,7 +29,7 @@ export default function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [currentResponse, setCurrentResponse] = useState('')
   const [settings, setSettings] = useState<ChatSettings | null>(null)
-  const [knowledgeStatus, setKnowledgeStatus] = useState<KnowledgeStatus | null>(null)
+  const [graphragStatus, setGraphragStatus] = useState<GraphRAGStatus | null>(null)
   
   const currentResponseRef = useRef('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -68,22 +53,33 @@ export default function ChatPage() {
 
     let active = true
 
-    const loadKnowledgeStatus = async () => {
+    const loadGraphRAGStatus = async () => {
       try {
-        const response = await api.get('/knowledge/status')
+        const token = localStorage.getItem('token')
+        const response = await api.get('/drive/status', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
         if (active) {
-          setKnowledgeStatus(response.data)
+          const d = response.data
+          setGraphragStatus({
+            connected: d.connected,
+            files_cached: d.sync?.file_count ?? 0,
+            last_sync: d.sync?.last_sync ?? null,
+            pipeline_running: d.pipeline?.running ?? false,
+            pipeline_last_update: d.pipeline?.last_update ?? null,
+            ready: d.connected && (d.sync?.file_count ?? 0) > 0,
+          })
         }
       } catch (error) {
-        console.error('Failed to load knowledge status:', error)
+        console.error('Failed to load GraphRAG status:', error)
         if (active) {
-          setKnowledgeStatus(null)
+          setGraphragStatus(null)
         }
       }
     }
 
-    loadKnowledgeStatus()
-    const timer = window.setInterval(loadKnowledgeStatus, 5000)
+    loadGraphRAGStatus()
+    const timer = window.setInterval(loadGraphRAGStatus, 10000)
 
     return () => {
       active = false
@@ -199,11 +195,9 @@ export default function ChatPage() {
     if (!token) return
 
     try {
-      await api.post('/api/feedback', {
+      await api.post('/feedback', {
         feedback_type: feedbackType,
         rating: feedbackType === 'thumbs_up' ? 5 : 1
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       })
       
       setMessages(prev => prev.map((msg, idx) => 
@@ -214,18 +208,18 @@ export default function ChatPage() {
     }
   }
 
-  const status = knowledgeStatus
-  const isProcessing = Boolean(status && !status.chat_ready && status.processing_sources > 0)
-  const isReady = Boolean(status?.chat_ready)
+  const status = graphragStatus
+  const isReady = Boolean(status?.ready)
+  const isProcessing = Boolean(status?.pipeline_running)
   const statusLabel = !status
-    ? 'Knowledge status unavailable'
+    ? 'Knowledge base status unavailable'
     : isReady
-      ? 'Knowledge book ready'
+      ? 'Knowledge base ready'
       : isProcessing
-        ? `Indexing ${status.processing_sources} source${status.processing_sources === 1 ? '' : 's'}`
-        : status.rag_initialized
-          ? 'Knowledge book initializing'
-          : 'RAG service offline'
+        ? 'Indexing documents...'
+        : status?.connected
+          ? 'Knowledge base initializing'
+          : 'Knowledge base not connected'
 
   if (!user) {
     return (
@@ -287,6 +281,8 @@ export default function ChatPage() {
                       <CircleCheck className="h-4 w-4 text-emerald-600" />
                     ) : isProcessing ? (
                       <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+                    ) : status?.connected ? (
+                      <AlertTriangle className="h-4 w-4 text-amber-500" />
                     ) : (
                       <AlertTriangle className="h-4 w-4 text-slate-500" />
                     )}
@@ -294,10 +290,12 @@ export default function ChatPage() {
                   </div>
                   <div className="mt-1 text-xs text-slate-600">
                     {isReady
-                      ? 'Grounded answers are available now.'
+                      ? 'Answers are grounded in your Google Drive documents.'
                       : isProcessing
-                        ? 'The knowledge book is still being indexed. This can take a little while after uploads or commits.'
-                        : 'Grounded answers are not available until the RAG service is initialized and the book is indexed.'}
+                        ? 'Documents are being indexed into the knowledge graph.'
+                        : status?.connected
+                          ? 'Documents synced, waiting for indexing.'
+                          : 'Connect Google Drive in admin settings to enable grounded answers.'}
                   </div>
                 </div>
                 <Badge
@@ -309,14 +307,9 @@ export default function ChatPage() {
                         : 'border-slate-200 bg-white text-slate-700'
                   }
                 >
-                  {isReady ? 'Ready' : isProcessing ? `${status.processing_progress}%` : 'Offline'}
+                  {isReady ? 'Ready' : isProcessing ? 'Indexing' : status?.connected ? 'No files' : 'Offline'}
                 </Badge>
               </div>
-              {isProcessing && (
-                <div className="mt-3">
-                  <ProgressBar value={status.processing_progress} />
-                </div>
-              )}
             </div>
           </div>
         </div>

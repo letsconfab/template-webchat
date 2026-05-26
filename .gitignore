@@ -3,3 +3,5 @@ __pycache__
 .env
 kb_assets
 .cache
+garage_storage
+kb_cache

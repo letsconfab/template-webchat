@@ -44,12 +44,22 @@ class Config:
     )
 
     # Knowledge Base Configuration
-    KB_ASSETS_DIR: Path = Path(
-        os.getenv(
-            "KB_ASSETS_DIR",
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "kb_assets"),
-        )
-    ).resolve()
+    KB_CACHE_DIR: str = os.getenv("KB_CACHE_DIR", "./kb_cache")
+
+    # Google Drive OAuth
+    GOOGLE_OAUTH_CLIENT_ID: str = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+    GOOGLE_OAUTH_CLIENT_SECRET: str = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+    GOOGLE_OAUTH_REDIRECT_URI: str = os.getenv(
+        "GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/api/drive/callback"
+    )
+
+    # Neo4j
+    NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    NEO4J_USER: str = os.getenv("NEO4J_USER", "neo4j")
+    NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "cocoindex")
+
+    # Qdrant
+    QDRANT_URL: str = os.getenv("QDRANT_URL", "http://localhost:6333")
 
 
 # Global config instance

@@ -56,6 +56,24 @@ class SystemSettings(Base):
     rag_api_key = Column(String(500), nullable=True)
     rag_base_url = Column(String(500), nullable=True)
 
+    # Google Drive OAuth
+    google_drive_enabled = Column(Boolean, default=False, nullable=False)
+    google_drive_refresh_token = Column(Text, nullable=True)
+    google_drive_root_folder_id = Column(String(500), nullable=True)
+    google_drive_last_synced = Column(DateTime, nullable=True)
+
+    # Neo4j Configuration
+    neo4j_url = Column(String(500), default="bolt://localhost:7687", nullable=False)
+    neo4j_user = Column(String(100), default="neo4j", nullable=False)
+    neo4j_password = Column(String(500), nullable=True)
+    neo4j_database = Column(String(100), default="neo4j", nullable=False)
+
+    # CocoIndex / GraphRAG Configuration
+    cocoindex_embedding_model = Column(
+        String(200), default="sentence-transformers/all-MiniLM-L6-v2", nullable=False
+    )
+    graphrag_enabled = Column(Boolean, default=False, nullable=False)
+
     # Foundry Configuration
     foundry_url = Column(String(500), nullable=True)
     foundry_confab_id = Column(Integer, nullable=True)

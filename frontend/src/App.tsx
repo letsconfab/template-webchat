@@ -10,7 +10,7 @@ import ConfigurationWizard from './pages/ConfigurationWizard'
 import AdminSettings from './pages/AdminSettings'
 import FeedbackDashboard from './pages/FeedbackDashboard'
 import InsightsReview from './pages/InsightsReview'
-import KnowledgeBook from './pages/KnowledgeBook'
+import GoogleDriveSettings from './pages/GoogleDriveSettings'
 
 const InviteRedirect = () => {
   const { token } = useParams()
@@ -144,7 +144,7 @@ function App() {
                   path="/admin/knowledge" 
                   element={
                     <ProtectedRoute requireAdmin>
-                      <KnowledgeBook />
+                      <GoogleDriveSettings />
                     </ProtectedRoute>
                   } 
                 />

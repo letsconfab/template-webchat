@@ -1,15 +1,17 @@
 """LLM provider implementations for different services."""
 
-from typing import Optional, Any, Iterator
+import json
+from typing import Any, Callable, Optional, Sequence, Literal
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, HumanMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
 import httpx
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
-from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_ollama import ChatOllama
 from langchain_community.embeddings import FastEmbedEmbeddings
 
 
@@ -17,8 +19,23 @@ class SarvamLLM(BaseChatModel):
     """Custom LLM implementation for Sarvam AI with streaming support."""
 
     api_key: str
-    model: str = "sarvam-m"
+    model: str = "sarvam-30b"
     base_url: str = "https://api.sarvam.ai"
+
+    @staticmethod
+    def _extract_content(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                    elif block.get("type") == "text_delta":
+                        parts.append(block.get("text", ""))
+            return "\n".join(parts)
+        return str(content)
 
     def _generate(
         self,
@@ -28,15 +45,14 @@ class SarvamLLM(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         """Generate response from Sarvam API."""
-        # Convert messages to Sarvam format
         sarvam_messages = []
         for msg in messages:
-            if isinstance(msg, HumanMessage):
-                sarvam_messages.append({"role": "user", "content": msg.content})
+            role = "user"
+            if isinstance(msg, SystemMessage):
+                role = "system"
             elif isinstance(msg, AIMessage):
-                sarvam_messages.append({"role": "assistant", "content": msg.content})
-            elif isinstance(msg, SystemMessage):
-                sarvam_messages.append({"role": "system", "content": msg.content})
+                role = "assistant"
+            sarvam_messages.append({"role": role, "content": self._extract_content(msg.content)})
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -48,11 +64,16 @@ class SarvamLLM(BaseChatModel):
             "model": self.model,
         }
 
+        if "tools" in kwargs and kwargs["tools"]:
+            payload["tools"] = kwargs["tools"]
+        if "tool_choice" in kwargs:
+            payload["tool_choice"] = kwargs["tool_choice"]
+
         response = httpx.post(
             f"{self.base_url}/v1/chat/completions",
             headers=headers,
             json=payload,
-            timeout=60.0,
+            timeout=300.0,
         )
 
         if response.status_code != 200:
@@ -61,10 +82,42 @@ class SarvamLLM(BaseChatModel):
             )
 
         data = response.json()
-        content = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        message = choice["message"]
 
-        generation = ChatGeneration(message=AIMessage(content=content))
+        content = message.get("content")
+        raw_tool_calls = message.get("tool_calls")
+
+        if raw_tool_calls:
+            tool_calls = []
+            for tc in raw_tool_calls:
+                tool_calls.append({
+                    "name": tc["function"]["name"],
+                    "args": json.loads(tc["function"]["arguments"]),
+                    "id": tc["id"],
+                })
+            generation = ChatGeneration(
+                message=AIMessage(
+                    content=content or "",
+                    tool_calls=tool_calls,
+                    additional_kwargs={"tool_calls": raw_tool_calls},
+                )
+            )
+        else:
+            generation = ChatGeneration(message=AIMessage(content=content or ""))
+
         return ChatResult(generations=[generation])
+
+    def bind_tools(
+        self,
+        tools: Sequence[BaseTool | dict[str, Any] | type | Callable],
+        *,
+        tool_choice: dict | str | Literal["any", "auto", "none"] | bool | None = None,
+        **kwargs: Any,
+    ) -> Runnable[Any, Any]:
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+        formatted = [convert_to_openai_tool(t) for t in tools]
+        return self.bind(tools=formatted, tool_choice=tool_choice, **kwargs)
 
     @property
     def _llm_type(self) -> str:

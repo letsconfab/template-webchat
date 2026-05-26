@@ -1,50 +1,38 @@
-"""FastAPI application for Admin Invite and Chat."""
+"""FastAPI application for AI Copilot with GraphRAG knowledge base."""
 
-import os
 import logging
 from typing import List, Optional, Dict
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from contextlib import asynccontextmanager
 from pathlib import Path
+from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import httpx
+from langchain_core.messages import HumanMessage, SystemMessage
+from sqlalchemy import select
 
-# from config import config
 from backend.config import config
-
-# from database import init_db, close_db
 from backend.database import init_db, close_db, AsyncSessionLocal
-
-# from routers import auth, users, invites, settings, knowledge, feedback, insights
-from backend.routers import (
-    auth,
-    users,
-    invites,
-    settings,
-    knowledge,
-    feedback,
-    insights,
-    wiki,
-)
+from backend.routers import auth, users, invites, settings, feedback, insights, wiki, drive
 from backend.llm_providers import LLMProvider, validate_api_key, get_available_models
-from backend.services.knowledge_book_service import knowledge_book_service
 from backend.services.langfuse_service import langfuse_service
-from langfuse import propagate_attributes
+from backend.services.cocoindex_manager import cocoindex_manager
+from backend.services.graphrag_service import graphrag_service
+from backend.services.drive_sync_service import drive_sync_service
+from backend.models.settings import SystemSettings
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+logger = logging.getLogger(__name__)
 
-# Pydantic models for API
+
 class SettingsRequest(BaseModel):
     provider: str
     model: str
@@ -60,77 +48,52 @@ class ModelsResponse(BaseModel):
     models: List[str]
 
 
-# In-memory chat history storage (keyed by session ID)
 chat_history: Dict[str, List[ChatMessage]] = {}
-
-
-# Global session storage (in production, use Redis or database)
 user_sessions = {}
-
-
-def _knowledge_status_message(status: Dict[str, object]) -> str:
-    source_counts = status.get("source_counts") or {}
-    processing_sources = int(status.get("processing_sources") or source_counts.get("processing") or 0)
-    processing_progress = int(status.get("processing_progress") or 0)
-
-    if status.get("chat_ready"):
-        return "Knowledge book is ready for chat."
-
-    if processing_sources > 0:
-        if processing_progress > 0:
-            return f"Knowledge book is still processing ({processing_progress}% complete)."
-        return "Knowledge book is still processing."
-
-    if not status.get("rag_initialized"):
-        return "Knowledge book grounding is not initialized yet."
-
-    if not status.get("rag_healthy"):
-        return "Knowledge book grounding service is offline."
-
-    return "Knowledge book grounding is unavailable."
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan context manager for startup and shutdown events."""
-    # Startup
-    print("Starting FastAPI application...")
-
-    # Initialize database
-    print("Initializing database...")
+    logger.info("Starting FastAPI application...")
     await init_db()
 
-    # Try to initialize the external RAG-Anything service if settings exist
-    try:
-        from sqlalchemy import select
-        from backend.models.settings import SystemSettings
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(SystemSettings).limit(1))
+        settings = result.scalar_one_or_none()
 
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(select(SystemSettings).limit(1))
-            settings = result.scalar_one_or_none()
-            print(f"Settings object: {settings}, type: {type(settings)}")
+        if settings:
+            neo4j_uri = settings.neo4j_url or config.NEO4J_URI
+            neo4j_user = settings.neo4j_user or config.NEO4J_USER
+            neo4j_password = settings.neo4j_password or config.NEO4J_PASSWORD
+            neo4j_database = settings.neo4j_database or "neo4j"
 
-            if settings:
-                from backend.services.rag_anything_service import rag_anything_service
+            await graphrag_service.initialize(
+                neo4j_uri=neo4j_uri,
+                neo4j_user=neo4j_user,
+                neo4j_password=neo4j_password,
+                neo4j_database=neo4j_database,
+                qdrant_url=config.QDRANT_URL,
+            )
 
-                sync_result = await rag_anything_service.sync_from_settings(settings)
-                print(f"RAG-Anything sync result: {sync_result}")
-                if rag_anything_service.is_initialized:
-                    try:
-                        await knowledge_book_service.resume_pending_sources()
-                        await knowledge_book_service.reindex_current_book()
-                        print("Knowledge book indexing complete")
-                    except Exception as e:
-                        print(f"Knowledge book warmup failed: {e}")
-    except Exception as e:
-        print(f"RAG-Anything auto-sync failed: {e}")
+            if settings.llm_provider and settings.llm_model and settings.llm_api_key:
+                cache_dir = getattr(config, "KB_CACHE_DIR", "./kb_cache")
+                cocoindex_manager.configure(
+                    cache_dir=cache_dir,
+                    neo4j_uri=neo4j_uri,
+                    neo4j_user=neo4j_user,
+                    neo4j_password=neo4j_password,
+                    neo4j_database=neo4j_database,
+                    qdrant_url=config.QDRANT_URL,
+                    embedding_model=settings.cocoindex_embedding_model or "sentence-transformers/all-MiniLM-L6-v2",
+                    llm_provider=settings.llm_provider,
+                    llm_model=settings.llm_model,
+                    llm_api_key=settings.llm_api_key or "",
+                )
+                await cocoindex_manager.start()
 
-    try:
-        await knowledge_book_service.resume_pending_sources()
-    except Exception as e:
-        print(f"Knowledge book resume failed: {e}")
+            if settings.google_drive_refresh_token:
+                await drive_sync_service.start(settings.google_drive_refresh_token)
 
-    # Mount static files for React frontend
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
         assets_dir = frontend_dist / "assets"
@@ -139,23 +102,23 @@ async def lifespan(app: FastAPI):
         static_dir = frontend_dist / "static"
         if static_dir.exists():
             app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-    else:
-        print(f"Warning: Frontend dist directory not found at {frontend_dist}")
 
     yield
-    # Shutdown
-    print("Shutting down FastAPI application...")
+
+    logger.info("Shutting down...")
+    await drive_sync_service.stop()
+    await cocoindex_manager.stop()
+    await graphrag_service.close()
     await close_db()
 
 
 app = FastAPI(
     title="AI Copilot API",
-    description="Multi-tenant AI copilot with RAG capabilities",
-    version="1.0.0",
+    description="Multi-tenant AI copilot with GraphRAG capabilities",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -164,29 +127,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routers
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(invites.router)
 app.include_router(settings.router)
-app.include_router(knowledge.router)
 app.include_router(feedback.router)
 app.include_router(insights.router)
 app.include_router(wiki.router)
-
-# Mount static files for frontend (deployment)
-# app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
+app.include_router(drive.router)
 
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
     return {"status": "healthy"}
 
 
 @app.get("/api/providers")
 async def get_providers():
-    """Get list of available LLM providers."""
     return {
         "providers": [
             {"id": "openai", "name": "OpenAI", "requires_api_key": True},
@@ -199,7 +156,6 @@ async def get_providers():
 
 @app.post("/api/models")
 async def get_models(request: SettingsRequest):
-    """Get available models for a provider."""
     try:
         models = await get_available_models(request.provider, request.api_key)
         return ModelsResponse(models=models)
@@ -209,14 +165,12 @@ async def get_models(request: SettingsRequest):
 
 @app.post("/api/validate-key")
 async def validate_key(request: SettingsRequest):
-    """Validate API key for a provider."""
     is_valid = await validate_api_key(request.provider, request.api_key)
     return {"valid": is_valid}
 
 
 @app.post("/api/settings")
 async def update_settings(settings: SettingsRequest):
-    """Update user settings (session-based)."""
     user_sessions["default"] = {
         "provider": settings.provider,
         "model": settings.model,
@@ -227,20 +181,16 @@ async def update_settings(settings: SettingsRequest):
 
 @app.get("/api/chat-history")
 async def get_chat_history(session_id: str = "default"):
-    """Get chat history for a session."""
     return {"messages": chat_history.get(session_id, [])}
 
 
 @app.delete("/api/chat-history")
 async def clear_chat_history(session_id: str = "default"):
-    """Clear chat history for a session."""
     chat_history[session_id] = []
     return {"status": "success"}
 
 
 class ConnectionManager:
-    """Manage WebSocket connections for streaming chat."""
-
     def __init__(self):
         self.active_connections: List[WebSocket] = []
 
@@ -258,21 +208,98 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def _build_system_prompt(has_kb: bool, provider: str, model: str) -> str:
+    kb_note = (
+        "\n\nYou have access to a knowledge base. "
+        "When answering, use the `retrieve_knowledge` tool to look up relevant information. "
+        "If the knowledge base returns empty results, rely on your own knowledge."
+        if has_kb
+        else ""
+    )
+    return f"""You are an AI assistant helping users with their questions.
+Be concise, accurate, and helpful.{kb_note}"""
+
+
+async def _settings_status_message(settings) -> str:
+    if not settings:
+        return "System not configured."
+    parts = []
+    neo4j_ok = await graphrag_service.is_ready()
+    parts.append("Knowledge graph is connected." if neo4j_ok else "Knowledge graph is not connected.")
+    sync = drive_sync_service.get_status()
+    if sync.get("last_sync"):
+        parts.append(f"Last Drive sync: {sync['last_sync']}")
+    if sync.get("file_count", 0) > 0:
+        parts.append(f"Files cached: {sync['file_count']}")
+    pipeline = cocoindex_manager.get_status()
+    if pipeline.get("last_update"):
+        parts.append(f"Last index update: {pipeline['last_update']}")
+    if pipeline.get("running"):
+        parts.append("Index pipeline is running.")
+    return " | ".join(parts)
+
+
+async def _query_with_knowledge(
+    llm,
+    user_message: str,
+    history: List[ChatMessage],
+    session_id: str,
+    websocket: WebSocket,
+):
+    try:
+        from deepagents import create_deep_agent
+        from langchain_core.tools import tool
+
+        if await graphrag_service.is_ready():
+            @tool
+            async def retrieve_knowledge(query: str) -> str:
+                """Search the knowledge base for information relevant to the query."""
+                return await graphrag_service.retrieve_knowledge(query)
+
+            tools = [retrieve_knowledge]
+        else:
+            tools = []
+
+        agent = create_deep_agent(
+            model=llm,
+            tools=tools,
+            system_prompt=_build_system_prompt(
+                has_kb=len(tools) > 0,
+                provider=getattr(llm, "model", "unknown"),
+                model=getattr(llm, "model_name", "unknown"),
+            ),
+        )
+
+        messages = [HumanMessage(content=user_message)]
+
+        result = await agent.ainvoke({"messages": messages})
+        response_text = result["messages"][-1].content if result.get("messages") else ""
+
+    except ImportError:
+        logger.warning("deepagents not installed, falling back to simple LLM call")
+        response_text = await llm.ainvoke(
+            [HumanMessage(content=user_message)]
+        )
+        response_text = response_text.content if hasattr(response_text, "content") else str(response_text)
+    except Exception as e:
+        logger.error("Agent query error: %s", e)
+        response_text = f"An error occurred: {str(e)}"
+
+    await websocket.send_json({"type": "start"})
+    await websocket.send_json({"type": "chunk", "content": response_text})
+    chat_history[session_id].append(ChatMessage(role="assistant", content=response_text))
+    await websocket.send_json({"type": "end"})
+
+
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
-    """WebSocket endpoint for streaming chat responses."""
     await manager.connect(websocket)
 
     try:
-        # Receive initial settings from client
         data = await websocket.receive_json()
         session_id = data.get("session_id", "default")
         client_provider = data.get("provider", "openai")
         client_model = data.get("model", "gpt-4o-mini")
-
-        # Get API key from database settings (not from client - more secure)
-        from sqlalchemy import select
-        from backend.models.settings import SystemSettings
 
         async with AsyncSessionLocal() as settings_db:
             result = await settings_db.execute(select(SystemSettings).limit(1))
@@ -295,137 +322,78 @@ async def websocket_chat(websocket: WebSocket):
                 model = client_model
                 api_key = ""
 
-        print(
-            f"WebSocket: Received settings - session: {session_id}, provider: {provider}, model: {model}"
+        logger.info(
+            "WebSocket session=%s provider=%s model=%s", session_id, provider, model
         )
 
-        # Send chat history
         history = chat_history.get(session_id, [])
         if history:
             await websocket.send_json(
                 {"type": "history", "messages": [msg.model_dump() for msg in history]}
             )
 
-        # Report knowledge book readiness
-        try:
-            from backend.services.knowledge_book_service import knowledge_book_service
+        status_msg = await _settings_status_message(settings)
+        if status_msg:
+            await websocket.send_json({"type": "status", "message": status_msg})
 
-            async with AsyncSessionLocal() as kb_db:
-                status = await knowledge_book_service.get_status(kb_db)
-                await websocket.send_json(
-                    {
-                        "type": "status",
-                        "message": _knowledge_status_message(status),
-                    }
-                )
-        except Exception as e:
-            print(f"Failed to load knowledge book status: {e}")
-            await websocket.send_json(
-                {
-                    "type": "status",
-                    "message": "Knowledge book status unavailable.",
-                }
-            )
+        llm_instance = LLMProvider(provider, model, api_key).get_llm()
 
-        # Chat loop
         while True:
             data = await websocket.receive_json()
             message = data.get("message", "")
 
-            print(f"WebSocket: Received message: {message[:50]}...")
+            logger.info("WebSocket message: %.50s", message)
 
-            # Initialize langfuse from settings
             async with AsyncSessionLocal() as langfuse_db:
                 from backend.services.settings_service import settings_service
 
-                settings = await settings_service.get_settings(langfuse_db)
-                if (
-                    settings
-                    and settings.langfuse_public_key
-                    and settings.langfuse_secret_key
-                ):
-                    base_url = (
-                        settings.langfuse_base_url or "https://us.cloud.langfuse.com"
-                    )
-                    print(
-                        f"[Langfuse] Initializing with public_key: {settings.langfuse_public_key[:20]}..., base_url: {base_url}"
-                    )
+                s = await settings_service.get_settings(langfuse_db)
+                if s and s.langfuse_public_key and s.langfuse_secret_key:
                     langfuse_service.initialize(
-                        public_key=settings.langfuse_public_key,
-                        secret_key=settings.langfuse_secret_key,
-                        base_url=base_url,
+                        public_key=s.langfuse_public_key,
+                        secret_key=s.langfuse_secret_key,
+                        base_url=s.langfuse_base_url or "https://us.cloud.langfuse.com",
                     )
                 else:
                     langfuse_service._initialized = False
 
-            if langfuse_service.is_initialized():
-                print(f"[Langfuse] Tracking chat session: {session_id}")
-
-            # Store user message in history
             if session_id not in chat_history:
                 chat_history[session_id] = []
             chat_history[session_id].append(ChatMessage(role="user", content=message))
 
-            try:
-                from backend.services.rag_anything_service import rag_anything_service
-
-                if not rag_anything_service.is_initialized:
-                    response_text = "Knowledge book grounding is not initialized yet."
-                else:
-                    async with AsyncSessionLocal() as kb_db:
-                        status = await knowledge_book_service.get_status(kb_db)
-
-                    if not status.get("chat_ready"):
-                        response_text = _knowledge_status_message(status)
-                    else:
-                        result = await rag_anything_service.query(message, mode="hybrid")
-                        if result.get("success"):
-                            response_text = str(result.get("result") or "").strip()
-                        else:
-                            response_text = _knowledge_status_message(status)
-            except Exception as e:
-                print(f"RAG-Anything query error: {e}")
-                response_text = "Knowledge book grounding is unavailable."
-
-            await websocket.send_json({"type": "start"})
-            await websocket.send_json({"type": "chunk", "content": response_text})
-            chat_history[session_id].append(
-                ChatMessage(role="assistant", content=response_text)
+            await _query_with_knowledge(
+                llm=llm_instance,
+                user_message=message,
+                history=chat_history[session_id],
+                session_id=session_id,
+                websocket=websocket,
             )
-            await websocket.send_json({"type": "end"})
 
     except WebSocketDisconnect:
-        print("WebSocket: Client disconnected")
+        logger.info("WebSocket disconnected")
         manager.disconnect(websocket)
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        logger.error("WebSocket error: %s", e)
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
-        except:
+        except Exception:
             pass
         manager.disconnect(websocket)
 
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
-    """Serve the React frontend for all non-API routes."""
     frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
-
-    # If it's a static asset, try to serve it
     if full_path.startswith("assets/") or full_path.startswith("static/"):
         file_path = frontend_dist / full_path
         if file_path.exists():
             return FileResponse(file_path)
-
-    # Otherwise serve index.html for client-side routing
     index_file = frontend_dist / "index.html"
     if index_file.exists():
         return FileResponse(index_file)
-
     raise HTTPException(status_code=404, detail="Frontend not built")
 
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

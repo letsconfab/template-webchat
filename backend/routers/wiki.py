@@ -28,7 +28,6 @@ console_handler.setFormatter(formatter)
 if not logger.handlers:
     logger.addHandler(console_handler)
 from backend.models.settings import SystemSettings
-from backend.services.rag_anything_service import rag_anything_service
 
 
 router = APIRouter(prefix="/api/wiki", tags=["wiki"])
@@ -40,17 +39,7 @@ def _wiki_source_name(title: str) -> str:
 
 
 async def _sync_wiki_markdown(title: str, content: str) -> None:
-    if not rag_anything_service.is_initialized:
-        return
-    try:
-        await rag_anything_service.ingest_markdown(
-            title=title,
-            content=f"# {title}\n\n{content}",
-            source_name=_wiki_source_name(title),
-        )
-        logger.info("Updated RAG service index for wiki page: %s", title)
-    except Exception as exc:
-        logger.error("Failed to update RAG service for wiki page %s: %s", title, exc)
+    pass
 
 
 class WikiPageResponse(BaseModel):

@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { LogOut, Users, Mail, CheckCircle, Copy, Settings, MessageSquare, Code, ThumbsUp, Lightbulb, BookOpen } from 'lucide-react'
+import { LogOut, Users, Mail, CheckCircle, Copy, Settings, MessageSquare, Code, ThumbsUp, Lightbulb, BookOpen, FolderOpen } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 import { Button } from '../components/ui/button'
@@ -284,16 +284,16 @@ const AdminDashboard: React.FC = () => {
                   </div>
                   <div className="text-xs text-cyan-600 font-medium bg-cyan-50 px-2 py-1 rounded-full">Knowledge</div>
                 </div>
-                <CardTitle className="text-lg font-bold text-gray-900 mt-3">Knowledge Book</CardTitle>
+                <CardTitle className="text-lg font-bold text-gray-900 mt-3">Knowledge Sources</CardTitle>
                 <CardDescription className="text-gray-600">
-                  View the generated knowledge book and draft pipeline
+                  Connect Google Drive and manage indexed documents
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <Link to="/admin/knowledge">
                   <Button variant="outline" className="w-full bg-white/80 hover:bg-white border-cyan-200 hover:border-cyan-300 text-cyan-700 hover:text-cyan-800 shadow-sm hover:shadow-md transition-all duration-200">
-                    <BookOpen className="h-4 w-4 mr-2" />
-                    View Knowledge
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                    Manage Sources
                   </Button>
                 </Link>
               </CardContent>

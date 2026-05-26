@@ -21,7 +21,7 @@ COMPOSE_RUNTIME = $(shell \
 		echo "docker compose"; \
 	fi)
 
-.PHONY: help setup install install-full install-fe run run-be run-fe run-db build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
+.PHONY: help setup install install-full install-fe run run-be run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
 
 # Default target
 help:
@@ -34,6 +34,10 @@ help:
 	@echo "  make run-be       - Run backend only"
 	@echo "  make run-fe       - Run frontend only"
 	@echo "  make run-db       - Run PostgreSQL database"
+	@echo "  make infra        - Start all infrastructure (postgres, neo4j, qdrant)"
+	@echo "  make infra-down   - Stop all infrastructure"
+	@echo "  make infra-logs   - Tail logs from infrastructure containers"
+	@echo "  make infra-reset  - Stop infra and delete volumes (fresh start)"
 	@echo "  make build        - Build frontend"
 	@echo "  make dev          - Run in development mode"
 	@echo "  make clean        - Clean build artifacts"
@@ -81,6 +85,20 @@ run-fe:
 # Run database
 run-db:
 	$(COMPOSE_RUNTIME) up postgres
+
+# Infrastructure (postgres + neo4j + qdrant)
+infra:
+	$(COMPOSE_RUNTIME) up -d postgres neo4j qdrant
+
+infra-down:
+	$(COMPOSE_RUNTIME) down
+
+infra-logs:
+	$(COMPOSE_RUNTIME) logs -f postgres neo4j qdrant
+
+infra-reset:
+	$(COMPOSE_RUNTIME) down -v
+	@echo "Volumes deleted. Run 'make infra' to start fresh."
 
 # Smoke test the isolated RAG service
 smoke-rag:

@@ -10,14 +10,19 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/webchat_db
       SECRET_KEY: your-secret-key-change-in-production
       QDRANT_URL: http://qdrant:6333
-      S3_ENDPOINT: http://garage:3900
-      S3_BUCKET: webchat-storage
-      RAG_SERVICE_URL: http://rag-anything:8010
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_PASSWORD: cocoindex
+      KB_CACHE_DIR: /data/kb_cache
+      GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:8000/api/drive/callback}
     depends_on:
       postgres:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    volumes:
+      - kb_cache:/data/kb_cache
     networks:
       - webchat
 
@@ -56,36 +61,21 @@ services:
     networks:
       - webchat
 
-  garage:
-    image: depage/garage:latest
-    container_name: webchat-garage
-    ports:
-      - "3900:3900"
-    volumes:
-      - garage_data:/data
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: webchat-neo4j
     environment:
-      - GARAGE_SECRET_KEY=changeme-in-production
-      - GARAGE_S3_REGION=garage
-    networks:
-      - webchat
-
-  rag-anything:
-    build:
-      context: .
-      dockerfile: rag_service/Dockerfile
-    container_name: webchat-rag-anything
-    environment:
-      RAG_WORKDIR: /data/rag
-    volumes:
-      - rag_data:/data/rag
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-cocoindex}
+      NEO4J_PLUGINS: '["apoc"]'
     ports:
-      - "8010:8010"
-    expose:
-      - "8010"
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8010/health || exit 1"]
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-cocoindex} 'RETURN 1' || exit 1"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 10
     networks:
       - webchat
@@ -93,8 +83,8 @@ services:
 volumes:
   postgres_data:
   qdrant_data:
-  garage_data:
-  rag_data:
+  neo4j_data:
+  kb_cache:
 
 networks:
   webchat:

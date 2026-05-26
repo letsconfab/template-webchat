@@ -173,6 +173,68 @@ async def run_migrations():
             print(f"Migration check failed (may already exist): {e}")
 
         await db.commit()
+        print("Migration 001: Base schema setup complete")
+
+    # --- Migration 002: CocoIndex / GraphRAG support ---
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await db.execute(
+                text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'system_settings' AND column_name = 'google_drive_enabled'
+            """)
+            )
+            if not result.fetchone():
+                await db.execute(
+                    text("""
+                    ALTER TABLE system_settings
+                      ADD COLUMN google_drive_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                      ADD COLUMN google_drive_refresh_token TEXT,
+                      ADD COLUMN google_drive_root_folder_id VARCHAR(500),
+                      ADD COLUMN google_drive_last_synced TIMESTAMP,
+                      ADD COLUMN neo4j_url VARCHAR(500) NOT NULL DEFAULT 'bolt://localhost:7687',
+                      ADD COLUMN neo4j_user VARCHAR(100) NOT NULL DEFAULT 'neo4j',
+                      ADD COLUMN neo4j_password VARCHAR(500),
+                      ADD COLUMN neo4j_database VARCHAR(100) NOT NULL DEFAULT 'neo4j',
+                      ADD COLUMN cocoindex_embedding_model VARCHAR(200) NOT NULL DEFAULT 'sentence-transformers/all-MiniLM-L6-v2',
+                      ADD COLUMN graphrag_enabled BOOLEAN NOT NULL DEFAULT FALSE
+                """)
+                )
+                print("Migration 002: Added CocoIndex/GraphRAG columns to system_settings")
+        except Exception as e:
+            print(f"Migration 002 check failed: {e}")
+
+        try:
+            await db.execute(
+                text("""
+                DROP TABLE IF EXISTS knowledge_book_audit_log CASCADE;
+                DROP TABLE IF EXISTS knowledge_book_jobs CASCADE;
+                DROP TABLE IF EXISTS knowledge_book_nodes CASCADE;
+                DROP TABLE IF EXISTS knowledge_book_patches CASCADE;
+                DROP TABLE IF EXISTS knowledge_sources CASCADE;
+                DROP TABLE IF EXISTS knowledge_chunks CASCADE;
+                DROP TABLE IF EXISTS knowledge_documents CASCADE;
+            """)
+            )
+            print("Migration 002: Dropped legacy knowledge book tables")
+        except Exception as e:
+            print(f"Migration 002 drop tables failed (may not exist): {e}")
+
+        try:
+            await db.execute(
+                text("""
+                ALTER TABLE system_settings
+                  DROP COLUMN IF EXISTS rag_provider,
+                  DROP COLUMN IF EXISTS rag_model,
+                  DROP COLUMN IF EXISTS rag_api_key,
+                  DROP COLUMN IF EXISTS rag_base_url
+            """)
+            )
+            print("Migration 002: Removed unused RAG columns from system_settings")
+        except Exception as e:
+            print(f"Migration 002 drop columns failed: {e}")
+
+        await db.commit()
         print("Migrations completed!")
 
 

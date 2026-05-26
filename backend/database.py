@@ -15,7 +15,7 @@ DATABASE_URL = config.DATABASE_URL
 # Create async engine
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,  # Set to False in production
+    echo=False,
     future=True,
 )
 
@@ -45,14 +45,6 @@ async def init_db():
     from backend.models.user import User
     from backend.models.invite import Invite
     from backend.models.settings import SystemSettings
-    from backend.models.knowledge import KnowledgeDocument, KnowledgeChunk
-    from backend.models.knowledge_book import (
-        KnowledgeSource,
-        KnowledgeBookPatch,
-        KnowledgeBookAuditLog,
-        KnowledgeBookNode,
-        KnowledgeBookJob,
-    )
     from backend.models.wiki import (
         WikiPage,
         WikiVersion,

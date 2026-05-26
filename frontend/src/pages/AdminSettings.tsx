@@ -32,11 +32,14 @@ interface SystemSettings {
   llm_provider: string
   llm_model: string
   llm_api_key: string
-  // Knowledge Book / RAG Configuration
-  rag_provider: string
-  rag_model: string
-  rag_api_key: string
-  rag_base_url: string
+  // Neo4j Configuration
+  neo4j_url: string
+  neo4j_user: string
+  neo4j_password: string
+  neo4j_database: string
+  // CocoIndex / GraphRAG
+  cocoindex_embedding_model: string
+  graphrag_enabled: boolean
   // Foundry Configuration
   foundry_url: string
   foundry_confab_id: number | null
@@ -483,56 +486,77 @@ export default function AdminSettings() {
                 </div>
 
                 <div className="pt-4 border-t">
-                  <h4 className="font-medium mb-3">Knowledge Book / RAG Service</h4>
+                  <h4 className="font-medium mb-3">GraphRAG / Knowledge Graph</h4>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Configure the separate multimodal RAG service used to ground chat in the knowledge book.
-                    These settings are synced to the container independently from the main chat LLM settings.
+                    Configure Neo4j connection for knowledge graph storage and indexing.
                   </p>
                 </div>
 
                 <div>
-                  <Label htmlFor="rag_provider">RAG Provider</Label>
-                  <select
-                    id="rag_provider"
-                    value={settings.rag_provider || settings.llm_provider || 'openai'}
-                    onChange={(e) => handleInputChange('rag_provider', e.target.value)}
-                    className="w-full h-10 px-3 rounded-md border border-input bg-background"
-                  >
-                    <option value="openai">OpenAI</option>
-                    <option value="groq">Groq</option>
-                    <option value="ollama">Ollama</option>
-                    <option value="sarvam">Sarvam</option>
-                  </select>
-                </div>
-
-                <div>
-                  <Label htmlFor="rag_model">RAG Model</Label>
+                  <Label htmlFor="neo4j_url">Neo4j URL</Label>
                   <Input
-                    id="rag_model"
-                    value={settings.rag_model || settings.llm_model || ''}
-                    onChange={(e) => handleInputChange('rag_model', e.target.value)}
-                    placeholder="gpt-4o-mini"
+                    id="neo4j_url"
+                    value={settings.neo4j_url || 'bolt://localhost:7687'}
+                    onChange={(e) => handleInputChange('neo4j_url', e.target.value)}
+                    placeholder="bolt://localhost:7687"
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="rag_api_key">RAG API Key</Label>
+                  <Label htmlFor="neo4j_user">Neo4j User</Label>
                   <Input
-                    id="rag_api_key"
+                    id="neo4j_user"
+                    value={settings.neo4j_user || 'neo4j'}
+                    onChange={(e) => handleInputChange('neo4j_user', e.target.value)}
+                    placeholder="neo4j"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="neo4j_password">Neo4j Password</Label>
+                  <Input
+                    id="neo4j_password"
                     type="password"
-                    value={settings.rag_api_key || ''}
-                    onChange={(e) => handleInputChange('rag_api_key', e.target.value)}
-                    placeholder="Enter the RAG service API key"
+                    value={settings.neo4j_password || ''}
+                    onChange={(e) => handleInputChange('neo4j_password', e.target.value)}
+                    placeholder="neo4j password"
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="rag_base_url">RAG Base URL</Label>
+                  <Label htmlFor="neo4j_database">Neo4j Database</Label>
                   <Input
-                    id="rag_base_url"
-                    value={settings.rag_base_url || ''}
-                    onChange={(e) => handleInputChange('rag_base_url', e.target.value)}
-                    placeholder="https://api.openai.com/v1"
+                    id="neo4j_database"
+                    value={settings.neo4j_database || 'neo4j'}
+                    onChange={(e) => handleInputChange('neo4j_database', e.target.value)}
+                    placeholder="neo4j"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="cocoindex_embedding_model">Embedding Model</Label>
+                  <Input
+                    id="cocoindex_embedding_model"
+                    value={settings.cocoindex_embedding_model || 'sentence-transformers/all-MiniLM-L6-v2'}
+                    onChange={(e) => handleInputChange('cocoindex_embedding_model', e.target.value)}
+                    placeholder="sentence-transformers/all-MiniLM-L6-v2"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    SentenceTransformer model used for document embeddings
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <div>
+                    <Label htmlFor="graphrag_enabled">GraphRAG Enabled</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Enable knowledge-graph grounded chat responses
+                    </p>
+                  </div>
+                  <Switch
+                    id="graphrag_enabled"
+                    checked={settings.graphrag_enabled}
+                    onCheckedChange={(checked) => handleInputChange('graphrag_enabled', checked)}
                   />
                 </div>
               </CardContent>

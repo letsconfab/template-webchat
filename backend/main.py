@@ -361,10 +361,24 @@ async def websocket_chat(websocket: WebSocket):
             if langfuse_service.is_initialized():
                 print(f"[Langfuse] Tracking chat session: {session_id}")
 
-            # Store user message in history
+            # Store user message in history and database
             if session_id not in chat_history:
                 chat_history[session_id] = []
             chat_history[session_id].append(ChatMessage(role="user", content=message))
+
+            # Save user message to database
+            try:
+                from backend.models.wiki import ChatMessage as DBChatMessage
+                async with AsyncSessionLocal() as msg_db:
+                    db_msg = DBChatMessage(
+                        session_id=session_id,
+                        role="user",
+                        content=message,
+                    )
+                    msg_db.add(db_msg)
+                    await msg_db.commit()
+            except Exception as e:
+                print(f"Failed to save user message: {e}")
 
             try:
                 from backend.services.rag_anything_service import rag_anything_service
@@ -392,6 +406,21 @@ async def websocket_chat(websocket: WebSocket):
             chat_history[session_id].append(
                 ChatMessage(role="assistant", content=response_text)
             )
+
+            # Save assistant message to database
+            try:
+                from backend.models.wiki import ChatMessage as DBChatMessage
+                async with AsyncSessionLocal() as msg_db:
+                    db_msg = DBChatMessage(
+                        session_id=session_id,
+                        role="assistant",
+                        content=response_text,
+                    )
+                    msg_db.add(db_msg)
+                    await msg_db.commit()
+            except Exception as e:
+                print(f"Failed to save assistant message: {e}")
+
             await websocket.send_json({"type": "end"})
 
     except WebSocketDisconnect:

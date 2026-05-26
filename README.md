@@ -177,7 +177,7 @@ Available Make targets:
 
 - Frontend dev server: `3030`
 - Backend API: `8000`
-- PostgreSQL: `5432` in Docker, `5454` in some local docs/scripts
+- PostgreSQL: `5454` on the host, `5432` inside Docker
 - Qdrant: `6333`
 - Garage: `3900`
 - RAG-Anything service: `8010` inside Docker network and on the host when using Docker Compose

@@ -30,6 +30,8 @@ class FeedbackResponse(BaseModel):
     feedback_type: str
     message: Optional[str]
     chat_message_id: Optional[int]
+    user_email: Optional[str] = None
+    message_content: Optional[str] = None
     created_at: str
 
     class Config:
@@ -48,11 +50,20 @@ async def create_feedback(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Submit user feedback on chat response."""
+    if not feedback_data.message and feedback_data.chat_message_id:
+        msg_result = await db.execute(
+            select(ChatMessage).where(ChatMessage.id == feedback_data.chat_message_id)
+        )
+        chat_message = msg_result.scalar_one_or_none()
+        feedback_message = chat_message.content if chat_message else None
+    else:
+        feedback_message = feedback_data.message
+
     db_feedback = UserFeedback(
         user_id=current_user.id,
         rating=feedback_data.rating,
         feedback_type=feedback_data.feedback_type,
-        message=feedback_data.message,
+        message=feedback_message,
         chat_message_id=feedback_data.chat_message_id,
     )
     db.add(db_feedback)
@@ -73,7 +84,7 @@ async def get_all_feedback(
     """Get all feedback (admin only)."""
     query = (
         select(UserFeedback)
-        .options(selectinload(UserFeedback.user))
+        .options(selectinload(UserFeedback.user), selectinload(UserFeedback.chat_message))
         .order_by(desc(UserFeedback.created_at))
     )
 
@@ -92,6 +103,8 @@ async def get_all_feedback(
             feedback_type=f.feedback_type,
             message=f.message,
             chat_message_id=f.chat_message_id,
+            user_email=f.user.email if f.user else None,
+            message_content=f.message or (f.chat_message.content if f.chat_message else None),
             created_at=f.created_at.isoformat(),
         )
         for f in feedbacks
@@ -141,6 +154,9 @@ async def get_feedback_context(
             feedback_type=feedback.feedback_type,
             message=feedback.message,
             chat_message_id=feedback.chat_message_id,
+            user_email=feedback.user.email if feedback.user else None,
+            message_content=feedback.message
+            or (feedback.chat_message.content if feedback.chat_message else None),
             created_at=feedback.created_at.isoformat(),
         ),
         "messages": [

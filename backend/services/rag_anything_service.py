@@ -32,7 +32,7 @@ class RAGAnythingService:
         if provider == "ollama":
             return "http://host.docker.internal:11434/v1"
         if provider == "sarvam":
-            return "https://api.sarvam.ai/v1"
+            return "https://api.sarvam.ai"
         return "https://api.openai.com/v1"
 
     async def _request(
@@ -88,12 +88,16 @@ class RAGAnythingService:
         api_key = getattr(settings, "rag_api_key", None)
         if api_key is None:
             api_key = getattr(settings, "llm_api_key", None)
-        base_url = getattr(settings, "rag_base_url", None)
+        base_url = getattr(settings, "rag_base_url", None) or getattr(
+            settings, "llm_base_url", None
+        )
+        normalized_base_url = self._normalize_base_url(provider, base_url)
+        logger.info(f"Syncing to rag-service: provider={provider}, model={model}, base_url={normalized_base_url[:50]}...")
         payload = {
             "provider": provider,
-            "model": model,
+            "llm_model": model,
             "api_key": api_key or "",
-            "base_url": self._normalize_base_url(provider, base_url),
+            "base_url": normalized_base_url,
         }
         return await self.initialize(**payload)
 

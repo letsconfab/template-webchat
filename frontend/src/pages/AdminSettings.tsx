@@ -109,13 +109,17 @@ export default function AdminSettings() {
     setSuccess(null)
 
     try {
+      const payload = {
+        ...settings,
+        rag_base_url: settings.rag_base_url || 'http://localhost:8010',
+      }
       const response = await fetch('/api/settings/current', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) {
@@ -530,9 +534,9 @@ export default function AdminSettings() {
                   <Label htmlFor="rag_base_url">RAG Base URL</Label>
                   <Input
                     id="rag_base_url"
-                    value={settings.rag_base_url || ''}
+                    value={settings.rag_base_url || 'http://localhost:8010'}
                     onChange={(e) => handleInputChange('rag_base_url', e.target.value)}
-                    placeholder="https://api.openai.com/v1"
+                    placeholder="http://localhost:8010"
                   />
                 </div>
               </CardContent>

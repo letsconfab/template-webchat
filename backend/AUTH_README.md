@@ -130,7 +130,7 @@ CREATE TABLE users (
 ### Environment Variables
 ```bash
 # Database
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/webchat_db
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5454/webchat_db
 
 # JWT Security
 SECRET_KEY=your-super-secret-jwt-key-change-this-in-production

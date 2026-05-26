@@ -2,6 +2,7 @@
 
 # Virtual environment path
 VENV = .venv
+PODMAN_LOCKFILE = $(HOME)/.config/containers/podman/machine/libkrun/podman-machine-default.lock
 
 # Python path
 PYTHONPATH = $(CURDIR)
@@ -21,7 +22,7 @@ COMPOSE_RUNTIME = $(shell \
 		echo "docker compose"; \
 	fi)
 
-.PHONY: help setup install install-full install-fe run run-be run-fe run-db build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
+.PHONY: help setup install install-full install-fe run run-be run-fe run-db build build-fe dev clean smoke-rag restart-rag docker-build docker-login docker-push docker-publish ensure-container-runtime
 
 # Default target
 help:
@@ -38,18 +39,65 @@ help:
 	@echo "  make dev          - Run in development mode"
 	@echo "  make clean        - Clean build artifacts"
 	@echo "  make smoke-rag    - Start the RAG service and check its health"
+	@echo "  make restart-rag  - Restart the RAG service"
 	@echo "  make docker-push  - Push Docker image to GitHub Packages (requires CR_PAT env var)"
 	@echo "  Runtime          - $(CONTAINER_RUNTIME) / $(COMPOSE_RUNTIME)"
 
 # Initial setup
 setup:
-	@echo "Creating database..."
-	@if [ -x "$(VENV)/bin/python" ]; then \
-		$(VENV)/bin/python scripts/ensure_database.py; \
-	else \
-		python3 -m venv $(VENV) && $(VENV)/bin/pip install asyncpg && $(VENV)/bin/python scripts/ensure_database.py; \
+	@$(MAKE) ensure-container-runtime
+	@echo "Starting database..."
+	@$(COMPOSE_RUNTIME) up -d postgres
+	@if [ ! -x "$(VENV)/bin/python" ]; then \
+		python3 -m venv $(VENV) && $(VENV)/bin/pip install asyncpg; \
 	fi
-	@echo "Database ready. Install dependencies with: make install && make install-fe"
+	@echo "Creating database..."
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12; do \
+		if $(VENV)/bin/python scripts/ensure_database.py; then \
+			echo "Database ready. Install dependencies with: make install && make install-fe"; \
+			exit 0; \
+		fi; \
+		sleep 2; \
+	done; \
+	echo "Database did not become ready in time" >&2; \
+	exit 1
+
+# Ensure the local container runtime is available before using compose/build/push
+ensure-container-runtime:
+	@if command -v podman >/dev/null 2>&1; then \
+		if podman info >/dev/null 2>&1; then \
+			exit 0; \
+		fi; \
+		echo "Podman is installed but the machine is not ready; initializing or starting it..."; \
+		if podman machine init --now >/dev/null 2>&1; then \
+			exit 0; \
+		fi; \
+		podman_start_output="$$(podman machine start 2>&1)" && exit 0 || true; \
+		if printf '%s\n' "$$podman_start_output" | grep -Eq 'creating lockfile for VM|operation not permitted'; then \
+			echo "Removing stale Podman lockfile and retrying..."; \
+			rm -f "$(PODMAN_LOCKFILE)"; \
+			if podman machine start >/dev/null 2>&1; then \
+				exit 0; \
+			fi; \
+		fi; \
+		if [ -n "$$podman_start_output" ]; then \
+			printf '%s\n' "$$podman_start_output" >&2; \
+		fi; \
+		if podman machine start >/dev/null 2>&1; then \
+			exit 0; \
+		fi; \
+		echo "Unable to start Podman automatically. Run: podman machine init --now" >&2; \
+		exit 1; \
+	elif command -v docker >/dev/null 2>&1; then \
+		if docker info >/dev/null 2>&1; then \
+			exit 0; \
+		fi; \
+		echo "Docker is installed but the daemon is not running. Start Docker and try again." >&2; \
+		exit 1; \
+	else \
+		echo "Error: neither podman nor docker is installed." >&2; \
+		exit 1; \
+	fi
 
 # Create virtual environment if it doesn't exist
 $(VENV):
@@ -79,16 +127,32 @@ run-fe:
 	cd frontend && npm run dev
 
 # Run database
-run-db:
+run-db: ensure-container-runtime
 	$(COMPOSE_RUNTIME) up postgres
 
 # Smoke test the isolated RAG service
-smoke-rag:
+smoke-rag: ensure-container-runtime
 	$(COMPOSE_RUNTIME) up -d rag-anything
 	@echo "Waiting for RAG service health..."
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
 		if curl -fsS http://localhost:8010/health >/dev/null; then \
 			curl -fsS http://localhost:8010/status; \
+			echo ""; \
+			exit 0; \
+		fi; \
+		sleep 2; \
+	done; \
+	echo "RAG service did not become healthy in time" >&2; \
+	exit 1
+
+# Restart the RAG service
+restart-rag: ensure-container-runtime
+	$(COMPOSE_RUNTIME) restart rag-anything
+	@echo "Waiting for RAG service to restart..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		if curl -fsS http://localhost:8010/health >/dev/null; then \
+			echo "RAG service restarted successfully"; \
+			curl -fsS http://localhost:8010/status | head -c 200; \
 			echo ""; \
 			exit 0; \
 		fi; \
@@ -120,11 +184,11 @@ IMAGE_TAG = latest
 IMAGE = $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 
 # Docker build
-docker-build:
+docker-build: ensure-container-runtime
 	$(CONTAINER_RUNTIME) build -t $(IMAGE) .
 
 # Docker login (requires CR_PAT env var)
-docker-login:
+docker-login: ensure-container-runtime
 	@if [ -z "$$CR_PAT" ]; then \
 		echo "Error: CR_PAT env var not set. Run: export CR_PAT=your_pat"; \
 		exit 1; \
@@ -132,7 +196,7 @@ docker-login:
 	@echo "$$CR_PAT" | $(CONTAINER_RUNTIME) login $(REGISTRY) -u letsconfab --password-stdin
 
 # Docker push
-docker-push:
+docker-push: ensure-container-runtime
 	$(CONTAINER_RUNTIME) push $(IMAGE)
 
 # Docker publish (login + build + push)

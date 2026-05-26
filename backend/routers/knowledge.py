@@ -75,6 +75,23 @@ async def create_note_source(
     )
 
 
+@router.delete("/sources/{source_id}")
+async def delete_source(
+    source_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an uncommitted source and its draft artifacts."""
+    try:
+        return await knowledge_book_service.delete_source(
+            db=db,
+            source_id=source_id,
+            current_user=current_user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @router.get("/patches")
 async def list_patches(
     current_user: User = Depends(get_current_admin_user),
@@ -156,3 +173,32 @@ async def reindex_book(
 ):
     """Rebuild the external RAG service index from the committed knowledge book."""
     return await knowledge_book_service.reindex_current_book()
+
+
+@router.post("/hard-reset")
+async def hard_reset_knowledge_book(
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hard reset: delete all sources, patches, and published nodes."""
+    try:
+        return await knowledge_book_service.hard_reset(db, current_user)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@router.delete("/tree/{node_id}")
+async def delete_published_node(
+    node_id: int,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a published node from the active knowledge book."""
+    try:
+        return await knowledge_book_service.delete_published_node(
+            db=db,
+            node_id=node_id,
+            current_user=current_user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))

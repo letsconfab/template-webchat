@@ -73,7 +73,9 @@ class SystemSettingsBase(BaseModel):
         None, max_length=500, description="Knowledge book LLM API key"
     )
     rag_base_url: Optional[str] = Field(
-        None, max_length=500, description="Knowledge book LLM base URL"
+        "http://localhost:8010",
+        max_length=500,
+        description="Knowledge book RAG service base URL",
     )
 
     # Foundry Configuration

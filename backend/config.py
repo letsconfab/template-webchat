@@ -19,7 +19,7 @@ class Config:
     # Database Configuration
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/webchat_db",
+        "postgresql+asyncpg://postgres:postgres@localhost:5454/webchat_db",
     )
 
     # JWT Configuration

@@ -17,6 +17,8 @@ import {
   X,
   PencilLine,
   Save,
+  Trash2,
+  Settings,
 } from 'lucide-react'
 import { api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
@@ -589,6 +591,8 @@ export default function KnowledgeBook() {
   const [draftTreeState, setDraftTreeState] = useState<BookTree | null>(null)
   const [draftPageMarkdown, setDraftPageMarkdown] = useState('')
   const [showInputsModal, setShowInputsModal] = useState(false)
+  const [showQueueModal, setShowQueueModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [contentsTab, setContentsTab] = useState<'published' | 'draft'>('published')
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -807,6 +811,25 @@ export default function KnowledgeBook() {
     }
   }
 
+  const handleDeleteQueueItem = async (sourceId: number, sourceLabel: string) => {
+    const confirmed = window.confirm(`Delete queue item "${sourceLabel}"?`)
+    if (!confirmed) return
+
+    setIsBusy(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      await api.delete(`/knowledge/sources/${sourceId}`)
+      setSuccess(`Deleted queue item "${sourceLabel}"`)
+      await refresh()
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err?.message || 'Failed to delete queue item')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
   const handleLogout = () => {
     logout()
     navigate('/login')
@@ -837,6 +860,14 @@ export default function KnowledgeBook() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-semibold tracking-tight">Knowledge Book</h1>
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsModal(true)}
+                  className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                  title="Settings"
+                >
+                  <Settings className="h-4 w-4" />
+                </button>
                 {ragStatusBadge(status)}
               </div>
               <p className="text-sm text-slate-500">Contents on the left, markdown page on the right</p>
@@ -851,6 +882,10 @@ export default function KnowledgeBook() {
             <Button onClick={() => setShowInputsModal(true)} className="bg-sky-600 text-white hover:bg-sky-700">
               <FileUp className="mr-2 h-4 w-4" />
               Inputs
+            </Button>
+            <Button onClick={() => setShowQueueModal(true)} className="bg-cyan-600 text-white hover:bg-cyan-700">
+              <FileText className="mr-2 h-4 w-4" />
+              Queue
             </Button>
             <Button variant="outline" onClick={refresh} className="border-slate-200 bg-white/70">
               <RefreshCw className="mr-2 h-4 w-4" />
@@ -1200,6 +1235,210 @@ export default function KnowledgeBook() {
                     {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                     Create Draft
                   </Button>
+                </div>
+              </div>
+</div>
+            </div>
+          </div>
+        )}
+
+      {showQueueModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex min-h-screen items-center justify-center p-4">
+            <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={() => setShowQueueModal(false)} />
+            <div className="relative z-10 w-full max-w-5xl overflow-hidden rounded-3xl border border-white/40 bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Upload history and queue</h2>
+                  <p className="text-sm text-slate-500">All uploaded sources, their job state, and the latest patch status.</p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  onClick={() => setShowQueueModal(false)}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="max-h-[75vh] overflow-y-auto px-6 py-5">
+                {sources.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">
+                    No uploads yet.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {sources.map((source) => {
+                      const progress = source.job?.progress ?? 0
+                      const sourceLabel = source.title || source.original_filename
+                      const canDelete = source.status !== 'committed' && source.status !== 'processing'
+                      return (
+                        <div key={source.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-semibold text-slate-900">{sourceLabel}</div>
+                              <div className="text-xs text-slate-500">
+                                {source.file_type.toUpperCase()} · {source.original_filename}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <Badge className="border-slate-200 bg-white text-slate-700">
+                                {source.status === 'processing' && source.job ? 'Processing' : 
+                                 source.status === 'draft_ready' ? 'Draft Ready' :
+                                 source.status === 'committed' ? 'Committed' :
+                                 source.status === 'uploaded' ? 'Uploaded' : source.status}
+                              </Badge>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 border-red-300 bg-white px-3 text-red-700 hover:bg-red-50"
+                                disabled={!canDelete || isBusy}
+                                onClick={() => handleDeleteQueueItem(source.id, sourceLabel)}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="mt-3">
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                              <div className="h-full bg-sky-600 transition-all duration-300" style={{ width: `${progress}%` }} />
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                            <span className="rounded-full bg-white px-2 py-1 font-medium text-slate-700">
+                              Source: {source.status}
+                            </span>
+                            <span className="rounded-full bg-white px-2 py-1 font-medium text-slate-700">
+                              Job: {source.job?.status || 'n/a'}
+                            </span>
+                            <span className="rounded-full bg-white px-2 py-1 font-medium text-slate-700">
+                              Progress: {progress}%
+                            </span>
+                            {source.patch && (
+                              <span className="rounded-full bg-white px-2 py-1 font-medium text-slate-700">
+                                Patch: {source.patch.status}
+                              </span>
+                            )}
+                          </div>
+                          {source.job?.message && (
+                            <div className="mt-2 text-xs text-slate-500">{source.job.message}</div>
+                          )}
+                          {source.error_message && (
+                            <div className="mt-2 text-xs text-red-700">{source.error_message}</div>
+                          )}
+                          <div className="mt-3 flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 border-slate-300 bg-white px-3 text-slate-800 hover:bg-slate-100"
+                              disabled={!source.patch || source.patch.status !== 'draft'}
+                            >
+                              Ready draft
+                            </Button>
+                            {source.patch?.status === 'draft' && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 border-amber-300 bg-white px-3 text-amber-900 hover:bg-amber-100"
+                                onClick={() => {
+                                  setSelectedPatchId(source.patch!.id)
+                                  setContentsTab('draft')
+                                  setSelectedDraftPagePath(null)
+                                  setDraftViewMode('raw')
+                                  setShowQueueModal(false)
+                                }}
+                              >
+                                Edit draft
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex min-h-screen items-center justify-center p-4">
+            <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={() => setShowSettingsModal(false)} />
+            <div className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl border border-white/40 bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Knowledge Book Settings</h2>
+                  <p className="text-sm text-slate-500">Hard reset and cleanup options.</p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  onClick={() => setShowSettingsModal(false)}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4 px-6 py-5">
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                  <h3 className="font-semibold text-red-900">Danger Zone</h3>
+                  <p className="mt-1 text-sm text-red-700">These actions cannot be undone.</p>
+
+                  <div className="mt-4 space-y-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full border-red-300 bg-white text-red-700 hover:bg-red-100"
+                      disabled={isBusy}
+                      onClick={async () => {
+                        if (!confirm('Delete all sources? This cannot be undone.')) return
+                        setIsBusy(true)
+                        try {
+                          for (const source of sources) {
+                            if (source.status !== 'committed' && source.status !== 'processing') {
+                              await api.delete(`/knowledge/sources/${source.id}`)
+                            }
+                          }
+                          setSuccess('All sources deleted')
+                          await refresh()
+                        } catch (err: any) {
+                          setError(err?.response?.data?.detail || err?.message || 'Failed to delete sources')
+                        } finally {
+                          setIsBusy(false)
+                        }
+                      }}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete All Sources
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full border-red-300 bg-white text-red-700 hover:bg-red-100"
+                      disabled={isBusy}
+                      onClick={async () => {
+                        if (!confirm('Hard reset - delete all sources, patches, and contents? This cannot be undone.')) return
+                        setIsBusy(true)
+                        try {
+                          await api.post('/knowledge/hard-reset')
+                          setSuccess('Knowledge book hard reset complete')
+                          await refresh()
+                          setShowSettingsModal(false)
+                        } catch (err: any) {
+                          setError(err?.response?.data?.detail || err?.message || 'Failed to hard reset')
+                        } finally {
+                          setIsBusy(false)
+                        }
+                      }}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Hard Reset All
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

@@ -197,11 +197,20 @@ export default function ChatPage() {
   const handleFeedback = async (messageIndex: number, feedbackType: 'thumbs_up' | 'thumbs_down') => {
     const token = localStorage.getItem('token')
     if (!token) return
+    const assistantMessage = messages[messageIndex]
+    const previousUserMessage = [...messages.slice(0, messageIndex)].reverse().find((msg) => msg.role === 'user')
+    const feedbackMessage = [
+      previousUserMessage ? `User: ${previousUserMessage.content}` : null,
+      assistantMessage ? `Assistant: ${assistantMessage.content}` : null,
+    ]
+      .filter(Boolean)
+      .join('\n\n')
 
     try {
       await api.post('/api/feedback', {
         feedback_type: feedbackType,
-        rating: feedbackType === 'thumbs_up' ? 5 : 1
+        rating: feedbackType === 'thumbs_up' ? 5 : 1,
+        message: feedbackMessage || assistantMessage?.content || null,
       }, {
         headers: { Authorization: `Bearer ${token}` }
       })

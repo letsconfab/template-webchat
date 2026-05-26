@@ -14,8 +14,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from fastapi import UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.database import AsyncSessionLocal
 from backend.llm_providers import LLMProvider
@@ -35,6 +36,59 @@ logger = logging.getLogger(__name__)
 
 class KnowledgeBookService:
     """Manage uploaded sources, draft patches, and the active knowledge book."""
+
+    _TITLE_STOPWORDS = {
+        "a",
+        "an",
+        "and",
+        "as",
+        "for",
+        "from",
+        "in",
+        "into",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "with",
+        "by",
+        "about",
+        "over",
+        "under",
+        "through",
+        "between",
+    }
+
+    _TITLE_GENERIC_WORDS = {
+        "document",
+        "documents",
+        "content",
+        "contents",
+        "section",
+        "sections",
+        "chapter",
+        "chapters",
+        "page",
+        "pages",
+        "information",
+        "details",
+        "detail",
+        "overview",
+        "summary",
+        "introduction",
+        "background",
+        "purpose",
+        "note",
+        "notes",
+        "topic",
+        "topics",
+        "appendix",
+        "figure",
+        "table",
+        "example",
+        "examples",
+    }
 
     def __init__(self) -> None:
         self.storage_dir = Path(
@@ -82,19 +136,67 @@ class KnowledgeBookService:
                 pages = []
                 for page in reader.pages:
                     pages.append(page.extract_text() or "")
-                return "\n\n".join(pages)
+                return self._normalize_extracted_text("\n\n".join(pages))
 
             if file_type == "docx":
                 from docx import Document
 
                 doc = Document(str(file_path))
                 paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-                return "\n\n".join(paragraphs)
+                return self._normalize_extracted_text("\n\n".join(paragraphs))
 
-            return file_path.read_text(encoding="utf-8", errors="ignore")
+            return self._normalize_extracted_text(
+                file_path.read_text(encoding="utf-8", errors="ignore")
+            )
         except Exception as exc:
             logger.error("Failed to extract text from %s: %s", file_path, exc)
             return ""
+
+    def _normalize_extracted_text(self, content: str) -> str:
+        """Collapse noisy line wrapping from PDF/DOCX extraction into paragraphs."""
+        if not content:
+            return ""
+
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
+        content = re.sub(r"-\n(?=[a-z])", "", content)
+
+        blocks: List[str] = []
+        current: List[str] = []
+
+        def flush() -> None:
+            if not current:
+                return
+            paragraph = " ".join(current).strip()
+            if paragraph:
+                blocks.append(re.sub(r"\s+", " ", paragraph))
+            current.clear()
+
+        for raw_line in content.split("\n"):
+            line = re.sub(r"\s+", " ", raw_line).strip()
+            if not line:
+                flush()
+                continue
+            if re.fullmatch(r"[\dIVXivx]+", line):
+                continue
+            if len(line) <= 2:
+                continue
+            if len(line.split()) == 1 and len(line) < 20:
+                if current:
+                    current[-1] = f"{current[-1]} {line}"
+                else:
+                    current.append(line)
+                continue
+            current.append(line)
+
+        flush()
+
+        paragraphs = []
+        for block in blocks:
+            if len(block.split()) == 1 and len(block) < 20:
+                continue
+            paragraphs.append(block)
+
+        return "\n\n".join(paragraphs).strip()
 
     def _redact_pii(self, content: str) -> Tuple[str, Dict[str, int]]:
         """Remove obvious PII from draft content."""
@@ -167,29 +269,94 @@ class KnowledgeBookService:
             chunks.append(current.strip())
         return chunks
 
+    def _looks_like_placeholder_title(self, value: str) -> bool:
+        cleaned = re.sub(r"\s+", " ", (value or "").strip()).lower()
+        if not cleaned:
+            return True
+        if cleaned.isdigit():
+            return True
+        if re.fullmatch(r"(section|chapter|page)\s*\d+(\.\d+)*", cleaned):
+            return True
+        if cleaned in {"untitled", "summary", "overview", "misc"}:
+            return True
+        return False
+
+    def _derive_title(self, text: str, fallback: str, max_words: int = 6) -> str:
+        raw = re.sub(r"^[\s#>*-]+", "", (text or "").strip())
+        raw = re.sub(r"^\d+(?:\.\d+)*[\s:.-]+", "", raw)
+        raw = re.sub(r"\s+", " ", raw)
+        if not raw:
+            return fallback
+
+        token_matches = list(re.finditer(r"[A-Za-z0-9']+", raw))
+        if not token_matches:
+            return fallback
+
+        freq: Dict[str, int] = {}
+        first_seen: Dict[str, int] = {}
+        for index, match in enumerate(token_matches):
+            token = match.group(0)
+            lowered = token.lower()
+            if len(lowered) < 3:
+                continue
+            if lowered in self._TITLE_STOPWORDS or lowered in self._TITLE_GENERIC_WORDS:
+                continue
+            if lowered.isdigit():
+                continue
+            freq[lowered] = freq.get(lowered, 0) + 1
+            first_seen.setdefault(lowered, index)
+
+        if not freq:
+            return fallback
+
+        ranked = sorted(
+            freq.keys(),
+            key=lambda word: (-freq[word], first_seen.get(word, 0)),
+        )
+
+        selected: List[str] = []
+        for word in ranked:
+            if word in selected:
+                continue
+            selected.append(word)
+            if len(selected) >= max_words:
+                break
+
+        selected.sort(key=lambda word: first_seen.get(word, 0))
+        title = " ".join(selected).strip().title()
+        if self._looks_like_placeholder_title(title):
+            return fallback
+        return title[:80]
+
+    def _normalize_markdown_content(self, text: str) -> str:
+        normalized = self._normalize_extracted_text(text)
+        if not normalized:
+            return ""
+        return normalized
+
     def _markdown_from_tree(self, tree: Dict[str, Any]) -> str:
         lines: List[str] = []
         book_title = tree.get("book_title") or tree.get("title") or "Knowledge Book"
         lines.append(f"# {book_title}")
         summary = tree.get("summary")
         if summary:
-            lines.extend(["", summary, ""])
+            lines.extend(["", self._normalize_markdown_content(summary), ""])
 
         for chapter in tree.get("chapters", []):
             lines.append(f"## {chapter.get('title', 'Chapter')}")
             chapter_summary = chapter.get("summary")
             if chapter_summary:
-                lines.extend(["", chapter_summary, ""])
+                lines.extend(["", self._normalize_markdown_content(chapter_summary), ""])
             for topic in chapter.get("topics", []):
                 lines.append(f"### {topic.get('title', 'Topic')}")
                 topic_summary = topic.get("summary")
                 if topic_summary:
-                    lines.extend(["", topic_summary, ""])
+                    lines.extend(["", self._normalize_markdown_content(topic_summary), ""])
                 for page in topic.get("pages", []):
                     lines.append(f"#### {page.get('title', 'Page')}")
                     page_content = page.get("content_md") or ""
                     if page_content:
-                        lines.extend(["", page_content.strip(), ""])
+                        lines.extend(["", self._normalize_markdown_content(page_content), ""])
 
         return "\n".join(lines).strip() + "\n"
 
@@ -202,24 +369,38 @@ class KnowledgeBookService:
         }
 
         for chapter in (tree.get("chapters") or [])[:20]:
-            chapter_title = (chapter.get("title") or "Chapter").strip()[:255]
+            chapter_title_raw = (chapter.get("title") or "").strip()
+            chapter_summary_raw = (chapter.get("summary") or "").strip()
+            chapter_title = chapter_title_raw if not self._looks_like_placeholder_title(chapter_title_raw) else self._derive_title(
+                chapter_summary_raw or chapter_title_raw or "Chapter",
+                fallback="Chapter",
+            )
             chapter_node = {
                 "title": chapter_title or "Chapter",
-                "summary": (chapter.get("summary") or "").strip(),
+                "summary": chapter_summary_raw,
                 "topics": [],
             }
             for topic in (chapter.get("topics") or [])[:12]:
-                topic_title = (topic.get("title") or "Topic").strip()[:255]
+                topic_title_raw = (topic.get("title") or "").strip()
+                topic_summary_raw = (topic.get("summary") or "").strip()
+                topic_title = topic_title_raw if not self._looks_like_placeholder_title(topic_title_raw) else self._derive_title(
+                    topic_summary_raw or topic_title_raw or "Topic",
+                    fallback="Topic",
+                )
                 topic_node = {
                     "title": topic_title or "Topic",
-                    "summary": (topic.get("summary") or "").strip(),
+                    "summary": topic_summary_raw,
                     "pages": [],
                 }
                 for page in (topic.get("pages") or [])[:12]:
-                    page_title = (page.get("title") or "Page").strip()[:255]
+                    page_title_raw = (page.get("title") or "").strip()
                     page_content = (page.get("content_md") or "").strip()
                     if not page_content:
                         continue
+                    page_title = page_title_raw if not self._looks_like_placeholder_title(page_title_raw) else self._derive_title(
+                        page_content or page_title_raw or "Page",
+                        fallback="Page",
+                    )
                     topic_node["pages"].append(
                         {
                             "title": page_title or "Page",
@@ -260,17 +441,30 @@ class KnowledgeBookService:
         if not chunks:
             chunks = ["No structured content was extracted from the source."]
 
-        chapter_title = title or Path(filename).stem.replace("_", " ").title()
+        chapter_title = self._derive_title(
+            title or Path(filename).stem.replace("_", " ").title(),
+            fallback="Knowledge Book",
+            max_words=6,
+        )
         topics = []
         for index, chunk in enumerate(chunks[:8], start=1):
-            topic_title = f"Section {index}"
+            topic_title = self._derive_title(
+                chunk,
+                fallback=f"Section {index}",
+                max_words=5,
+            )
             pages = []
             page_chunks = self._chunk_text(chunk, chunk_size=500) or [chunk]
             for page_index, page_chunk in enumerate(page_chunks[:4], start=1):
+                page_title = self._derive_title(
+                    page_chunk,
+                    fallback=f"Page {page_index}",
+                    max_words=5,
+                )
                 pages.append(
                     {
-                        "title": f"Page {page_index}",
-                        "content_md": page_chunk,
+                        "title": page_title,
+                        "content_md": self._normalize_markdown_content(page_chunk),
                     }
                 )
             topics.append({"title": topic_title, "summary": "", "pages": pages})
@@ -314,27 +508,40 @@ class KnowledgeBookService:
         from langchain_core.messages import HumanMessage
 
         prompt = f"""
-You are converting a redacted source into a three-level knowledge book.
+You are an AI that merges new content into an existing knowledge book tree.
+
+CRITICAL INSTRUCTIONS FOR MERGING:
+- When existing chapters/topics are provided, you MUST add the new content to them rather than creating duplicate chapters
+- ONLY create a new chapter if the new content is completely unrelated to ALL existing chapters
+- Try to find the best-fitting existing chapter/topic for new content
+- If new content fits in multiple topics, choose the most relevant one
 
 Constraints:
 - Maximum depth is 3 levels: chapter -> topic -> page.
 - Never include email addresses, phone numbers, mobile numbers, addresses, passwords, secrets, tokens, or API keys.
 - Keep only essential names if they are required for the topic.
+- Use descriptive titles only. Avoid numbers-only titles like "1" or "Section 2".
 - Prefer a concise, wiki-like markdown style.
-- If an existing outline is provided, place the new content into the most relevant existing chapters/topics or create new ones if needed.
+- Each page should contain coherent prose or bullets in proper markdown paragraphs.
+- Do not produce one-word lines or broken wrapped lines.
 - Return ONLY valid JSON. No prose, no markdown fences.
 
-Existing outline:
-{current_outline or "(none)"}
+EXISTING KNOWLEDGE BOOK STRUCTURE:
+{current_outline or "(empty - no existing content)"}
 
-Source file:
+NEW SOURCE FILE:
 Filename: {source.original_filename}
 File type: {source.file_type}
 
-Redacted source text:
+NEW SOURCE CONTENT (redacted):
 ---
 {redacted_text[:12000]}
 ---
+
+Your task: Generate a MERGED knowledge book that includes both existing content AND new content.
+- Keep ALL existing chapters/topics that are still relevant
+- Add new chapters/topics only if truly needed
+- Integrate new pages into existing structure where they fit
 
 Return JSON in this exact shape:
 {{
@@ -545,26 +752,6 @@ Return JSON in this exact shape:
                 source.redacted_text = redacted_text
                 await db.commit()
 
-                if rag_anything_service.is_initialized:
-                    try:
-                        job.progress = 50
-                        job.message = "Indexing source in RAG service"
-                        await db.commit()
-                        await rag_anything_service.ingest_file(
-                            source.storage_path,
-                            source_name=source.original_filename,
-                            parse_method="auto",
-                        )
-                        job.progress = 65
-                        job.message = "RAG service ingestion complete"
-                        await db.commit()
-                    except Exception as exc:
-                        logger.warning(
-                            "RAG service ingestion failed for source %s: %s",
-                            source_id,
-                            exc,
-                        )
-
                 current_outline = await self._current_outline(db)
                 tree = await self._generate_tree_with_llm(
                     db, source, redacted_text, current_outline
@@ -578,6 +765,26 @@ Return JSON in this exact shape:
 
                 tree = self._sanitize_tree(tree)
                 markdown = self._markdown_from_tree(tree)
+
+                if rag_anything_service.is_initialized:
+                    try:
+                        job.progress = 50
+                        job.message = "Indexing knowledge book snapshot"
+                        await db.commit()
+                        await rag_anything_service.reindex_markdown(
+                            title=tree["book_title"],
+                            content=markdown,
+                            source_name=f"{source.id}-{source.original_filename}.md",
+                        )
+                        job.progress = 65
+                        job.message = "RAG service indexing complete"
+                        await db.commit()
+                    except Exception as exc:
+                        logger.warning(
+                            "RAG service indexing failed for source %s: %s",
+                            source_id,
+                            exc,
+                        )
 
                 patch = KnowledgeBookPatch(
                     source_id=source.id,
@@ -710,6 +917,57 @@ Return JSON in this exact shape:
         sources = result.scalars().all()
         return [await self.get_source_summary(db, source.id) for source in sources]
 
+    async def delete_source(
+        self,
+        db: AsyncSession,
+        source_id: int,
+        current_user: Optional[User] = None,
+    ) -> Dict[str, Any]:
+        result = await db.execute(
+            select(KnowledgeSource)
+            .options(selectinload(KnowledgeSource.patches))
+            .where(KnowledgeSource.id == source_id)
+        )
+        source = result.scalar_one_or_none()
+        if not source:
+            raise ValueError("Source not found")
+        if source.status == "committed":
+            raise ValueError("Committed sources cannot be deleted")
+        if source.status == "processing":
+            raise ValueError("Processing sources cannot be deleted yet")
+
+        storage_path = Path(source.storage_path) if source.storage_path else None
+        if storage_path and storage_path.exists():
+            try:
+                storage_path.unlink()
+            except OSError as exc:
+                logger.warning("Failed to remove source file %s: %s", storage_path, exc)
+
+        if source.patches:
+            db.add(
+                KnowledgeBookAuditLog(
+                    patch_id=source.patches[0].id,
+                    action="source_deleted",
+                    actor_user_id=current_user.id if current_user else None,
+                    details={
+                        "source_id": source.id,
+                        "filename": source.original_filename,
+                        "status": source.status,
+                    },
+                )
+            )
+
+        await db.delete(source)
+        await db.commit()
+
+        if rag_anything_service.is_initialized:
+            try:
+                await self.reindex_current_book()
+            except Exception as exc:
+                logger.warning("RAG reindex after source delete failed: %s", exc)
+
+        return {"success": True, "deleted_source_id": source.id}
+
     async def list_patches(self, db: AsyncSession) -> List[Dict[str, Any]]:
         result = await db.execute(
             select(KnowledgeBookPatch).order_by(KnowledgeBookPatch.created_at.desc())
@@ -755,6 +1013,95 @@ Return JSON in this exact shape:
         await db.commit()
         await db.refresh(patch)
         return self._patch_to_dict(patch)
+
+    async def _get_current_tree(self, db: AsyncSession) -> Dict[str, Any]:
+        result = await db.execute(
+            select(KnowledgeBookNode)
+            .where(KnowledgeBookNode.is_active == True)
+            .order_by(KnowledgeBookNode.level, KnowledgeBookNode.sort_order)
+        )
+        nodes = result.scalars().all()
+        if not nodes:
+            return {"book_title": "Knowledge Book", "chapters": []}
+
+        book_title = "Knowledge Book"
+        chapters_map: Dict[str, Dict[str, Any]] = {}
+        topics_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
+        for node in nodes:
+            if node.node_type == "book":
+                book_title = node.title
+            elif node.node_type == "chapter":
+                chapters_map[node.id] = {
+                    "title": node.title,
+                    "summary": "",
+                    "topics": [],
+                }
+            elif node.node_type == "topic" and node.parent_id:
+                for ch_id, ch_data in chapters_map.items():
+                    if ch_id == node.parent_id:
+                        topics_map[(ch_id, node.id)] = {
+                            "title": node.title,
+                            "summary": "",
+                            "pages": [],
+                        }
+                        ch_data["topics"].append(topics_map[(ch_id, node.id)])
+            elif node.node_type == "page" and node.parent_id:
+                for (ch_id, tp_id), tp_data in topics_map.items():
+                    if tp_id == node.parent_id:
+                        tp_data["pages"].append({
+                            "title": node.title,
+                            "content_md": node.content_md or "",
+                        })
+
+        return {
+            "book_title": book_title,
+            "chapters": list(chapters_map.values()),
+        }
+
+    def _merge_trees(
+        self, existing: Dict[str, Any], new_tree: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        existing_chapters = {ch["title"]: ch for ch in existing.get("chapters", [])}
+        new_chapters = {ch["title"]: ch for ch in new_tree.get("chapters", [])}
+
+        merged_chapters: List[Dict[str, Any]] = []
+
+        for ch_title, ch_data in existing_chapters.items():
+            if ch_title in new_chapters:
+                existing_topics = {t["title"]: t for t in ch_data.get("topics", [])}
+                new_topics = {t["title"]: t for t in new_chapters[ch_title].get("topics", [])}
+
+                merged_topics: List[Dict[str, Any]] = []
+                for tp_title, tp_data in existing_topics.items():
+                    if tp_title in new_topics:
+                        existing_pages = [p["title"] for p in tp_data.get("pages", [])]
+                        new_pages = new_topics[tp_title].get("pages", [])
+                        for np in new_pages:
+                            if np["title"] not in existing_pages:
+                                tp_data = dict(tp_data)
+                                tp_data["pages"] = list(tp_data.get("pages", []))
+                                tp_data["pages"].append(np)
+                    merged_topics.append(dict(existing_topics.get(tp_title, tp_data)))
+                
+                for tp_title, tp_data in new_topics.items():
+                    if tp_title not in existing_topics:
+                        merged_topics.append(dict(tp_data))
+
+                ch_data = dict(ch_data)
+                ch_data["topics"] = merged_topics
+                merged_chapters.append(ch_data)
+            else:
+                merged_chapters.append(dict(ch_data))
+
+        for ch_title, ch_data in new_chapters.items():
+            if ch_title not in existing_chapters:
+                merged_chapters.append(dict(ch_data))
+
+        return {
+            "book_title": new_tree.get("book_title") or existing.get("book_title") or "Knowledge Book",
+            "chapters": merged_chapters,
+        }
 
     async def _deactivate_current_book(self, db: AsyncSession) -> None:
         result = await db.execute(
@@ -841,10 +1188,17 @@ Return JSON in this exact shape:
         if patch.status == "committed":
             return self._patch_to_dict(patch)
 
-        tree = self._sanitize_tree(patch.draft_json)
+        new_tree = self._sanitize_tree(patch.draft_json)
+        
+        try:
+            existing_tree = await self._get_current_tree(db)
+            merged_tree = self._merge_trees(existing_tree, new_tree)
+        except Exception as e:
+            logger.warning(f"Failed to merge trees, using new tree only: {e}")
+            merged_tree = new_tree
 
         await self._deactivate_current_book(db)
-        nodes = self._build_nodes(tree, patch.id, patch.source_id)
+        nodes = self._build_nodes(merged_tree, patch.id, patch.source_id)
         for node in nodes:
             db.add(node)
 
@@ -880,6 +1234,63 @@ Return JSON in this exact shape:
             await self.reindex_current_book()
 
         return self._patch_to_dict(patch)
+
+    async def delete_published_node(
+        self,
+        db: AsyncSession,
+        node_id: int,
+        current_user: Optional[User] = None,
+    ) -> Dict[str, Any]:
+        result = await db.execute(
+            select(KnowledgeBookNode).where(KnowledgeBookNode.id == node_id)
+        )
+        node = result.scalar_one_or_none()
+        if not node or not node.is_active:
+            raise ValueError("Published page not found")
+
+        result = await db.execute(
+            select(KnowledgeBookNode).where(KnowledgeBookNode.is_active == True)  # noqa: E712
+        )
+        active_nodes = result.scalars().all()
+        nodes_by_parent: Dict[Optional[int], List[KnowledgeBookNode]] = {}
+        for active_node in active_nodes:
+            nodes_by_parent.setdefault(active_node.parent_id, []).append(active_node)
+
+        to_disable: List[KnowledgeBookNode] = []
+
+        def walk(current: KnowledgeBookNode) -> None:
+            to_disable.append(current)
+            for child in nodes_by_parent.get(current.id, []):
+                walk(child)
+
+        walk(node)
+
+        for target in to_disable:
+            target.is_active = False
+
+        db.add(
+            KnowledgeBookAuditLog(
+                patch_id=node.patch_id,
+                action="published_node_deleted",
+                actor_user_id=current_user.id if current_user else None,
+                details={
+                    "node_id": node.id,
+                    "title": node.title,
+                    "node_type": node.node_type,
+                    "source_id": node.source_id,
+                },
+            )
+        )
+        await db.commit()
+
+        if rag_anything_service.is_initialized:
+            await self.reindex_current_book()
+
+        return {
+            "success": True,
+            "deleted_node_id": node.id,
+            "deleted_count": len(to_disable),
+        }
 
     async def get_tree(self, db: AsyncSession) -> Dict[str, Any]:
         result = await db.execute(
@@ -1045,6 +1456,16 @@ Return JSON in this exact shape:
             source_name=snapshot_path.name,
         )
         return result
+
+    async def hard_reset(self, db: AsyncSession, current_user: Optional[Any] = None) -> Dict[str, Any]:
+        await db.execute(delete(KnowledgeBookAuditLog))
+        await db.execute(delete(KnowledgeBookNode))
+        await db.execute(delete(KnowledgeBookPatch))
+        await db.execute(delete(KnowledgeBookJob))
+        await db.execute(delete(KnowledgeSource))
+        await db.commit()
+        logger.info("Knowledge book hard reset completed by user %s", current_user.id if current_user else "unknown")
+        return {"success": True, "message": "All knowledge book data deleted"}
 
 
 knowledge_book_service = KnowledgeBookService()

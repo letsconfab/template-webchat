@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 from pathlib import Path
+from shutil import which
 from urllib.parse import urlparse
 
 import asyncpg
@@ -30,7 +32,7 @@ def database_url() -> str:
     load_dotenv_like(Path(".env"))
     return os.getenv(
         "DATABASE_URL",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/webchat_db",
+        "postgresql+asyncpg://postgres:postgres@localhost:5454/webchat_db",
     )
 
 
@@ -87,6 +89,78 @@ async def ensure_database_exists(
         await conn.close()
 
 
+def compose_exec_command() -> list[str] | None:
+    candidates = [
+        ["docker-compose"],
+        ["podman-compose"],
+        ["podman", "compose"],
+        ["docker", "compose"],
+    ]
+    for candidate in candidates:
+        if which(candidate[0]):
+            return candidate
+    return None
+
+
+def ensure_database_via_compose(
+    user: str,
+    db_name: str,
+) -> None:
+    compose = compose_exec_command()
+    if compose is None:
+        raise RuntimeError(
+            "Could not find a compose executable for local database fallback."
+        )
+
+    quoted_db_name = db_name.replace("'", "''")
+    check = subprocess.run(
+        [
+            *compose,
+            "exec",
+            "-T",
+            "postgres",
+            "psql",
+            "-U",
+            user,
+            "-d",
+            "postgres",
+            "-tAc",
+            f"SELECT 1 FROM pg_database WHERE datname = '{quoted_db_name}'",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if check.returncode != 0:
+        raise RuntimeError(
+            check.stderr.strip() or check.stdout.strip() or "compose exec failed"
+        )
+
+    if check.stdout.strip() == "1":
+        print(f"Database '{db_name}' already exists via compose exec.")
+        return
+
+    create = subprocess.run(
+        [
+            *compose,
+            "exec",
+            "-T",
+            "postgres",
+            "createdb",
+            "-U",
+            user,
+            db_name,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if create.returncode != 0:
+        raise RuntimeError(
+            create.stderr.strip() or create.stdout.strip() or "compose exec failed"
+        )
+
+    print(f"Created database '{db_name}' via compose exec.")
+
+
 def main() -> int:
     raw_url = database_url()
     host, user, password, db_name, port = parse_database_url(raw_url)
@@ -94,11 +168,23 @@ def main() -> int:
         asyncio.run(ensure_database_exists(host, port, user, password, db_name))
         return 0
     except (OSError, asyncpg.PostgresError) as exc:
-        print(
-            f"Failed to create database '{db_name}' on {host}:{port}.\n{exc}",
-            file=sys.stderr,
-        )
-        return 1
+        if host not in {"localhost", "127.0.0.1", "::1"}:
+            print(
+                f"Failed to create database '{db_name}' on {host}:{port}.\n{exc}",
+                file=sys.stderr,
+            )
+            return 1
+
+        try:
+            ensure_database_via_compose(user, db_name)
+            return 0
+        except Exception as fallback_exc:
+            print(
+                f"Failed to create database '{db_name}' on {host}:{port}.\n{exc}\n"
+                f"Compose fallback also failed:\n{fallback_exc}",
+                file=sys.stderr,
+            )
+            return 1
 
 
 if __name__ == "__main__":

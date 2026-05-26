@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { LogOut, Users, Mail, CheckCircle, Copy, Settings, MessageSquare, Code, ThumbsUp, Lightbulb, BookOpen } from 'lucide-react'
+import { LogOut, Users, Mail, CheckCircle, Copy, Settings, MessageSquare, Code, ThumbsUp, ThumbsDown, Lightbulb, BookOpen } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 import { Button } from '../components/ui/button'
@@ -25,12 +25,22 @@ interface Invite {
   role: 'user' | 'admin'
 }
 
+interface FeedbackItem {
+  id: number
+  feedback_type: 'thumbs_up' | 'thumbs_down'
+  message_content?: string | null
+  user_email?: string | null
+  created_at: string
+}
+
 const AdminDashboard: React.FC = () => {
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [showRoleSelectionModal, setShowRoleSelectionModal] = useState(false)
   const [showEmbedModal, setShowEmbedModal] = useState(false)
   const [selectedRole, setSelectedRole] = useState<'general' | 'admin'>('general')
   const [invites, setInvites] = useState<Invite[]>([])
+  const [feedbackStats, setFeedbackStats] = useState<{ total: number; positive: number; negative: number; recent_negative_count: number } | null>(null)
+  const [recentFeedback, setRecentFeedback] = useState<FeedbackItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
@@ -59,6 +69,22 @@ const AdminDashboard: React.FC = () => {
       }
     }
     loadInvites()
+  }, [])
+
+  useEffect(() => {
+    const loadFeedback = async () => {
+      try {
+        const [statsRes, feedbackRes] = await Promise.all([
+          api.get('/feedback/stats'),
+          api.get('/feedback/admin?limit=3'),
+        ])
+        setFeedbackStats(statsRes.data)
+        setRecentFeedback(feedbackRes.data || [])
+      } catch (error) {
+        console.error('Failed to load feedback summary:', error)
+      }
+    }
+    loadFeedback()
   }, [])
 
   const onInviteSubmit = async (data: InviteFormData) => {
@@ -296,8 +322,83 @@ const AdminDashboard: React.FC = () => {
                     View Knowledge
                   </Button>
                 </Link>
-              </CardContent>
-            </Card>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6 mb-8">
+          <Card className="border-0 bg-gradient-to-br from-white to-amber-50/40 shadow-xl">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg font-bold text-gray-900">Feedback Summary</CardTitle>
+                  <CardDescription className="text-gray-600">
+                    Recent thumbs up/down responses from chat
+                  </CardDescription>
+                </div>
+                <Link to="/admin/feedback">
+                  <Button variant="outline" className="border-amber-200 bg-white/80 text-amber-700 hover:bg-white">
+                    View all
+                  </Button>
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-2xl bg-white p-4 border border-green-100">
+                <div className="flex items-center gap-2 text-sm font-medium text-green-700">
+                  <ThumbsUp className="h-4 w-4" />
+                  Positive
+                </div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{feedbackStats?.positive ?? 0}</div>
+              </div>
+              <div className="rounded-2xl bg-white p-4 border border-red-100">
+                <div className="flex items-center gap-2 text-sm font-medium text-red-700">
+                  <ThumbsDown className="h-4 w-4" />
+                  Negative
+                </div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{feedbackStats?.negative ?? 0}</div>
+              </div>
+              <div className="rounded-2xl bg-white p-4 border border-blue-100">
+                <div className="flex items-center gap-2 text-sm font-medium text-blue-700">
+                  <MessageSquare className="h-4 w-4" />
+                  Total
+                </div>
+                <div className="mt-2 text-3xl font-bold text-gray-900">{feedbackStats?.total ?? 0}</div>
+              </div>
+              <div className="md:col-span-3 rounded-2xl bg-white p-4 border border-amber-100">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-gray-900">Latest feedback</div>
+                  <div className="text-xs text-gray-500">
+                    {feedbackStats ? `Recent negatives: ${feedbackStats.recent_negative_count}` : ''}
+                  </div>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {recentFeedback.length === 0 ? (
+                    <div className="text-sm text-gray-500">No feedback yet.</div>
+                  ) : (
+                    recentFeedback.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
+                            {item.feedback_type === 'thumbs_up' ? (
+                              <ThumbsUp className="h-4 w-4 text-green-600" />
+                            ) : (
+                              <ThumbsDown className="h-4 w-4 text-red-600" />
+                            )}
+                            {item.user_email || 'Anonymous user'}
+                          </div>
+                          <div className="text-xs text-gray-500">{new Date(item.created_at).toLocaleString()}</div>
+                        </div>
+                        <div className="mt-2 text-sm text-gray-700 line-clamp-2">
+                          {item.message_content || 'No message captured'}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Admin Tools Section */}

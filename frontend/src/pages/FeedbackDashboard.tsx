@@ -1,17 +1,29 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { LogOut, ThumbsUp, ThumbsDown, MessageSquare, Filter, BarChart3 } from 'lucide-react'
+import { LogOut, ThumbsUp, ThumbsDown, MessageSquare, Filter, BarChart3, X, User, Clock } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 
 interface Feedback {
   id: number
-  message_id: string
+  user_id: number
+  rating?: number | null
   feedback_type: 'thumbs_up' | 'thumbs_down'
+  message?: string | null
+  chat_message_id?: number | null
+  user_email?: string | null
+  message_content?: string | null
   created_at: string
-  message_content?: string
-  user_email?: string
+}
+
+interface FeedbackContext {
+  feedback: Feedback
+  messages: Array<{
+    role: string
+    content: string
+    created_at: string
+  }>
 }
 
 const FeedbackDashboard: React.FC = () => {
@@ -19,6 +31,8 @@ const FeedbackDashboard: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'thumbs_up' | 'thumbs_down'>('all')
   const [currentPage, setCurrentPage] = useState(1)
+  const [selectedContext, setSelectedContext] = useState<FeedbackContext | null>(null)
+  const [contextLoading, setContextLoading] = useState(false)
   const feedbackPerPage = 10
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -35,6 +49,18 @@ const FeedbackDashboard: React.FC = () => {
       console.error('Failed to load feedback:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadFeedbackContext = async (feedbackId: number) => {
+    setContextLoading(true)
+    try {
+      const response = await api.get(`/feedback/${feedbackId}/context`)
+      setSelectedContext(response.data)
+    } catch (error) {
+      console.error('Failed to load feedback context:', error)
+    } finally {
+      setContextLoading(false)
     }
   }
 
@@ -178,7 +204,8 @@ const FeedbackDashboard: React.FC = () => {
                 {paginatedFeedback.map((feedback) => (
                   <div
                     key={feedback.id}
-                    className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100"
+                    className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100 hover:bg-gray-100 cursor-pointer transition-colors"
+                    onClick={() => loadFeedbackContext(feedback.id)}
                   >
                     <div className={`p-2 rounded-lg ${
                       feedback.feedback_type === 'thumbs_up' 
@@ -193,7 +220,7 @@ const FeedbackDashboard: React.FC = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-900 line-clamp-2">
-                        {feedback.message_content || `Message ID: ${feedback.message_id}`}
+                        {feedback.message_content || feedback.message || 'No message captured'}
                       </p>
                       <p className="text-xs text-gray-500 mt-1">
                         {new Date(feedback.created_at).toLocaleString()}
@@ -232,6 +259,93 @@ const FeedbackDashboard: React.FC = () => {
           </CardContent>
         </Card>
       </main>
+
+      {selectedContext && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex min-h-screen items-center justify-center p-4">
+            <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm" onClick={() => setSelectedContext(null)} />
+            <div className="relative z-10 w-full max-w-2xl overflow-hidden rounded-3xl border border-white/40 bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Feedback Details</h2>
+                  <p className="text-sm text-slate-500">Chat context for this feedback</p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-full p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  onClick={() => setSelectedContext(null)}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="px-6 py-4">
+                {contextLoading ? (
+                  <div className="text-center py-8 text-gray-500">Loading context...</div>
+                ) : (
+                  <>
+                    <div className="mb-4 flex items-center gap-4 rounded-xl bg-slate-50 p-4">
+                      <div className={`p-2 rounded-lg ${
+                        selectedContext.feedback.feedback_type === 'thumbs_up' 
+                          ? 'bg-green-100 text-green-600' 
+                          : 'bg-red-100 text-red-600'
+                      }`}>
+                        {selectedContext.feedback.feedback_type === 'thumbs_up' ? (
+                          <ThumbsUp className="h-5 w-5" />
+                        ) : (
+                          <ThumbsDown className="h-5 w-5" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 text-sm">
+                          <User className="h-4 w-4 text-slate-500" />
+                          <span className="font-medium text-slate-900">
+                            {selectedContext.feedback.user_email || 'Unknown User'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
+                          <Clock className="h-3 w-3" />
+                          {new Date(selectedContext.feedback.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700">Last 5 Messages</h3>
+                      {selectedContext.messages.length === 0 ? (
+                        <p className="text-sm text-slate-500">No chat messages found</p>
+                      ) : (
+                        <div className="space-y-2 max-h-80 overflow-y-auto">
+                          {selectedContext.messages.slice(-5).map((msg, idx) => (
+                            <div
+                              key={idx}
+                              className={`p-3 rounded-lg text-sm ${
+                                msg.role === 'user'
+                                  ? 'bg-blue-50 text-blue-900 ml-8'
+                                  : 'bg-slate-100 text-slate-900 mr-8'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-xs font-medium text-slate-600">
+                                  {msg.role === 'user' ? 'User' : 'Assistant'}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {new Date(msg.created_at).toLocaleString()}
+                                </span>
+                              </div>
+                              <p className="whitespace-pre-wrap">{msg.content}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

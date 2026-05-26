@@ -1,20 +1,79 @@
-"""Standalone RAG-Anything service container."""
+"""Standalone markdown grounding service for the demo app."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import tempfile
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+import httpx
+from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.outputs import ChatGeneration
+from langchain_core.language_models import BaseChatModel
+
+
+class ChatSarvam(BaseChatModel):
+    """Custom Chat model for Sarvam AI API."""
+
+    model: str = "sarvam-m"
+    api_key: str = ""
+    base_url: str = "https://api.sarvam.ai"
+    temperature: float = 0.7
+
+    @property
+    def _llm_type(self) -> str:
+        return "sarvam"
+
+    def _generate(
+        self, messages: List[BaseMessage], stop: Optional[List[str]] = None, **kwargs
+    ) -> "ChatGeneration":
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(self._agenerate(messages, stop))
+
+    async def _agenerate(
+        self, messages: List[BaseMessage], stop: Optional[List[str]] = None, **kwargs
+    ) -> "ChatGeneration":
+        sarvam_messages = []
+        for msg in messages:
+            if msg.type == "human":
+                sarvam_messages.append({"role": "user", "content": msg.content})
+            elif msg.type == "ai":
+                sarvam_messages.append({"role": "assistant", "content": msg.content})
+            elif msg.type == "system":
+                sarvam_messages.append({"role": "system", "content": msg.content})
+
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        payload = {"model": self.model, "messages": sarvam_messages, "temperature": self.temperature}
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{self.base_url}/v1/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+
+        if response.status_code != 200:
+            raise Exception(f"Sarvam API error: {response.status_code} - {response.text}")
+
+        result = response.json()
+        content = result["choices"][0]["message"]["content"]
+        return ChatGeneration(message=HumanMessage(content=content))
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
 
 
 class SyncConfigRequest(BaseModel):
@@ -22,19 +81,13 @@ class SyncConfigRequest(BaseModel):
     model: str = Field(default="gpt-4o-mini")
     api_key: str = Field(default="")
     base_url: str = Field(default="https://api.openai.com/v1")
-    embedding_model: str = Field(default="fastembed")
-    parser: str = Field(default="mineru")
+    embedding_model: str = Field(default="text")
+    parser: str = Field(default="markdown")
     parse_method: str = Field(default="auto")
 
 
 class QueryRequest(BaseModel):
     query_text: str
-    mode: str = "hybrid"
-
-
-class QueryMultimodalRequest(BaseModel):
-    query_text: str
-    multimodal_content: List[Dict[str, Any]]
     mode: str = "hybrid"
 
 
@@ -48,21 +101,41 @@ class RAGRuntime:
     def __init__(self) -> None:
         self.workdir = Path(os.getenv("RAG_WORKDIR", "/data/rag")).resolve()
         self.workdir.mkdir(parents=True, exist_ok=True)
-        self.upload_dir = self.workdir / "uploads"
-        self.upload_dir.mkdir(parents=True, exist_ok=True)
-        self.temp_dir = self.workdir / "tmp"
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self.snapshot_dir = self.workdir / "snapshots"
+        self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         self.initialized = False
         self.last_config: Dict[str, Any] = {}
-        self.rag = None
+        self.llm = None
+        self.agent_llm = None
         self.capabilities = {
-            "image_processing": True,
-            "table_processing": True,
-            "equation_processing": True,
             "markdown_ingest": True,
-            "document_ingest": True,
-            "multimodal_query": True,
+            "document_ingest": False,
+            "image_processing": False,
+            "table_processing": False,
+            "equation_processing": False,
+            "multimodal_query": False,
+            "agent_query": True,
         }
+
+    def _create_llm(self, provider: str, model: str, api_key: str, base_url: str) -> Any:
+        if provider == "groq":
+            return ChatGroq(model=model, groq_api_key=api_key or "dummy", temperature=0.7)
+        elif provider == "ollama":
+            return ChatOllama(model=model, temperature=0.7)
+        elif provider == "sarvam":
+            return ChatSarvam(model=model or "sarvam-m", api_key=api_key or "", base_url=base_url, temperature=0.7)
+        else:
+            return ChatOpenAI(model=model, api_key=api_key or "dummy", base_url=base_url, temperature=0.7)
+
+    def _snapshot_path(self, source_name: Optional[str], title: str) -> Path:
+        name = source_name or f"{self._slugify(title)}.md"
+        if not name.endswith(".md"):
+            name = f"{name}.md"
+        return self.snapshot_dir / name
+
+    def _slugify(self, value: str) -> str:
+        value = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower()).strip("-")
+        return value or "untitled"
 
     def _build_base_url(self, provider: str, base_url: Optional[str]) -> str:
         if base_url:
@@ -72,213 +145,182 @@ class RAGRuntime:
         if provider == "ollama":
             return "http://host.docker.internal:11434/v1"
         if provider == "sarvam":
-            return "https://api.sarvam.ai/v1"
+            return "https://api.sarvam.ai"
         return "https://api.openai.com/v1"
 
-    async def _create_runtime(
-        self,
-        provider: str,
-        model: str,
-        api_key: str,
-        base_url: str,
-        embedding_model: str,
-        parser: str,
-        parse_method: str,
-    ) -> None:
-        from langchain_community.embeddings import FastEmbedEmbeddings
-        from raganything import RAGAnything, RAGAnythingConfig
-        from lightrag.llm.openai import openai_complete_if_cache
+    def _store_markdown(self, title: str, content: str, source_name: Optional[str]) -> Path:
+        snapshot = self._snapshot_path(source_name, title)
+        snapshot.write_text(content, encoding="utf-8")
+        return snapshot
 
-        embed_dir = self.workdir / "embeddings"
-        embed_dir.mkdir(parents=True, exist_ok=True)
-        embedder = FastEmbedEmbeddings(cache_dir=str(embed_dir))
-
-        config = RAGAnythingConfig(
-            working_dir=str(self.workdir),
-            parser=parser,
-            parse_method=parse_method,
-            enable_image_processing=True,
-            enable_table_processing=True,
-            enable_equation_processing=True,
-        )
-
-        def llm_model_func(
-            prompt: str,
-            system_prompt: Optional[str] = None,
-            history_messages: Optional[List[Dict]] = None,
-            **kwargs,
-        ):
-            return openai_complete_if_cache(
-                model=model,
-                api_key=api_key,
-                base_url=base_url,
-                prompt=prompt,
-                system_prompt=system_prompt,
-                history_messages=history_messages or [],
-                **kwargs,
-            )
-
-        def vision_model_func(
-            prompt: str,
-            image_data: Optional[str] = None,
-            system_prompt: Optional[str] = None,
-            history_messages: Optional[List[Dict]] = None,
-            **kwargs,
-        ):
-            return openai_complete_if_cache(
-                model=model,
-                api_key=api_key,
-                base_url=base_url,
-                prompt=prompt,
-                system_prompt=system_prompt,
-                history_messages=history_messages or [],
-                **kwargs,
-            )
-
-        def embedding_func(input: List[str]) -> List[List[float]]:
-            return embedder.embed_documents(input)
-
-        self.rag = RAGAnything(
-            config=config,
-            llm_model_func=llm_model_func,
-            vision_model_func=vision_model_func,
-            embedding_func=embedding_func,
-        )
-        await self.rag.finalize_storages()
-        self.initialized = True
-        self.last_config = {
-            "provider": provider,
-            "model": model,
-            "base_url": base_url,
-            "embedding_model": embedding_model,
-            "parser": parser,
-            "parse_method": parse_method,
-        }
-
-    def _serialize_result(self, result: Any) -> Any:
-        if isinstance(result, (dict, list, str, int, float, bool)) or result is None:
-            return result
-        if hasattr(result, "model_dump"):
+    def _load_corpus(self) -> List[Dict[str, str]]:
+        docs: List[Dict[str, str]] = []
+        for path in sorted(self.snapshot_dir.glob("*.md")):
             try:
-                return result.model_dump()
-            except Exception:
-                pass
-        if hasattr(result, "dict"):
-            try:
-                return result.dict()
-            except Exception:
-                pass
-        return str(result)
+                docs.append({"path": str(path), "text": path.read_text(encoding="utf-8")})
+            except Exception as exc:
+                logger.warning("Failed to read snapshot %s: %s", path, exc)
+        return docs
+
+    def _score(self, query: str, text: str) -> int:
+        query_terms = [term for term in re.findall(r"\w+", query.lower()) if len(term) > 2]
+        text_lower = text.lower()
+        return sum(text_lower.count(term) for term in query_terms)
+
+    def _extract_excerpt(self, text: str, query: str, width: int = 240) -> str:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return text[:width]
+
+        query_terms = [term for term in re.findall(r"\w+", query.lower()) if len(term) > 2]
+        for line in lines:
+            lowered = line.lower()
+            if any(term in lowered for term in query_terms):
+                return line[:width]
+        return lines[0][:width]
 
     async def sync_config(self, request: SyncConfigRequest) -> Dict[str, Any]:
         base_url = self._build_base_url(request.provider, request.base_url)
-        try:
-            await self._create_runtime(
-                provider=request.provider,
-                model=request.model,
-                api_key=request.api_key,
-                base_url=base_url,
-                embedding_model=request.embedding_model,
-                parser=request.parser,
-                parse_method=request.parse_method,
-            )
-            return {
-                "initialized": True,
-                "config": self.last_config,
-                "working_dir": str(self.workdir),
-            }
-        except Exception as exc:
-            self.initialized = False
-            self.rag = None
-            logger.exception("Failed to initialize RAG runtime")
-            return {"initialized": False, "error": str(exc)}
-
-    async def ingest_file(
-        self,
-        upload: UploadFile,
-        parse_method: str = "auto",
-        source_name: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        if not self.initialized or not self.rag:
-            raise HTTPException(status_code=503, detail="RAG service not initialized")
-
-        filename = source_name or upload.filename or f"document-{uuid4().hex}"
-        suffix = Path(filename).suffix or ".bin"
-        target = self.upload_dir / f"{uuid4().hex}{suffix}"
-
-        content = await upload.read()
-        await asyncio.to_thread(target.write_bytes, content)
-        try:
-            result = await self.rag.process_document_complete(
-                file_path=str(target),
-                output_dir=str(self.workdir),
-                parse_method=parse_method,
-            )
-            return {
-                "document_path": str(target),
-                "result": self._serialize_result(result),
-                "parse_method": parse_method,
-            }
-        except Exception as exc:
-            logger.exception("Failed to ingest file")
-            raise HTTPException(status_code=500, detail=str(exc))
+        logger.info(f"RAG sync_config: provider={request.provider}, model={request.model}, base_url={base_url[:50] if base_url else 'none'}...")
+        self.initialized = True
+        self.last_config = {
+            "provider": request.provider,
+            "model": request.model,
+            "base_url": base_url,
+            "api_key": request.api_key,
+            "embedding_model": request.embedding_model,
+            "parser": request.parser,
+            "parse_method": request.parse_method,
+        }
+        self.llm = self._create_llm(
+            request.provider, request.model, request.api_key, base_url
+        )
+        logger.info(f"RAG LLM created: {type(self.llm).__name__}")
+        return {
+            "initialized": True,
+            "config": self.last_config,
+            "working_dir": str(self.workdir),
+        }
 
     async def ingest_markdown(
-        self, title: str, content: str, source_name: Optional[str] = None
+        self,
+        title: str,
+        content: str,
+        source_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        if not self.initialized or not self.rag:
-            raise HTTPException(status_code=503, detail="RAG service not initialized")
+        if not content.strip():
+            raise HTTPException(status_code=400, detail="Markdown content is empty")
 
-        filename = source_name or f"{title}.md"
-        target = self.temp_dir / f"{uuid4().hex}-{Path(filename).name}"
-        await asyncio.to_thread(target.write_text, content, encoding="utf-8")
-        try:
-            result = await self.rag.process_document_complete(
-                file_path=str(target),
-                output_dir=str(self.workdir),
-                parse_method="txt",
-            )
-            return {
-                "document_path": str(target),
-                "result": self._serialize_result(result),
-                "parse_method": "txt",
-            }
-        except Exception as exc:
-            logger.exception("Failed to ingest markdown")
-            raise HTTPException(status_code=500, detail=str(exc))
+        snapshot = self._store_markdown(title, content, source_name)
+        self.initialized = True
+        return {
+            "success": True,
+            "document_path": str(snapshot),
+            "title": title,
+            "source_name": source_name or snapshot.name,
+        }
 
     async def query(self, query_text: str, mode: str = "hybrid") -> Dict[str, Any]:
-        if not self.initialized or not self.rag:
+        logger.info(f"RAG query: initialized={self.initialized}, has_llm={self.llm is not None}")
+        if not self.initialized:
             raise HTTPException(status_code=503, detail="RAG service not initialized")
 
-        try:
-            result = await self.rag.aquery(query_text, mode=mode)
-            serialized = self._serialize_result(result)
-            return {"result": serialized, "raw_result": serialized, "mode": mode}
-        except Exception as exc:
-            logger.exception("Failed to query RAG runtime")
-            raise HTTPException(status_code=500, detail=str(exc))
+        docs = self._load_corpus()
+        if not docs:
+            return {
+                "result": "",
+                "raw_result": "",
+                "mode": mode,
+            }
 
-    async def query_multimodal(
-        self,
-        query_text: str,
-        multimodal_content: List[Dict[str, Any]],
-        mode: str = "hybrid",
-    ) -> Dict[str, Any]:
-        if not self.initialized or not self.rag:
-            raise HTTPException(status_code=503, detail="RAG service not initialized")
-
-        try:
-            result = await self.rag.aquery_with_multimodal(
-                query_text,
-                multimodal_content=multimodal_content,
-                mode=mode,
+        if not self.llm:
+            logger.info("RAG query: falling back to keyword search (no LLM)")
+            ranked = sorted(
+                ((self._score(query_text, doc["text"]), doc) for doc in docs),
+                key=lambda item: item[0],
+                reverse=True,
             )
-            serialized = self._serialize_result(result)
-            return {"result": serialized, "raw_result": serialized, "mode": mode}
-        except Exception as exc:
-            logger.exception("Failed to query RAG runtime with multimodal content")
-            raise HTTPException(status_code=500, detail=str(exc))
+            best_score, best_doc = ranked[0]
+            excerpt = self._extract_excerpt(best_doc["text"], query_text)
+            return {
+                "result": excerpt,
+                "raw_result": {
+                    "matched_documents": [
+                        {"path": doc["path"], "score": score}
+                        for score, doc in ranked[:5]
+                        if score > 0
+                    ],
+                },
+                "mode": mode,
+            }
+
+        logger.info("RAG query: using LLM agent")
+        context_parts = []
+        for doc in docs:
+            excerpt = self._extract_excerpt(doc["text"], query_text, width=2000)
+            context_parts.append(f"Document: {doc['path']}\n\n{excerpt}\n\n---")
+
+        context = "\n".join(context_parts[:3])
+        system_prompt = """You are a helpful AI assistant with access to a knowledge base.
+Your goal is to answer the user's question based on the provided context from the knowledge base.
+
+Instructions:
+1. Carefully read through the provided context documents
+2. Answer the user's question based ONLY on information from the context
+3. If the context doesn't contain enough information to fully answer the question, acknowledge what you know and what you cannot determine
+4. Be concise but thorough - provide enough detail to be helpful
+5. If you're unsure or cannot find relevant information, say so clearly
+6. Do not make up information that isn't in the context
+
+Context from knowledge base:
+{context}
+
+User question: {question}
+
+Your answer:"""
+
+        try:
+            prompt = ChatPromptTemplate.from_template(system_prompt)
+            chain = prompt | self.llm | StrOutputParser()
+            logger.info(f"Invoking LLM with query: {query_text[:50]}...")
+            answer = await chain.ainvoke({"context": context, "question": query_text})
+            logger.info(f"LLM response: {answer[:100] if answer else 'empty'}...")
+            answer = answer.strip() if answer else "I couldn't find a relevant answer in the knowledge base."
+        except Exception as e:
+            import traceback
+            logger.error(f"Agent query failed: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            ranked = sorted(
+                ((self._score(query_text, doc["text"]), doc) for doc in docs),
+                key=lambda item: item[0],
+                reverse=True,
+            )
+            best_doc = ranked[0][1]
+            answer = self._extract_excerpt(best_doc["text"], query_text)
+
+        return {
+            "result": answer,
+            "raw_result": {
+                "agent_mode": True,
+                "matched_documents": [
+                    {"path": doc["path"], "excerpt": self._extract_excerpt(doc["text"], query_text, width=500)}
+                    for doc in docs[:3]
+                ],
+            },
+            "mode": mode,
+        }
+
+    async def ingest_file(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        raise HTTPException(
+            status_code=501,
+            detail="File ingestion is not enabled in the lightweight markdown service.",
+        )
+
+    async def query_multimodal(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        raise HTTPException(
+            status_code=501,
+            detail="Multimodal queries are not enabled in the lightweight markdown service.",
+        )
 
     async def reindex(self, title: str, content: str, source_name: Optional[str]) -> Dict[str, Any]:
         return await self.ingest_markdown(title=title, content=content, source_name=source_name)
@@ -294,7 +336,7 @@ class RAGRuntime:
 
 
 runtime = RAGRuntime()
-app = FastAPI(title="RAG-Anything Service", version="1.0.0")
+app = FastAPI(title="RAG Markdown Service", version="1.0.0")
 
 
 @app.get("/health")
@@ -310,15 +352,6 @@ async def status() -> Dict[str, Any]:
 @app.post("/config/sync")
 async def sync_config(request: SyncConfigRequest) -> Dict[str, Any]:
     return await runtime.sync_config(request)
-
-
-@app.post("/ingest")
-async def ingest(
-    file: UploadFile = File(...),
-    parse_method: str = Form("auto"),
-    source_name: Optional[str] = Form(None),
-) -> Dict[str, Any]:
-    return await runtime.ingest_file(file, parse_method=parse_method, source_name=source_name)
 
 
 @app.post("/ingest-markdown")
@@ -344,10 +377,17 @@ async def query(request: QueryRequest) -> Dict[str, Any]:
     return await runtime.query(request.query_text, mode=request.mode)
 
 
+@app.post("/ingest")
+async def ingest(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    raise HTTPException(
+        status_code=501,
+        detail="Raw file ingestion is not enabled in the lightweight markdown service.",
+    )
+
+
 @app.post("/query-multimodal")
-async def query_multimodal(request: QueryMultimodalRequest) -> Dict[str, Any]:
-    return await runtime.query_multimodal(
-        request.query_text,
-        request.multimodal_content,
-        mode=request.mode,
+async def query_multimodal(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    raise HTTPException(
+        status_code=501,
+        detail="Multimodal queries are not enabled in the lightweight markdown service.",
     )

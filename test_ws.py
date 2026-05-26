@@ -59,6 +59,8 @@ async def main():
                 print(f"[RECV] type={data.get('type')} {str(data)[:200]}")
                 if data.get("type") == "start":
                     continue
+                elif data.get("type") == "think":
+                    print(f"[THINK] {data.get('content', '')[:150]}")
                 elif data.get("type") == "chunk":
                     full_response += data.get("content", "")
                 elif data.get("type") == "end":

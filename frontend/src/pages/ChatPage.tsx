@@ -30,6 +30,8 @@ export default function ChatPage() {
   const [currentResponse, setCurrentResponse] = useState('')
   const [settings, setSettings] = useState<ChatSettings | null>(null)
   const [graphragStatus, setGraphragStatus] = useState<GraphRAGStatus | null>(null)
+  const [thinkingLines, setThinkingLines] = useState<string[]>([])
+  const MAX_THINKING_LINES = 4
   
   const currentResponseRef = useRef('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -132,8 +134,6 @@ export default function ChatPage() {
 
     wsRef.current.onMessage((data) => {
       if (data.type === 'status') {
-        // Don't add status messages to the chat thread - they're just informational
-        // Could show a toast notification instead if needed
         console.log('System status:', data.message)
       } else if (data.type === 'history') {
         setMessages(data.messages || [])
@@ -141,6 +141,15 @@ export default function ChatPage() {
         setIsStreaming(true)
         setCurrentResponse('')
         currentResponseRef.current = ''
+        setThinkingLines([])
+      } else if (data.type === 'think') {
+        setThinkingLines(prev => {
+          const lines = [...prev, data.content]
+          if (lines.length > MAX_THINKING_LINES) {
+            return lines.slice(lines.length - MAX_THINKING_LINES)
+          }
+          return lines
+        })
       } else if (data.type === 'chunk') {
         const newResponse = currentResponseRef.current + data.content
         currentResponseRef.current = newResponse
@@ -152,12 +161,14 @@ export default function ChatPage() {
           setCurrentResponse('')
           currentResponseRef.current = ''
           setIsStreaming(false)
+          setThinkingLines([])
         }, 0)
       } else if (data.type === 'error') {
         setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${data.message}` }])
         setIsStreaming(false)
         setCurrentResponse('')
         currentResponseRef.current = ''
+        setThinkingLines([])
       }
     })
 
@@ -369,11 +380,31 @@ export default function ChatPage() {
               </div>
             ))}
 
-            {isStreaming && currentResponse && (
+            {isStreaming && (thinkingLines.length > 0 || currentResponse) && (
               <div className="flex justify-start">
-                <div className="max-w-[80%] rounded-lg p-4 bg-muted">
-                  <div className="whitespace-pre-wrap">{currentResponse}</div>
-                  <Loader2 className="w-4 h-4 animate-spin mt-2" />
+                <div className="max-w-[80%] rounded-lg bg-muted">
+                  {thinkingLines.length > 0 && (
+                    <div className="px-4 pt-3 pb-1 space-y-0.5 border-b border-border/30">
+                      {thinkingLines.map((line, i) => (
+                        <div
+                          key={i}
+                          className="text-xs text-gray-400 whitespace-pre-wrap font-mono leading-relaxed"
+                        >
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {currentResponse && (
+                    <div className="px-4 py-3">
+                      <div className="whitespace-pre-wrap">{currentResponse}</div>
+                    </div>
+                  )}
+                  {!currentResponse && thinkingLines.length > 0 && (
+                    <div className="px-4 pb-3">
+                      <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                    </div>
+                  )}
                 </div>
               </div>
             )}

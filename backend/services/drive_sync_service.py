@@ -226,7 +226,7 @@ class DriveSyncService:
 
     def get_status(self) -> dict:
         return {
-            "running": self._running,
+            "running": self._sync_in_progress,
             "last_sync": self.last_sync.isoformat() if self.last_sync else None,
             "file_count": self.file_count,
             "error": self.error,

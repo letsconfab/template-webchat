@@ -22,6 +22,7 @@ class CocoIndexManager:
         self._app: Optional[coco.App] = None
         self._task: Optional[asyncio.Task] = None
         self._running = False
+        self._update_in_progress = False
         self.last_update: Optional[datetime] = None
         self.error: Optional[str] = None
         self.file_count: int = 0
@@ -82,6 +83,7 @@ class CocoIndexManager:
     async def _run_loop(self) -> None:
         while self._running:
             try:
+                self._update_in_progress = True
                 await self._app.update()
                 self.last_update = datetime.utcnow()
                 self.error = None
@@ -91,11 +93,13 @@ class CocoIndexManager:
             except Exception as e:
                 self.error = str(e)
                 logger.error("CocoIndex pipeline error: %s", e)
+            finally:
+                self._update_in_progress = False
             await asyncio.sleep(30)
 
     def get_status(self) -> dict:
         return {
-            "running": self._running,
+            "running": self._update_in_progress,
             "last_update": self.last_update.isoformat() if self.last_update else None,
             "error": self.error,
         }

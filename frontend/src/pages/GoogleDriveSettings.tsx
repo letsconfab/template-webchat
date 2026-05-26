@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Badge } from '../components/ui/badge'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Loader2, RefreshCw, Unlink, ExternalLink, FolderOpen, CheckCircle, AlertCircle, FileText, ChevronRight } from 'lucide-react'
-import { useAuth } from '../contexts/AuthContext'
+
 import { api } from '../services/api'
 
 interface SyncFile {
@@ -42,7 +42,6 @@ interface FolderItem {
 
 export default function GoogleDriveSettings() {
   const navigate = useNavigate()
-  const { user } = useAuth()
   const [status, setStatus] = useState<DriveStatus | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -68,14 +67,10 @@ export default function GoogleDriveSettings() {
   }, [])
 
   useEffect(() => {
-    if (!user || user.role !== 'admin') {
-      navigate('/login')
-      return
-    }
     loadStatus()
     const interval = setInterval(loadStatus, 10000)
     return () => clearInterval(interval)
-  }, [user, navigate, loadStatus])
+  }, [loadStatus])
 
   const handleConnect = async () => {
     try {

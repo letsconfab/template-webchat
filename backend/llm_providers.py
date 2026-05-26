@@ -1,11 +1,12 @@
 """LLM provider implementations for different services."""
 
 import json
-from typing import Any, Callable, Optional, Sequence, Literal
+from typing import Any, AsyncIterator, Callable, Optional, Sequence, Literal
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, HumanMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, SystemMessage, HumanMessage
+from langchain_core.messages.tool import ToolCallChunk
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 import httpx
@@ -107,6 +108,99 @@ class SarvamLLM(BaseChatModel):
             generation = ChatGeneration(message=AIMessage(content=content or ""))
 
         return ChatResult(generations=[generation])
+
+    async def _astream(
+        self,
+        messages: list[BaseMessage],
+        stop: Optional[list[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        sarvam_messages = []
+        for msg in messages:
+            role = "user"
+            if isinstance(msg, SystemMessage):
+                role = "system"
+            elif isinstance(msg, AIMessage):
+                role = "assistant"
+            sarvam_messages.append({"role": role, "content": self._extract_content(msg.content)})
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "messages": sarvam_messages,
+            "model": self.model,
+            "stream": True,
+        }
+
+        if "tools" in kwargs and kwargs["tools"]:
+            payload["tools"] = kwargs["tools"]
+        if "tool_choice" in kwargs:
+            payload["tool_choice"] = kwargs["tool_choice"]
+
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=300.0,
+            ) as response:
+                if response.status_code != 200:
+                    error_body = await response.aread()
+                    raise Exception(
+                        f"Sarvam API error: {response.status_code} - {error_body.decode()}"
+                    )
+
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    data = json.loads(data_str)
+                    choices = data.get("choices", [])
+                    if not choices:
+                        continue
+                    choice = choices[0]
+                    delta = choice.get("delta", {})
+
+                    reasoning = delta.get("reasoning_content")
+                    content = delta.get("content")
+
+                    additional_kwargs = {}
+                    if reasoning:
+                        additional_kwargs["reasoning_content"] = reasoning
+
+                    if content or reasoning:
+                        yield ChatGenerationChunk(
+                            message=AIMessageChunk(
+                                content=content or "",
+                                additional_kwargs=additional_kwargs,
+                            )
+                        )
+
+                    raw_tool_calls = delta.get("tool_calls")
+                    if raw_tool_calls:
+                        tool_call_chunks = []
+                        for tc in raw_tool_calls:
+                            tool_call_chunks.append(
+                                ToolCallChunk(
+                                    name=tc["function"]["name"],
+                                    args=tc["function"]["arguments"],
+                                    id=tc["id"],
+                                    index=tc.get("index", 0),
+                                )
+                            )
+                        yield ChatGenerationChunk(
+                            message=AIMessageChunk(
+                                content="",
+                                tool_call_chunks=tool_call_chunks,
+                            )
+                        )
 
     def bind_tools(
         self,

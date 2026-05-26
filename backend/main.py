@@ -30,6 +30,8 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
@@ -76,7 +78,7 @@ async def lifespan(app: FastAPI):
             )
 
             if settings.llm_provider and settings.llm_model and settings.llm_api_key:
-                cache_dir = getattr(config, "KB_CACHE_DIR", "./kb_cache")
+                cache_dir = str(Path(getattr(config, "KB_CACHE_DIR", "./kb_cache")) / "drive")
                 cocoindex_manager.configure(
                     cache_dir=cache_dir,
                     neo4j_uri=neo4j_uri,
@@ -246,6 +248,8 @@ async def _query_with_knowledge(
     session_id: str,
     websocket: WebSocket,
 ):
+    full_response = ""
+    show_end = True
     try:
         from deepagents import create_deep_agent
         from langchain_core.tools import tool
@@ -272,23 +276,75 @@ async def _query_with_knowledge(
 
         messages = [HumanMessage(content=user_message)]
 
-        result = await agent.ainvoke({"messages": messages})
-        response_text = result["messages"][-1].content if result.get("messages") else ""
+        await websocket.send_json({"type": "start"})
+        think_buf = ""
+
+        async for event in agent.astream_events(
+            {"messages": messages}, version="v2"
+        ):
+            kind = event["event"]
+
+            if kind == "on_chat_model_stream":
+                chunk = event["data"].get("chunk")
+                if not chunk:
+                    continue
+
+                reasoning = chunk.additional_kwargs.get("reasoning_content", "")
+                if reasoning:
+                    think_buf += reasoning
+                    if reasoning.endswith((".", "?", "!", "\n")):
+                        await websocket.send_json({
+                            "type": "think",
+                            "content": think_buf.strip(),
+                        })
+                        think_buf = ""
+
+                content = getattr(chunk, "content", "") or ""
+                if content:
+                    full_response += content
+                    await websocket.send_json({
+                        "type": "chunk",
+                        "content": content,
+                    })
+
+            elif kind == "on_tool_start":
+                input_data = event["data"].get("input", {})
+                await websocket.send_json({
+                    "type": "think",
+                    "content": f"Searching knowledge base: {str(input_data)[:120]}",
+                })
+
+            elif kind == "on_tool_end":
+                output = str(event["data"].get("output", ""))[:200]
+                await websocket.send_json({
+                    "type": "think",
+                    "content": output[:200],
+                })
 
     except ImportError:
         logger.warning("deepagents not installed, falling back to simple LLM call")
-        response_text = await llm.ainvoke(
-            [HumanMessage(content=user_message)]
+        result = await llm.ainvoke([HumanMessage(content=user_message)])
+        full_response = (
+            result.content if hasattr(result, "content") else str(result)
         )
-        response_text = response_text.content if hasattr(response_text, "content") else str(response_text)
+        await websocket.send_json({"type": "start"})
+        if full_response:
+            await websocket.send_json({"type": "chunk", "content": full_response})
     except Exception as e:
         logger.error("Agent query error: %s", e)
-        response_text = f"An error occurred: {str(e)}"
+        import traceback
+        logger.error("Traceback:\n%s", traceback.format_exc())
+        full_response = full_response or f"An error occurred: {str(e)}"
+        show_end = not full_response
+        if not full_response:
+            return
 
-    await websocket.send_json({"type": "start"})
-    await websocket.send_json({"type": "chunk", "content": response_text})
-    chat_history[session_id].append(ChatMessage(role="assistant", content=response_text))
-    await websocket.send_json({"type": "end"})
+    if full_response:
+        chat_history[session_id].append(
+            ChatMessage(role="assistant", content=full_response)
+        )
+    if show_end:
+        await websocket.send_json({"type": "end"})
 
 
 @app.websocket("/ws/chat")

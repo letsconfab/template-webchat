@@ -5,3 +5,4 @@ kb_assets
 .cache
 garage_storage
 kb_cache
+frontend/dist

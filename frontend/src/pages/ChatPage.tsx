@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Send, Loader2, Settings, LogOut, MessageSquare, ThumbsUp, ThumbsDown, CircleCheck, AlertTriangle } from 'lucide-react'
+import { Send, Loader2, Settings, LogOut, MessageSquare, ThumbsUp, ThumbsDown, CircleCheck, AlertTriangle, ChevronDown, ChevronRight, Brain } from 'lucide-react'
 import { ChatWebSocket, type Settings as ChatSettings, getSessionId, api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Badge } from '../components/ui/badge'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
   feedback?: 'thumbs_up' | 'thumbs_down' | null
+  thoughts?: string[]
 }
 
 interface GraphRAGStatus {
@@ -31,9 +34,11 @@ export default function ChatPage() {
   const [settings, setSettings] = useState<ChatSettings | null>(null)
   const [graphragStatus, setGraphragStatus] = useState<GraphRAGStatus | null>(null)
   const [thinkingLines, setThinkingLines] = useState<string[]>([])
+  const [expandedThoughts, setExpandedThoughts] = useState<Set<number>>(new Set())
   const MAX_THINKING_LINES = 4
   
   const currentResponseRef = useRef('')
+  const thinkingLinesRef = useRef<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<ChatWebSocket | null>(null)
 
@@ -141,8 +146,10 @@ export default function ChatPage() {
         setIsStreaming(true)
         setCurrentResponse('')
         currentResponseRef.current = ''
+        thinkingLinesRef.current = []
         setThinkingLines([])
       } else if (data.type === 'think') {
+        thinkingLinesRef.current = [...thinkingLinesRef.current, data.content]
         setThinkingLines(prev => {
           const lines = [...prev, data.content]
           if (lines.length > MAX_THINKING_LINES) {
@@ -156,10 +163,12 @@ export default function ChatPage() {
         setCurrentResponse(newResponse)
       } else if (data.type === 'end') {
         const finalResponse = currentResponseRef.current
-        setMessages(prev => [...prev, { role: 'assistant', content: finalResponse }])
+        const savedThoughts = thinkingLinesRef.current
+        setMessages(prev => [...prev, { role: 'assistant', content: finalResponse, thoughts: savedThoughts }])
         setTimeout(() => {
           setCurrentResponse('')
           currentResponseRef.current = ''
+          thinkingLinesRef.current = []
           setIsStreaming(false)
           setThinkingLines([])
         }, 0)
@@ -168,6 +177,7 @@ export default function ChatPage() {
         setIsStreaming(false)
         setCurrentResponse('')
         currentResponseRef.current = ''
+        thinkingLinesRef.current = []
         setThinkingLines([])
       }
     })
@@ -348,7 +358,45 @@ export default function ChatPage() {
                       : 'bg-muted'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  {msg.role === 'assistant' && msg.thoughts && msg.thoughts.length > 0 && (
+                    <div className="mb-2">
+                      <button
+                        onClick={() => {
+                          setExpandedThoughts(prev => {
+                            const next = new Set(prev)
+                            if (next.has(idx)) next.delete(idx)
+                            else next.add(idx)
+                            return next
+                          })
+                        }}
+                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        {expandedThoughts.has(idx) ? (
+                          <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronRight className="w-3 h-3" />
+                        )}
+                        <Brain className="w-3 h-3" />
+                        {expandedThoughts.has(idx) ? 'Hide thoughts' : `${msg.thoughts.length} thoughts`}
+                      </button>
+                      {expandedThoughts.has(idx) && (
+                        <div className="mt-1 pl-4 space-y-0.5 border-l-2 border-border/30">
+                          {msg.thoughts.map((line, i) => (
+                            <div
+                              key={i}
+                              className="text-xs text-gray-400 whitespace-pre-wrap font-mono leading-relaxed"
+                            >
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  </div>
                   
                   {msg.role === 'assistant' && (
                     <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/50">
@@ -396,8 +444,8 @@ export default function ChatPage() {
                     </div>
                   )}
                   {currentResponse && (
-                    <div className="px-4 py-3">
-                      <div className="whitespace-pre-wrap">{currentResponse}</div>
+                    <div className="px-4 py-3 prose prose-sm max-w-none dark:prose-invert">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentResponse}</ReactMarkdown>
                     </div>
                   )}
                   {!currentResponse && thinkingLines.length > 0 && (

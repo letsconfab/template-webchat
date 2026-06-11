@@ -4,6 +4,7 @@ import { Send, Loader2, Settings, LogOut, MessageSquare, ThumbsUp, ThumbsDown, C
 import { ChatWebSocket, type Settings as ChatSettings, getSessionId, api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Badge } from '../components/ui/badge'
+import { Textarea } from '../components/ui/textarea'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -12,7 +13,19 @@ interface Message {
   content: string
   feedback?: 'thumbs_up' | 'thumbs_down' | null
   thoughts?: string[]
+  message_id?: number | null
+  feedbackId?: number
+  feedbackDetailed?: boolean
 }
+
+const FEEDBACK_CATEGORIES: { slug: string; label: string }[] = [
+  { slug: 'inaccurate', label: 'Inaccurate' },
+  { slug: 'incomplete', label: 'Incomplete' },
+  { slug: 'off_topic', label: 'Off topic' },
+  { slug: 'outdated', label: 'Outdated' },
+  { slug: 'too_long', label: 'Too long' },
+  { slug: 'other', label: 'Other' },
+]
 
 interface GraphRAGStatus {
   connected: boolean
@@ -35,6 +48,10 @@ export default function ChatPage() {
   const [graphragStatus, setGraphragStatus] = useState<GraphRAGStatus | null>(null)
   const [thinkingLines, setThinkingLines] = useState<string[]>([])
   const [expandedThoughts, setExpandedThoughts] = useState<Set<number>>(new Set())
+  const [openPanelIdx, setOpenPanelIdx] = useState<number | null>(null)
+  const [panelCategories, setPanelCategories] = useState<string[]>([])
+  const [panelComment, setPanelComment] = useState('')
+  const [panelSubmitting, setPanelSubmitting] = useState(false)
   const MAX_THINKING_LINES = 4
   
   const currentResponseRef = useRef('')
@@ -141,7 +158,11 @@ export default function ChatPage() {
       if (data.type === 'status') {
         console.log('System status:', data.message)
       } else if (data.type === 'history') {
-        setMessages(data.messages || [])
+        setMessages((data.messages || []).map((m: any) => ({
+          role: m.role,
+          content: m.content,
+          message_id: m.id ?? null,
+        })))
       } else if (data.type === 'start') {
         setIsStreaming(true)
         setCurrentResponse('')
@@ -164,7 +185,7 @@ export default function ChatPage() {
       } else if (data.type === 'end') {
         const finalResponse = currentResponseRef.current
         const savedThoughts = thinkingLinesRef.current
-        setMessages(prev => [...prev, { role: 'assistant', content: finalResponse, thoughts: savedThoughts }])
+        setMessages(prev => [...prev, { role: 'assistant', content: finalResponse, thoughts: savedThoughts, message_id: data.message_id ?? null }])
         setTimeout(() => {
           setCurrentResponse('')
           currentResponseRef.current = ''
@@ -215,17 +236,68 @@ export default function ChatPage() {
     const token = localStorage.getItem('token')
     if (!token) return
 
+    const msg = messages[messageIndex]
     try {
-      await api.post('/feedback', {
+      const payload: Record<string, any> = {
         feedback_type: feedbackType,
-        rating: feedbackType === 'thumbs_up' ? 5 : 1
-      })
-      
-      setMessages(prev => prev.map((msg, idx) => 
-        idx === messageIndex ? { ...msg, feedback: feedbackType } : msg
+        rating: feedbackType === 'thumbs_up' ? 5 : 1,
+      }
+      if (msg?.message_id != null) {
+        payload.chat_message_id = msg.message_id
+      }
+      const response = await api.post('/feedback', payload)
+      const feedbackId: number | undefined = response.data?.id
+
+      setMessages(prev => prev.map((m, idx) =>
+        idx === messageIndex ? { ...m, feedback: feedbackType, feedbackId } : m
       ))
+
+      if (feedbackType === 'thumbs_down' && feedbackId) {
+        setOpenPanelIdx(messageIndex)
+        setPanelCategories([])
+        setPanelComment('')
+      }
     } catch (error) {
       console.error('Failed to submit feedback:', error)
+    }
+  }
+
+  const togglePanelCategory = (slug: string) => {
+    setPanelCategories(prev =>
+      prev.includes(slug) ? prev.filter(c => c !== slug) : [...prev, slug]
+    )
+  }
+
+  const closeFeedbackPanel = () => {
+    setOpenPanelIdx(null)
+    setPanelCategories([])
+    setPanelComment('')
+    setPanelSubmitting(false)
+  }
+
+  const submitFeedbackDetails = async (messageIndex: number) => {
+    const msg = messages[messageIndex]
+    if (!msg?.feedbackId) {
+      closeFeedbackPanel()
+      return
+    }
+
+    setPanelSubmitting(true)
+    try {
+      const payload: Record<string, any> = {}
+      if (panelCategories.length > 0) payload.categories = panelCategories
+      if (panelComment.trim()) payload.message = panelComment.trim()
+
+      if (Object.keys(payload).length > 0) {
+        await api.patch(`/feedback/${msg.feedbackId}`, payload)
+      }
+      setMessages(prev => prev.map((m, idx) =>
+        idx === messageIndex ? { ...m, feedbackDetailed: true } : m
+      ))
+      closeFeedbackPanel()
+    } catch (error) {
+      console.error('Failed to submit feedback details:', error)
+      setPanelSubmitting(false)
     }
   }
 
@@ -403,30 +475,81 @@ export default function ChatPage() {
                   </div>
                   
                   {msg.role === 'assistant' && (
-                    <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/50">
-                      {msg.feedback ? (
-                        <span className="text-xs text-muted-foreground">
-                          {msg.feedback === 'thumbs_up' ? '👍 Thanks!' : '👎 Sorry about that'}
-                        </span>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => handleFeedback(idx, 'thumbs_up')}
-                            className="p-1 hover:bg-secondary rounded transition-colors"
-                            title="Helpful"
-                          >
-                            <ThumbsUp className="w-4 h-4 text-muted-foreground" />
-                          </button>
-                          <button
-                            onClick={() => handleFeedback(idx, 'thumbs_down')}
-                            className="p-1 hover:bg-secondary rounded transition-colors"
-                            title="Not helpful"
-                          >
-                            <ThumbsDown className="w-4 h-4 text-muted-foreground" />
-                          </button>
-                        </>
+                    <>
+                      <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/50">
+                        {msg.feedback ? (
+                          <span className="text-xs text-muted-foreground">
+                            {msg.feedback === 'thumbs_up'
+                              ? '👍 Thanks!'
+                              : msg.feedbackDetailed
+                                ? '👎 Thanks for the details'
+                                : '👎 Sorry about that'}
+                          </span>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleFeedback(idx, 'thumbs_up')}
+                              className="p-1 hover:bg-secondary rounded transition-colors"
+                              title="Helpful"
+                            >
+                              <ThumbsUp className="w-4 h-4 text-muted-foreground" />
+                            </button>
+                            <button
+                              onClick={() => handleFeedback(idx, 'thumbs_down')}
+                              className="p-1 hover:bg-secondary rounded transition-colors"
+                              title="Not helpful"
+                            >
+                              <ThumbsDown className="w-4 h-4 text-muted-foreground" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      {openPanelIdx === idx && (
+                        <div className="mt-2 p-3 rounded-lg border border-border bg-background/60 space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground">
+                            What went wrong? (optional)
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {FEEDBACK_CATEGORIES.map(cat => (
+                              <button
+                                key={cat.slug}
+                                onClick={() => togglePanelCategory(cat.slug)}
+                                className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                                  panelCategories.includes(cat.slug)
+                                    ? 'bg-primary text-primary-foreground border-primary'
+                                    : 'bg-background text-muted-foreground border-border hover:bg-secondary'
+                                }`}
+                              >
+                                {cat.label}
+                              </button>
+                            ))}
+                          </div>
+                          <Textarea
+                            value={panelComment}
+                            onChange={(e) => setPanelComment(e.target.value)}
+                            placeholder="Tell us more (optional)..."
+                            maxLength={2000}
+                            className="min-h-[60px] text-xs"
+                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => submitFeedbackDetails(idx)}
+                              disabled={panelSubmitting}
+                              className="px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                            >
+                              {panelSubmitting ? 'Submitting...' : 'Submit'}
+                            </button>
+                            <button
+                              onClick={closeFeedbackPanel}
+                              disabled={panelSubmitting}
+                              className="px-3 py-1.5 text-xs rounded-lg text-muted-foreground hover:bg-secondary disabled:opacity-50"
+                            >
+                              Skip
+                            </button>
+                          </div>
+                        </div>
                       )}
-                    </div>
+                    </>
                   )}
                 </div>
               </div>

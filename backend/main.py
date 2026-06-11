@@ -1,6 +1,7 @@
 """FastAPI application for AI Copilot with GraphRAG knowledge base."""
 
 import logging
+import time
 from typing import List, Optional, Dict
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,6 +24,7 @@ from backend.services.cocoindex_manager import cocoindex_manager
 from backend.services.graphrag_service import graphrag_service
 from backend.services.drive_sync_service import drive_sync_service
 from backend.models.settings import SystemSettings
+from backend.models.wiki import ChatMessage as ChatMessageDB
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +44,7 @@ class SettingsRequest(BaseModel):
 
 
 class ChatMessage(BaseModel):
+    id: Optional[int] = None
     role: str
     content: str
 
@@ -217,6 +220,54 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+async def _persist_chat_message(
+    session_id: str,
+    role: str,
+    content: str,
+    metadata: Optional[dict] = None,
+) -> Optional[int]:
+    """Persist a chat message to the database. Returns the row id, or None on failure.
+
+    DB failures must never break the streaming path, so all exceptions are
+    swallowed and logged.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            row = ChatMessageDB(
+                session_id=session_id,
+                role=role,
+                content=content,
+                msg_metadata=metadata,
+            )
+            db.add(row)
+            await db.commit()
+            await db.refresh(row)
+            return row.id
+    except Exception as e:
+        logger.warning("Failed to persist chat message (session=%s): %s", session_id, e)
+        return None
+
+
+async def _load_session_history(session_id: str) -> List[ChatMessage]:
+    """Load persisted chat history for a session (oldest first, up to 100 rows)."""
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(ChatMessageDB)
+                .where(ChatMessageDB.session_id == session_id)
+                .order_by(ChatMessageDB.created_at)
+                .limit(100)
+            )
+            rows = result.scalars().all()
+            return [
+                ChatMessage(id=row.id, role=row.role, content=row.content)
+                for row in rows
+            ]
+    except Exception as e:
+        logger.warning("Failed to load chat history (session=%s): %s", session_id, e)
+        return []
+
+
 def _build_system_prompt(has_kb: bool, provider: str, model: str) -> str:
     kb_note = (
         "\n\nYou have access to a knowledge base. "
@@ -254,8 +305,13 @@ async def _query_with_knowledge(
     history: List[ChatMessage],
     session_id: str,
     websocket: WebSocket,
+    provider: str = "unknown",
+    model: str = "unknown",
 ):
     full_response = ""
+    had_error = False
+    thought_count = 0
+    start_time = time.monotonic()
     try:
         from deepagents import create_deep_agent
         from langchain_core.tools import tool
@@ -299,6 +355,7 @@ async def _query_with_knowledge(
                 if reasoning:
                     think_buf += reasoning
                     if reasoning.endswith((".", "?", "!", "\n")):
+                        thought_count += 1
                         await websocket.send_json({
                             "type": "think",
                             "content": think_buf.strip(),
@@ -315,6 +372,7 @@ async def _query_with_knowledge(
 
             elif kind == "on_tool_start":
                 input_data = event["data"].get("input", {})
+                thought_count += 1
                 await websocket.send_json({
                     "type": "think",
                     "content": f"Searching knowledge base: {str(input_data)[:120]}",
@@ -322,6 +380,7 @@ async def _query_with_knowledge(
 
             elif kind == "on_tool_end":
                 output = str(event["data"].get("output", ""))[:200]
+                thought_count += 1
                 await websocket.send_json({
                     "type": "think",
                     "content": output[:200],
@@ -338,6 +397,7 @@ async def _query_with_knowledge(
             await websocket.send_json({"type": "chunk", "content": full_response})
     except Exception as e:
         logger.error("Agent query error: %s", e, exc_info=True)
+        had_error = True
         error_msg = f"An error occurred: {str(e)}"
         full_response = full_response or error_msg
         try:
@@ -346,12 +406,26 @@ async def _query_with_knowledge(
         except Exception:
             pass
 
+    message_id: Optional[int] = None
     if full_response:
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+        message_id = await _persist_chat_message(
+            session_id=session_id,
+            role="assistant",
+            content=full_response,
+            metadata={
+                "provider": provider,
+                "model": model,
+                "thought_count": thought_count,
+                "duration_ms": duration_ms,
+                "error": had_error,
+            },
+        )
         chat_history.setdefault(session_id, []).append(
-            ChatMessage(role="assistant", content=full_response)
+            ChatMessage(id=message_id, role="assistant", content=full_response)
         )
     try:
-        await websocket.send_json({"type": "end"})
+        await websocket.send_json({"type": "end", "message_id": message_id})
     except Exception:
         pass
 
@@ -391,6 +465,11 @@ async def websocket_chat(websocket: WebSocket):
             "WebSocket session=%s provider=%s model=%s", session_id, provider, model
         )
 
+        if session_id not in chat_history:
+            persisted = await _load_session_history(session_id)
+            if persisted:
+                chat_history[session_id] = persisted
+
         history = chat_history.get(session_id, [])
         if history:
             await websocket.send_json(
@@ -424,7 +503,11 @@ async def websocket_chat(websocket: WebSocket):
 
             if session_id not in chat_history:
                 chat_history[session_id] = []
-            chat_history[session_id].append(ChatMessage(role="user", content=message))
+            user_msg = ChatMessage(role="user", content=message)
+            chat_history[session_id].append(user_msg)
+            user_msg.id = await _persist_chat_message(
+                session_id=session_id, role="user", content=message
+            )
 
             await _query_with_knowledge(
                 llm=llm_instance,
@@ -432,6 +515,8 @@ async def websocket_chat(websocket: WebSocket):
                 history=chat_history[session_id],
                 session_id=session_id,
                 websocket=websocket,
+                provider=provider,
+                model=model,
             )
 
     except WebSocketDisconnect:

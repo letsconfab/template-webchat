@@ -98,6 +98,7 @@ class UserFeedback(Base):
     rating = Column(Integer, nullable=True)  # 1-5
     feedback_type = Column(String(20), nullable=False)  # 'thumbs_up', 'thumbs_down'
     message = Column(Text, nullable=True)
+    categories = Column(JSON, nullable=True)  # e.g. ['inaccurate', 'too_long']
     chat_message_id = Column(Integer, ForeignKey("chat_messages.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -1,26 +1,59 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { LogOut, ThumbsUp, ThumbsDown, MessageSquare, Filter, BarChart3 } from 'lucide-react'
+import { LogOut, ThumbsUp, ThumbsDown, MessageSquare, Filter, BarChart3, ChevronDown, ChevronRight, Loader2, Tags } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 
 interface Feedback {
   id: number
-  message_id: string
+  user_id: number
+  user_email?: string | null
+  rating?: number | null
   feedback_type: 'thumbs_up' | 'thumbs_down'
+  message?: string | null
+  categories?: string[] | null
+  chat_message_id?: number | null
   created_at: string
-  message_content?: string
-  user_email?: string
+}
+
+interface FeedbackStats {
+  total: number
+  positive: number
+  negative: number
+  positive_percentage: number
+  negative_percentage: number
+  recent_negative_count: number
+  categories: Record<string, number>
+}
+
+interface ContextMessage {
+  role: string
+  content: string
+  created_at: string
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  inaccurate: 'Inaccurate',
+  incomplete: 'Incomplete',
+  off_topic: 'Off topic',
+  outdated: 'Outdated',
+  too_long: 'Too long',
+  other: 'Other',
 }
 
 const FeedbackDashboard: React.FC = () => {
   const [feedbackList, setFeedbackList] = useState<Feedback[]>([])
+  const [stats, setStats] = useState<FeedbackStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'thumbs_up' | 'thumbs_down'>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [contextCache, setContextCache] = useState<Record<number, ContextMessage[]>>({})
+  const [contextLoadingId, setContextLoadingId] = useState<number | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const feedbackPerPage = 10
-  const { user, logout } = useAuth()
+  const { logout } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -29,8 +62,12 @@ const FeedbackDashboard: React.FC = () => {
 
   const loadFeedback = async () => {
     try {
-      const response = await api.get('/feedback/admin')
-      setFeedbackList(response.data.feedback || [])
+      const [listResponse, statsResponse] = await Promise.all([
+        api.get('/feedback/admin', { params: { limit: 200 } }),
+        api.get('/feedback/stats'),
+      ])
+      setFeedbackList(listResponse.data.feedback || [])
+      setStats(statsResponse.data)
     } catch (error) {
       console.error('Failed to load feedback:', error)
     } finally {
@@ -43,9 +80,34 @@ const FeedbackDashboard: React.FC = () => {
     navigate('/login')
   }
 
-  const filteredFeedback = feedbackList.filter(f => 
-    filter === 'all' ? true : f.feedback_type === filter
-  )
+  const toggleExpand = async (feedback: Feedback) => {
+    if (expandedId === feedback.id) {
+      setExpandedId(null)
+      return
+    }
+    setExpandedId(feedback.id)
+
+    if (feedback.chat_message_id && contextCache[feedback.id] === undefined) {
+      setContextLoadingId(feedback.id)
+      try {
+        const response = await api.get(`/feedback/${feedback.id}/context`)
+        setContextCache(prev => ({ ...prev, [feedback.id]: response.data.messages || [] }))
+      } catch (error) {
+        console.error('Failed to load feedback context:', error)
+        setContextCache(prev => ({ ...prev, [feedback.id]: [] }))
+      } finally {
+        setContextLoadingId(null)
+      }
+    }
+  }
+
+  const activeCategories = Object.keys(stats?.categories || {})
+
+  const filteredFeedback = feedbackList.filter(f => {
+    if (filter !== 'all' && f.feedback_type !== filter) return false
+    if (categoryFilter && !(f.categories || []).includes(categoryFilter)) return false
+    return true
+  })
 
   const paginatedFeedback = filteredFeedback.slice(
     (currentPage - 1) * feedbackPerPage,
@@ -53,8 +115,6 @@ const FeedbackDashboard: React.FC = () => {
   )
 
   const totalPages = Math.ceil(filteredFeedback.length / feedbackPerPage)
-  const thumbsUpCount = feedbackList.filter(f => f.feedback_type === 'thumbs_up').length
-  const thumbsDownCount = feedbackList.filter(f => f.feedback_type === 'thumbs_down').length
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50">
@@ -90,14 +150,15 @@ const FeedbackDashboard: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {/* Stats Cards (last 30 days, from /feedback/stats) */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card className="bg-gradient-to-br from-green-500 to-emerald-600 text-white">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-green-100 text-sm font-medium">Thumbs Up</p>
-                  <p className="text-3xl font-bold mt-1">{thumbsUpCount}</p>
+                  <p className="text-green-100 text-sm font-medium">Thumbs Up (30d)</p>
+                  <p className="text-3xl font-bold mt-1">{stats?.positive ?? 0}</p>
+                  <p className="text-green-100 text-xs mt-1">{stats?.positive_percentage ?? 0}% of total</p>
                 </div>
                 <div className="p-3 bg-white/20 rounded-xl">
                   <ThumbsUp className="h-8 w-8" />
@@ -110,8 +171,9 @@ const FeedbackDashboard: React.FC = () => {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-red-100 text-sm font-medium">Thumbs Down</p>
-                  <p className="text-3xl font-bold mt-1">{thumbsDownCount}</p>
+                  <p className="text-red-100 text-sm font-medium">Thumbs Down (30d)</p>
+                  <p className="text-3xl font-bold mt-1">{stats?.negative ?? 0}</p>
+                  <p className="text-red-100 text-xs mt-1">{stats?.recent_negative_count ?? 0} in last 24h</p>
                 </div>
                 <div className="p-3 bg-white/20 rounded-xl">
                   <ThumbsDown className="h-8 w-8" />
@@ -124,8 +186,8 @@ const FeedbackDashboard: React.FC = () => {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-blue-100 text-sm font-medium">Total Feedback</p>
-                  <p className="text-3xl font-bold mt-1">{feedbackList.length}</p>
+                  <p className="text-blue-100 text-sm font-medium">Total (30d)</p>
+                  <p className="text-3xl font-bold mt-1">{stats?.total ?? 0}</p>
                 </div>
                 <div className="p-3 bg-white/20 rounded-xl">
                   <MessageSquare className="h-8 w-8" />
@@ -133,10 +195,37 @@ const FeedbackDashboard: React.FC = () => {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="bg-gradient-to-br from-amber-500 to-orange-600 text-white">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="min-w-0">
+                  <p className="text-amber-100 text-sm font-medium">Top Issues (30d)</p>
+                  {activeCategories.length === 0 ? (
+                    <p className="text-amber-100 text-sm mt-2">No categories yet</p>
+                  ) : (
+                    <div className="mt-2 space-y-1">
+                      {Object.entries(stats?.categories || {})
+                        .sort(([, a], [, b]) => b - a)
+                        .slice(0, 3)
+                        .map(([slug, count]) => (
+                          <p key={slug} className="text-sm truncate">
+                            <span className="font-semibold">{count}</span> {CATEGORY_LABELS[slug] || slug}
+                          </p>
+                        ))}
+                    </div>
+                  )}
+                </div>
+                <div className="p-3 bg-white/20 rounded-xl">
+                  <Tags className="h-8 w-8" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Filter */}
-        <div className="flex items-center gap-4 mb-6">
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-4 mb-6">
           <div className="flex items-center">
             <Filter className="h-5 w-5 text-gray-500 mr-2" />
             <span className="text-sm font-medium text-gray-700">Filter:</span>
@@ -156,6 +245,26 @@ const FeedbackDashboard: React.FC = () => {
               </button>
             ))}
           </div>
+          {activeCategories.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {activeCategories.map((slug) => (
+                <button
+                  key={slug}
+                  onClick={() => {
+                    setCategoryFilter(prev => (prev === slug ? null : slug))
+                    setCurrentPage(1)
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${
+                    categoryFilter === slug
+                      ? 'bg-amber-500 text-white border-amber-500 shadow-md'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {CATEGORY_LABELS[slug] || slug}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Feedback List */}
@@ -178,28 +287,98 @@ const FeedbackDashboard: React.FC = () => {
                 {paginatedFeedback.map((feedback) => (
                   <div
                     key={feedback.id}
-                    className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100"
+                    className="bg-gray-50 rounded-xl border border-gray-100"
                   >
-                    <div className={`p-2 rounded-lg ${
-                      feedback.feedback_type === 'thumbs_up' 
-                        ? 'bg-green-100 text-green-600' 
-                        : 'bg-red-100 text-red-600'
-                    }`}>
-                      {feedback.feedback_type === 'thumbs_up' ? (
-                        <ThumbsUp className="h-5 w-5" />
-                      ) : (
-                        <ThumbsDown className="h-5 w-5" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-900 line-clamp-2">
-                        {feedback.message_content || `Message ID: ${feedback.message_id}`}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {new Date(feedback.created_at).toLocaleString()}
-                        {feedback.user_email && ` • ${feedback.user_email}`}
-                      </p>
-                    </div>
+                    <button
+                      onClick={() => toggleExpand(feedback)}
+                      className="w-full flex items-start gap-4 p-4 text-left hover:bg-gray-100 rounded-xl transition-colors"
+                    >
+                      <div className={`p-2 rounded-lg ${
+                        feedback.feedback_type === 'thumbs_up'
+                          ? 'bg-green-100 text-green-600'
+                          : 'bg-red-100 text-red-600'
+                      }`}>
+                        {feedback.feedback_type === 'thumbs_up' ? (
+                          <ThumbsUp className="h-5 w-5" />
+                        ) : (
+                          <ThumbsDown className="h-5 w-5" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900 line-clamp-2">
+                          {feedback.message || (
+                            <span className="text-gray-400 italic">No comment</span>
+                          )}
+                        </p>
+                        {(feedback.categories || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {(feedback.categories || []).map((slug) => (
+                              <span
+                                key={slug}
+                                className="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800 border border-amber-200"
+                              >
+                                {CATEGORY_LABELS[slug] || slug}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1">
+                          {new Date(feedback.created_at).toLocaleString()}
+                          {feedback.user_email && ` • ${feedback.user_email}`}
+                        </p>
+                      </div>
+                      <div className="text-gray-400 mt-1">
+                        {expandedId === feedback.id ? (
+                          <ChevronDown className="h-5 w-5" />
+                        ) : (
+                          <ChevronRight className="h-5 w-5" />
+                        )}
+                      </div>
+                    </button>
+
+                    {expandedId === feedback.id && (
+                      <div className="px-4 pb-4 border-t border-gray-100 pt-3">
+                        {feedback.message && (
+                          <div className="mb-3">
+                            <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Comment</p>
+                            <p className="text-sm text-gray-800 whitespace-pre-wrap">{feedback.message}</p>
+                          </div>
+                        )}
+                        <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Conversation Context</p>
+                        {!feedback.chat_message_id ? (
+                          <p className="text-sm text-gray-400 italic">
+                            No conversation context available for this feedback.
+                          </p>
+                        ) : contextLoadingId === feedback.id ? (
+                          <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Loading context...
+                          </div>
+                        ) : (contextCache[feedback.id] || []).length === 0 ? (
+                          <p className="text-sm text-gray-400 italic">
+                            No conversation context available for this feedback.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {(contextCache[feedback.id] || []).map((m, i) => (
+                              <div
+                                key={i}
+                                className={`p-3 rounded-lg text-sm ${
+                                  m.role === 'user'
+                                    ? 'bg-blue-50 border border-blue-100 text-blue-900'
+                                    : 'bg-white border border-gray-200 text-gray-800'
+                                }`}
+                              >
+                                <p className="text-xs font-semibold text-gray-500 mb-1">
+                                  {m.role === 'user' ? 'User' : 'Assistant'}
+                                </p>
+                                <p className="whitespace-pre-wrap line-clamp-6">{m.content}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

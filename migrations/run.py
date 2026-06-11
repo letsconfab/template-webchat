@@ -235,6 +235,28 @@ async def run_migrations():
             print(f"Migration 002 drop columns failed: {e}")
 
         await db.commit()
+
+    # --- Migration 003: Feedback categories ---
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await db.execute(
+                text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'user_feedback' AND column_name = 'categories'
+            """)
+            )
+            if not result.fetchone():
+                await db.execute(
+                    text("""
+                    ALTER TABLE user_feedback
+                    ADD COLUMN IF NOT EXISTS categories JSON
+                """)
+                )
+                print("Migration 003: Added categories column to user_feedback")
+        except Exception as e:
+            print(f"Migration 003 check failed: {e}")
+
+        await db.commit()
         print("Migrations completed!")
 
 

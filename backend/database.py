@@ -91,6 +91,25 @@ async def run_migrations():
         except Exception as e:
             pass  # Columns may already exist
 
+        # Check if user_feedback.categories column exists, add if not
+        try:
+            result = await db.execute(
+                text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'user_feedback' AND column_name = 'categories'
+            """)
+            )
+            if not result.fetchone():
+                await db.execute(
+                    text("""
+                    ALTER TABLE user_feedback
+                    ADD COLUMN IF NOT EXISTS categories JSON
+                """)
+                )
+                print("Migration: Added categories column to user_feedback")
+        except Exception as e:
+            pass  # Column may already exist
+
         # Check if knowledge_documents table exists
         try:
             result = await db.execute(

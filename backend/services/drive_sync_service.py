@@ -134,7 +134,7 @@ class DriveSyncService:
                 local_path.parent.mkdir(parents=True, exist_ok=True)
 
                 if await self._is_changed(f, local_path):
-                    await self._download_file(service, f["id"], f["mimeType"], local_path)
+                    await self._download_file(service, f["id"], f["mimeType"], local_path, file_info=f)
                     logger.info("Downloaded: %s -> %s", f["name"], local_path)
 
             # Remove local files no longer in Drive
@@ -183,17 +183,36 @@ class DriveSyncService:
         if not ext:
             ext = Path(file_info["name"]).suffix or ".bin"
         safe_name = file_info["name"].replace("/", "_").replace("\\", "_")
+        if not Path(safe_name).suffix:
+            safe_name += ext
         return self.cache_dir / f"{file_info['id']}_{safe_name}"
+
+    def _meta_path(self, local_path: Path) -> Path:
+        return local_path.parent / f".{local_path.name}.meta.json"
 
     async def _is_changed(self, file_info: dict, local_path: Path) -> bool:
         if not local_path.exists():
             return True
         if local_path.stat().st_size == 0:
             return True
+        meta_path = self._meta_path(local_path)
+        if not meta_path.exists():
+            return True
+        try:
+            meta = json.loads(meta_path.read_text())
+            remote_modified = file_info.get("modifiedTime", "")
+            if remote_modified and remote_modified != meta.get("modifiedTime"):
+                return True
+            remote_md5 = file_info.get("md5Checksum")
+            if remote_md5 and remote_md5 != meta.get("md5Checksum"):
+                return True
+        except (json.JSONDecodeError, OSError):
+            return True
         return False
 
     async def _download_file(
-        self, service, file_id: str, mime_type: str, local_path: Path
+        self, service, file_id: str, mime_type: str, local_path: Path,
+        file_info: Optional[dict] = None,
     ) -> None:
         try:
             if mime_type in EXPORTABLE_MIMES:
@@ -211,6 +230,13 @@ class DriveSyncService:
 
             fh.seek(0)
             local_path.write_bytes(fh.getvalue())
+
+            if file_info:
+                meta = {
+                    "modifiedTime": file_info.get("modifiedTime"),
+                    "md5Checksum": file_info.get("md5Checksum"),
+                }
+                self._meta_path(local_path).write_text(json.dumps(meta))
         except HttpError as e:
             logger.error("Failed to download %s: %s", file_id, e)
 
@@ -218,9 +244,14 @@ class DriveSyncService:
         if not self.cache_dir.exists():
             return
         for child in self.cache_dir.iterdir():
+            if child.is_file() and child.name.endswith(".meta.json"):
+                continue
             if child.is_file():
                 file_id = child.name.split("_", 1)[0]
                 if file_id not in active_drive_ids:
+                    meta = self._meta_path(child)
+                    if meta.exists():
+                        meta.unlink()
                     child.unlink()
                     logger.info("Removed stale: %s", child.name)
 
@@ -238,7 +269,7 @@ class DriveSyncService:
             return []
         files = []
         for child in sorted(self.cache_dir.iterdir()):
-            if child.is_file():
+            if child.is_file() and not child.name.endswith(".meta.json"):
                 stat = child.stat()
                 files.append({
                     "filename": child.name,

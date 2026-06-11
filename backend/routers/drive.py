@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import html
 import logging
+import secrets
+import time
+import urllib.parse
 from datetime import datetime
 from typing import Optional
 
@@ -29,6 +33,9 @@ router = APIRouter(prefix="/api/drive", tags=["drive"])
 
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
+_pending_oauth_states: dict[str, float] = {}
+_STATE_TTL = 600  # 10 minutes
+
 
 class FolderItem(BaseModel):
     id: str
@@ -42,8 +49,8 @@ class FolderListResponse(BaseModel):
 
 def _html_page(title: str, body: str, script: str = "") -> str:
     return f"""<!DOCTYPE html>
-<html><head><title>{title}</title></head>
-<body>{script}<p>{body}</p></body>
+<html><head><title>{html.escape(title)}</title></head>
+<body>{script}<p>{html.escape(body)}</p></body>
 </html>"""
 
 
@@ -58,6 +65,9 @@ async def get_auth_url(
             detail="Google OAuth is not configured.",
         )
 
+    state = secrets.token_urlsafe(32)
+    _pending_oauth_states[state] = time.time()
+
     params = {
         "client_id": config.GOOGLE_OAUTH_CLIENT_ID,
         "redirect_uri": config.GOOGLE_OAUTH_REDIRECT_URI,
@@ -66,8 +76,8 @@ async def get_auth_url(
         "access_type": "offline",
         "include_granted_scopes": "true",
         "prompt": "consent",
+        "state": state,
     }
-    import urllib.parse
     url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
     return {"url": url}
 
@@ -77,6 +87,7 @@ async def oauth_callback(
     request: Request,
     code: Optional[str] = None,
     error: Optional[str] = None,
+    state: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Handle the OAuth callback from Google."""
@@ -87,6 +98,16 @@ async def oauth_callback(
 
     if not code:
         return _html_page("Error", "Missing authorization code.")
+
+    # Validate CSRF state parameter
+    now = time.time()
+    expired = [k for k, ts in _pending_oauth_states.items() if now - ts > _STATE_TTL]
+    for k in expired:
+        _pending_oauth_states.pop(k, None)
+
+    if not state or state not in _pending_oauth_states:
+        return _html_page("Error", "Invalid or missing OAuth state parameter. Please try connecting again.")
+    _pending_oauth_states.pop(state)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -125,11 +146,12 @@ async def oauth_callback(
 
         await drive_sync_service.start(refresh_token)
 
+        post_message_origin = config.FRONTEND_URL.rstrip("/")
         return _html_page(
             "Connected",
             "Google Drive connected successfully.",
-            script="""<script>
-window.opener.postMessage({type: 'drive-connected', success: true}, '*');
+            script=f"""<script>
+window.opener.postMessage({{type: 'drive-connected', success: true}}, '{post_message_origin}');
 window.close();
 </script>""",
         )

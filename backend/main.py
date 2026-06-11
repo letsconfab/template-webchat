@@ -249,7 +249,6 @@ async def _query_with_knowledge(
     websocket: WebSocket,
 ):
     full_response = ""
-    show_end = True
     try:
         from deepagents import create_deep_agent
         from langchain_core.tools import tool
@@ -331,20 +330,23 @@ async def _query_with_knowledge(
         if full_response:
             await websocket.send_json({"type": "chunk", "content": full_response})
     except Exception as e:
-        logger.error("Agent query error: %s", e)
-        import traceback
-        logger.error("Traceback:\n%s", traceback.format_exc())
-        full_response = full_response or f"An error occurred: {str(e)}"
-        show_end = not full_response
-        if not full_response:
-            return
+        logger.error("Agent query error: %s", e, exc_info=True)
+        error_msg = f"An error occurred: {str(e)}"
+        full_response = full_response or error_msg
+        try:
+            await websocket.send_json({"type": "start"})
+            await websocket.send_json({"type": "chunk", "content": error_msg})
+        except Exception:
+            pass
 
     if full_response:
-        chat_history[session_id].append(
+        chat_history.setdefault(session_id, []).append(
             ChatMessage(role="assistant", content=full_response)
         )
-    if show_end:
+    try:
         await websocket.send_json({"type": "end"})
+    except Exception:
+        pass
 
 
 @app.websocket("/ws/chat")

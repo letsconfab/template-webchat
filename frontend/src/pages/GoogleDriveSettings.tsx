@@ -86,7 +86,9 @@ export default function GoogleDriveSettings() {
         return
       }
 
+      const expectedOrigin = new URL(import.meta.env.VITE_API_URL || window.location.origin).origin
       const handler = (event: MessageEvent) => {
+        if (event.origin !== expectedOrigin) return
         if (event.data?.type === 'drive-connected') {
           window.removeEventListener('message', handler)
           loadStatus().then(() => {

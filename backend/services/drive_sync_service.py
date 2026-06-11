@@ -259,12 +259,26 @@ class DriveSyncService:
 
             if file_info:
                 meta = {
+                    "id": file_info.get("id"),
                     "modifiedTime": file_info.get("modifiedTime"),
                     "md5Checksum": file_info.get("md5Checksum"),
                 }
                 self._meta_path(local_path).write_text(json.dumps(meta))
         except HttpError as e:
             logger.error("Failed to download %s: %s", file_id, e)
+
+    def _cached_drive_id(self, local_path: Path) -> str:
+        # Drive IDs may contain underscores, so the {id}_{name} filename is
+        # ambiguous — trust the meta sidecar when present.
+        meta_path = self._meta_path(local_path)
+        if meta_path.exists():
+            try:
+                file_id = json.loads(meta_path.read_text()).get("id")
+                if file_id:
+                    return file_id
+            except (json.JSONDecodeError, OSError):
+                pass
+        return local_path.name.split("_", 1)[0]
 
     async def _remove_stale(self, active_drive_ids: set[str]) -> None:
         if not self.cache_dir.exists():
@@ -273,8 +287,7 @@ class DriveSyncService:
             if child.is_file() and child.name.endswith(".meta.json"):
                 continue
             if child.is_file():
-                file_id = child.name.split("_", 1)[0]
-                if file_id not in active_drive_ids:
+                if self._cached_drive_id(child) not in active_drive_ids:
                     meta = self._meta_path(child)
                     if meta.exists():
                         meta.unlink()

@@ -394,7 +394,11 @@ export default function ChatPage() {
                     </div>
                   )}
                   
-                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                  <div
+                    className={`prose prose-sm max-w-none ${
+                      msg.role === 'user' ? 'prose-invert' : 'dark:prose-invert'
+                    }`}
+                  >
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                   </div>
                   

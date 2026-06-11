@@ -282,3 +282,25 @@ Available Make targets:
 - If you are using Docker, open `http://localhost:8000`.
 - If the chat says the knowledge book is still processing, wait for ingestion to finish or refresh the knowledge book page.
 - For a clean reset of the app configuration, use `/admin/settings` and the reset action there.
+
+## Production Deployment (systemd)
+
+On a server, run the backend under systemd instead of a screen/tmux session so it
+auto-restarts on failure:
+
+```bash
+# One-time setup (paths assume /home/admin/deployments/template-webchat)
+sudo cp scripts/webchat.service /etc/systemd/system/webchat.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now webchat
+
+# Logs / status
+journalctl -u webchat -f
+systemctl status webchat
+```
+
+Before starting, make sure the server `.env` sets `ENVIRONMENT=production`, a strong
+`SECRET_KEY`, a non-default `NEO4J_PASSWORD`, and `FRONTEND_URL` pointing at the public
+domain — the app refuses to start in production with default secrets. Retire any old
+screen/tmux session running `make run-be`; for a manual production-mode run use
+`make run-be-prod` (no auto-reload).

@@ -19,6 +19,7 @@ interface DriveSync {
   last_sync: string | null
   running: boolean
   error: string | null
+  needs_reconnect?: boolean
 }
 
 interface Pipeline {
@@ -208,6 +209,19 @@ export default function GoogleDriveSettings() {
           <Alert className="mb-6 border-red-200 bg-red-50">
             <AlertCircle className="h-4 w-4 text-red-600" />
             <AlertDescription className="text-red-700">{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {syncStatus?.needs_reconnect && (
+          <Alert className="mb-6 border-amber-200 bg-amber-50">
+            <AlertCircle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-800 flex items-center justify-between gap-4">
+              <span>Google Drive authorization has expired. Reconnect to resume syncing.</span>
+              <Button size="sm" onClick={handleConnect}>
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Reconnect
+              </Button>
+            </AlertDescription>
           </Alert>
         )}
 

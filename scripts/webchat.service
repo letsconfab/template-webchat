@@ -1,0 +1,34 @@
+# systemd unit for the template-webchat backend.
+#
+# Install:
+#   sudo cp scripts/webchat.service /etc/systemd/system/webchat.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now webchat
+#   journalctl -u webchat -f
+#
+# NOTE: --host 0.0.0.0 is intentional. Caddy runs in a docker container and
+# reaches the host app via the docker bridge gateway (10.0.0.1:8000); binding
+# to 127.0.0.1 would take the site down. Exposure is mitigated at the EC2
+# security group: only ports 80/443 should be open to the internet.
+
+[Unit]
+Description=template-webchat FastAPI backend
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/deployments/template-webchat
+Environment=PYTHONPATH=/home/admin/deployments/template-webchat
+# .env in WorkingDirectory is loaded by the app itself (python-dotenv)
+ExecStart=/home/admin/deployments/template-webchat/.venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

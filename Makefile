@@ -21,7 +21,7 @@ COMPOSE_RUNTIME = $(shell \
 		echo "docker compose"; \
 	fi)
 
-.PHONY: help setup install install-full install-fe run run-be run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
+.PHONY: help setup install install-full install-fe run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
 
 # Default target
 help:
@@ -32,6 +32,7 @@ help:
 	@echo "  make install-fe   - Install frontend dependencies"
 	@echo "  make run          - Run both backend and frontend"
 	@echo "  make run-be       - Run backend only"
+	@echo "  make run-be-prod  - Run backend without auto-reload (production mode)"
 	@echo "  make run-fe       - Run frontend only"
 	@echo "  make run-db       - Run PostgreSQL database"
 	@echo "  make infra        - Start all infrastructure (postgres, neo4j, qdrant)"
@@ -78,6 +79,10 @@ run: run-be run-fe
 
 run-be: $(VENV)
 	PYTHONPATH=.::./backend $(VENV)/bin/uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+
+# Production mode: no auto-reload. Prefer the systemd unit (scripts/webchat.service) on servers.
+run-be-prod: $(VENV)
+	PYTHONPATH=.::./backend $(VENV)/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 run-fe:
 	cd frontend && npm run dev

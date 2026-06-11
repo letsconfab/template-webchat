@@ -6,3 +6,15 @@ kb_assets
 garage_storage
 kb_cache
 frontend/dist
+*.db
+*.sqlite3
+*.log
+logs/
+*.pem
+*.key
+*.crt
+.env.*
+!.env.example
+node_modules/
+.DS_Store
+.pytest_cache/

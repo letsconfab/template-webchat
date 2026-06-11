@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, Optional
 
 import httpx
@@ -24,6 +25,7 @@ class GraphRAGService:
         self._neo4j_ready = False
         self._qdrant_url = config.QDRANT_URL
         self._qdrant_ready = False
+        self._qdrant_last_check: float = 0.0
 
     async def initialize(
         self,
@@ -49,15 +51,28 @@ class GraphRAGService:
             self._neo4j_ready = False
 
         # Check Qdrant
+        await self._check_qdrant()
+        if not self._qdrant_ready:
+            logger.warning("Qdrant collection '%s' not found", QDRANT_COLLECTION)
+
+    async def _check_qdrant(self) -> bool:
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"{self._qdrant_url}/collections/{QDRANT_COLLECTION}", timeout=5)
                 self._qdrant_ready = resp.status_code == 200
-                if not self._qdrant_ready:
-                    logger.warning("Qdrant collection '%s' not found", QDRANT_COLLECTION)
         except Exception as e:
             logger.warning("Qdrant check failed: %s", e)
             self._qdrant_ready = False
+        self._qdrant_last_check = time.monotonic()
+        return self._qdrant_ready
+
+    async def qdrant_ready(self) -> bool:
+        """Whether the Qdrant collection exists; re-probes at most once per 60s when not ready."""
+        if self._qdrant_ready:
+            return True
+        if time.monotonic() - self._qdrant_last_check < 60:
+            return False
+        return await self._check_qdrant()
 
     async def close(self) -> None:
         if self._neo4j_driver:
@@ -152,7 +167,7 @@ class GraphRAGService:
 
     async def find_similar_chunks(self, query_text: str, top_k: int = 5) -> str:
         """Find chunks similar to query text."""
-        if not self._qdrant_ready:
+        if not await self.qdrant_ready():
             return ""
 
         # We need to embed the query. Use the same embedding model.

@@ -170,7 +170,7 @@ async def _extract_entities_from_text(
 # ── Qdrant helpers ────────────────────────────────────────────────────────
 
 
-async def _ensure_qdrant_collection(qdrant_url: str) -> None:
+async def ensure_qdrant_collection(qdrant_url: str) -> None:
     async with httpx.AsyncClient() as client:
         resp = await client.get(f"{qdrant_url}/collections/{COLLECTION_NAME}")
         if resp.status_code == 200:
@@ -182,6 +182,9 @@ async def _ensure_qdrant_collection(qdrant_url: str) -> None:
         resp = await client.put(f"{qdrant_url}/collections/{COLLECTION_NAME}", json=payload)
         if resp.status_code not in (200, 201):
             logger.warning("Qdrant collection creation: %s", resp.text)
+
+
+_ensure_qdrant_collection = ensure_qdrant_collection
 
 
 async def _push_to_qdrant(

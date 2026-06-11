@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import select
 
-from backend.config import config
+from backend.config import config, validate_config
 from backend.database import init_db, close_db, AsyncSessionLocal
 from backend.routers import auth, users, invites, settings, feedback, insights, wiki, drive
 from backend.llm_providers import LLMProvider, validate_api_key, get_available_models
@@ -56,8 +56,15 @@ user_sessions = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_config(config)
     logger.info("Starting FastAPI application...")
     await init_db()
+
+    try:
+        from backend.services.cocoindex_pipeline import ensure_qdrant_collection
+        await ensure_qdrant_collection(config.QDRANT_URL)
+    except Exception as e:
+        logger.warning("Qdrant collection init failed (will retry lazily): %s", e)
 
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(SystemSettings).limit(1))
@@ -123,7 +130,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

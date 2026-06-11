@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
@@ -41,6 +42,10 @@ MIME_EXTENSIONS = {
 }
 
 
+_SYNC_INTERVAL = 60  # seconds between successful syncs
+_MAX_BACKOFF = 1800  # cap transient-error backoff at 30 minutes
+
+
 class DriveSyncService:
     """Sync files from a Google Drive folder to a local cache directory."""
 
@@ -51,6 +56,9 @@ class DriveSyncService:
         self.last_sync: Optional[datetime] = None
         self.file_count: int = 0
         self.error: Optional[str] = None
+        self.needs_reconnect: bool = False
+        self.auth_error: Optional[str] = None
+        self._consecutive_failures: int = 0
         self._sync_in_progress = False
 
     @property
@@ -69,6 +77,9 @@ class DriveSyncService:
 
     async def start(self, refresh_token: str) -> None:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.needs_reconnect = False
+        self.auth_error = None
+        self._consecutive_failures = 0
         self._running = True
         self._task = asyncio.create_task(self._sync_loop(refresh_token))
         logger.info("DriveSyncService started")
@@ -86,17 +97,32 @@ class DriveSyncService:
 
     async def _sync_loop(self, refresh_token: str) -> None:
         while self._running:
+            delay = _SYNC_INTERVAL
             try:
                 credentials = self._build_credentials(refresh_token)
                 await self._sync_all(credentials, None)
                 self.last_sync = datetime.utcnow()
                 self.error = None
+                self._consecutive_failures = 0
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                if isinstance(e, RefreshError) or "invalid_grant" in str(e):
+                    self.needs_reconnect = True
+                    self.auth_error = str(e)
+                    self.error = "Google Drive authorization expired — reconnect required"
+                    self._running = False
+                    logger.error(
+                        "Drive sync stopped: authorization expired (%s). "
+                        "Reconnect Google Drive from the settings page.",
+                        e,
+                    )
+                    break
                 self.error = str(e)
-                logger.error("Drive sync error: %s", e)
-            await asyncio.sleep(60)
+                self._consecutive_failures += 1
+                delay = min(_SYNC_INTERVAL * 2 ** self._consecutive_failures, _MAX_BACKOFF)
+                logger.error("Drive sync error (retrying in %ss): %s", delay, e)
+            await asyncio.sleep(delay)
 
     async def _sync_all(
         self, credentials: Credentials, root_folder_id: Optional[str]
@@ -261,6 +287,8 @@ class DriveSyncService:
             "last_sync": self.last_sync.isoformat() if self.last_sync else None,
             "file_count": self.file_count,
             "error": self.error,
+            "needs_reconnect": self.needs_reconnect,
+            "auth_error": self.auth_error,
             "cache_dir": str(self.cache_dir),
         }
 

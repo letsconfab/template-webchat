@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 import httpx
@@ -146,7 +147,7 @@ async def oauth_callback(
 
         await drive_sync_service.start(refresh_token)
 
-        post_message_origin = config.FRONTEND_URL.rstrip("/")
+        post_message_origin = config.PRIMARY_FRONTEND_ORIGIN
         return _html_page(
             "Connected",
             "Google Drive connected successfully.",
@@ -203,6 +204,12 @@ async def list_drive_folders(
         ).execute()
         folders = [FolderItem(id=f["id"], name=f["name"]) for f in response.get("files", [])]
         return FolderListResponse(folders=folders, parent_id=parent_id)
+    except RefreshError as e:
+        logger.error("Drive authorization expired while listing folders: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google Drive authorization expired. Please reconnect.",
+        )
     except Exception as e:
         logger.error("Failed to list folders: %s", e)
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,5 +1,10 @@
 # AGENTS.md - Demo Branch
 
+> **Deploying to production?** Read [`DEPLOYMENT.md`](DEPLOYMENT.md) — the
+> authoritative runbook (screen + `uvicorn --reload`, Caddy, Dockerized stores,
+> manual frontend shipping). Host/SSH specifics are in the gitignored
+> `deploy.local.md`, never in committed files (this repo is public).
+
 ## Running the Application
 
 ### Quick Start (Local)

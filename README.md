@@ -283,10 +283,18 @@ Available Make targets:
 - If the chat says the knowledge book is still processing, wait for ingestion to finish or refresh the knowledge book page.
 - For a clean reset of the app configuration, use `/admin/settings` and the reset action there.
 
-## Production Deployment (systemd)
+## Production Deployment
 
-On a server, run the backend under systemd instead of a screen/tmux session so it
-auto-restarts on failure:
+> **The authoritative deployment runbook is [`DEPLOYMENT.md`](DEPLOYMENT.md).**
+> It documents how production *actually* runs today (a `screen` session under
+> `uvicorn --reload`, Caddy, Dockerized stores) and the one non-obvious step:
+> the host has no Node, so the pre-built frontend bundle must be shipped manually.
+> Read that file before deploying.
+
+### Optional hardening: run under systemd (not currently installed)
+
+Instead of a `screen`/`tmux` session, the backend *can* run under systemd so it
+auto-restarts on failure. This is optional and not the current production setup:
 
 ```bash
 # One-time setup (paths assume /home/admin/deployments/template-webchat)

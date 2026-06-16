@@ -1,15 +1,20 @@
-# systemd unit for the template-webchat backend.
+# systemd unit TEMPLATE for the template-webchat backend.
+#
+# This is a sanitized template. Before installing, replace the placeholders:
+#   <deploy-user>  -> the OS user that runs the app
+#   <deploy-dir>   -> absolute path to the git checkout (the WorkingDirectory)
 #
 # Install:
-#   sudo cp scripts/webchat.service /etc/systemd/system/webchat.service
+#   sed -e 's|<deploy-user>|youruser|g' -e 's|<deploy-dir>|/home/youruser/template-webchat|g' \
+#       scripts/webchat.service | sudo tee /etc/systemd/system/webchat.service
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now webchat
 #   journalctl -u webchat -f
 #
-# NOTE: --host 0.0.0.0 is intentional. Caddy runs in a docker container and
-# reaches the host app via the docker bridge gateway (10.0.0.1:8000); binding
-# to 127.0.0.1 would take the site down. Exposure is mitigated at the EC2
-# security group: only ports 80/443 should be open to the internet.
+# NOTE: --host 0.0.0.0 is intentional if a reverse proxy (e.g. Caddy) runs in a
+# container and must reach the host app via the container bridge gateway; binding
+# to 127.0.0.1 would then be unreachable from the proxy. Mitigate exposure at the
+# firewall / security group so only the proxy's ports (e.g. 80/443) are public.
 
 [Unit]
 Description=template-webchat FastAPI backend
@@ -18,12 +23,12 @@ Wants=network-online.target
 
 [Service]
 Type=exec
-User=admin
-Group=admin
-WorkingDirectory=/home/admin/deployments/template-webchat
-Environment=PYTHONPATH=/home/admin/deployments/template-webchat
+User=<deploy-user>
+Group=<deploy-user>
+WorkingDirectory=<deploy-dir>
+Environment=PYTHONPATH=<deploy-dir>
 # .env in WorkingDirectory is loaded by the app itself (python-dotenv)
-ExecStart=/home/admin/deployments/template-webchat/.venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
+ExecStart=<deploy-dir>/.venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 TimeoutStopSec=30

@@ -297,7 +297,9 @@ Instead of a `screen`/`tmux` session, the backend *can* run under systemd so it
 auto-restarts on failure. This is optional and not the current production setup:
 
 ```bash
-# One-time setup (paths assume /home/admin/deployments/template-webchat)
+# One-time setup. scripts/webchat.service is a template — substitute the
+# <deploy-user> and <deploy-dir> placeholders for your host (see the comments
+# at the top of that file), then install it:
 sudo cp scripts/webchat.service /etc/systemd/system/webchat.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now webchat

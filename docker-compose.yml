@@ -5,8 +5,8 @@ services:
     build: .
     container_name: webchat-app
     ports:
-      # Kept on 0.0.0.0: on EC2 the app runs on the host (not compose) and
-      # Caddy reaches it via the docker bridge gateway (10.0.0.1:8000).
+      # Kept on 0.0.0.0: in some setups the app runs on the host (not compose)
+      # and a containerized reverse proxy reaches it via the docker bridge gateway.
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/webchat_db

@@ -15,11 +15,11 @@
 
 ## TL;DR
 
-Production runs the FastAPI backend directly on an EC2 host inside a `screen`
-session under `uvicorn --reload`, fronted by Caddy (TLS) and backed by Dockerized
+Production runs the FastAPI backend directly on an EC2 host as a **systemd
+service** (`webchat`), fronted by Caddy (TLS) and backed by Dockerized
 Postgres/Neo4j/Qdrant. **Deploying = push to `main`, then on the host `git pull` +
-ship the pre-built frontend bundle (the host has no Node) + let `--reload` restart
-the backend.** Database migrations apply automatically on startup.
+ship the pre-built frontend bundle (the host has no Node) + `sudo systemctl restart
+webchat`.** Database migrations apply automatically on startup.
 
 ```bash
 # 0. locally: merge work to main and push
@@ -36,7 +36,8 @@ ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
 scp -i $SSH_KEY frontend/dist/index.html $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/index.html
 scp -i $SSH_KEY frontend/dist/assets/*  $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/assets/
 
-# 4. backend auto-reloads on the .py changes; verify
+# 4. restart the backend service, then verify
+ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST "sudo systemctl restart webchat"
 curl -s $PUBLIC_URL/health   # -> {"status":"healthy"}
 ```
 
@@ -65,7 +66,7 @@ Internet ──HTTPS──> Caddy (docker: caddy-caddy-1)
                       │  reverse_proxy <bridge-gateway>:8000
                       ▼
             uvicorn backend.main:app  (host process, port 8000)
-            run inside `screen -S webchat`, flag: --reload
+            run as systemd service `webchat` (auto-starts on boot)
                       │
                       ├── serves the React SPA from frontend/dist/  (catch-all route)
                       └── talks to Dockerized stores:
@@ -76,14 +77,16 @@ Internet ──HTTPS──> Caddy (docker: caddy-caddy-1)
 
 Key properties:
 
-- **Process manager is `screen`, not systemd.** The backend lives in a detached
-  `screen` session named `webchat`. (Sibling sessions: `db`, `caddy`, `fe`.)
-  A `scripts/webchat.service` systemd unit exists in the repo but **is not
-  installed** on the host — don't assume `systemctl` controls the app.
-- **`uvicorn --reload` is on in production.** Editing/pulling `.py` files triggers
-  an automatic worker restart, which re-runs the FastAPI lifespan
-  (`init_db` → `run_migrations`). This is why a plain `git pull` is usually enough
-  to deploy backend changes and apply migrations — no manual restart needed.
+- **Process manager is systemd.** The backend runs as the `webchat` service
+  (installed from `scripts/webchat.service`), `enabled` so it auto-starts on boot.
+  Control it with `sudo systemctl {status,restart,stop} webchat` and read logs with
+  `journalctl -u webchat`.
+- **No `--reload` in production.** A deploy therefore needs an explicit
+  `sudo systemctl restart webchat`, which re-runs the FastAPI lifespan
+  (`init_db` → `run_migrations`, so migrations apply on restart). A bare `git pull`
+  alone does **not** pick up backend changes until the service is restarted.
+- **The Docker stores auto-start on boot** (`restart: unless-stopped` + Docker
+  enabled), and a 4 GB swapfile (`/etc/fstab`) guards against OOM on the small host.
 - **The frontend is served from `frontend/dist/`** by the backend's catch-all
   route (and/or Caddy). It is a static, pre-built bundle.
 
@@ -129,9 +132,8 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    `cd $DEPLOY_DIR && git checkout -- frontend/dist/index.html && git pull --ff-only origin $DEPLOY_BRANCH`.
 4. **Ship the frontend** (only if the frontend changed): scp `dist/index.html` and
    `dist/assets/*` into `$DEPLOY_DIR/frontend/dist/`.
-5. **Backend restart:** normally automatic via `--reload`. Confirm a fresh worker
-   (see [Verification](#verification)). If it didn't reload, see
-   [Restarting the backend manually](#restarting-the-backend-manually).
+5. **Restart the backend:** `sudo systemctl restart webchat`, then confirm health
+   (see [Verification](#verification)).
 6. **Migrations:** apply automatically on startup via `run_migrations()` (idempotent,
    guarded with `IF NOT EXISTS` / `information_schema` checks). No manual step.
 
@@ -173,23 +175,25 @@ ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
 # locally: rebuild that SHA's frontend and scp dist/* back (see Runbook step 4)
 ```
 
-`--reload` picks up the reverted `.py` files automatically. Prefer rolling
-`main` back with a revert commit if the bad code was already pushed.
+After resetting the code, `sudo systemctl restart webchat` to load it. Prefer
+rolling `main` back with a revert commit if the bad code was already pushed.
 
 ---
 
-## Restarting the backend manually
+## Managing the backend service
 
-Only needed if `--reload` didn't pick up changes (rare) or you changed
-non-watched files. The backend runs in `screen -S webchat`:
+The backend runs as the systemd unit `webchat`:
 
 ```bash
 ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST
-screen -r webchat          # attach
-# Ctrl-C to stop uvicorn, then re-run the start command, then Ctrl-A D to detach
-# Start command (from $DEPLOY_DIR):
-#   PYTHONPATH=.::./backend .venv/bin/uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+sudo systemctl restart webchat    # apply new code after a git pull
+sudo systemctl status  webchat    # is it active? recent log lines
+journalctl -u webchat -f          # follow logs
 ```
+
+The unit is defined at `/etc/systemd/system/webchat.service` (installed from the
+`scripts/webchat.service` template). After editing it, run
+`sudo systemctl daemon-reload && sudo systemctl restart webchat`.
 
 > Risk: a failed restart takes the site down. Verify health immediately after.
 
@@ -203,7 +207,8 @@ screen -r webchat          # attach
 | `git pull` aborts: "local changes would be overwritten: frontend/dist/index.html" | Host's locally-built index.html | `git checkout -- frontend/dist/index.html` then pull |
 | Chat answers hallucinate / ignore the knowledge base | Neo4j or Qdrant container down → retrieval tool silently disabled | `docker ps` on host; restart `webchat-neo4j` / `webchat-qdrant` |
 | First chat after deploy is slow | Embedding model (`all-MiniLM-L6-v2`, ~80 MB) downloads on first GraphRAG query | One-time; warms after first request |
-| Backend changes not live | `--reload` missed the change | [Restart manually](#restarting-the-backend-manually) |
+| Backend changes not live after a pull | service not restarted | `sudo systemctl restart webchat` (see [Managing the backend service](#managing-the-backend-service)) |
+| Site down after a reboot | a store or the backend didn't come up | check `docker ps` + `systemctl status webchat`; both are set to auto-start, so investigate logs |
 | `SECRET_KEY`/`NEO4J_PASSWORD` default errors on start | Server `.env` missing production secrets | App refuses to start in production with defaults — set real values in `$DEPLOY_DIR/.env` |
 
 ---
@@ -215,7 +220,6 @@ screen -r webchat          # attach
   that image** (no CI workflow, no watchtower, no Coolify). The app runs from the
   git checkout, not a container. Ignore the ghcr path unless you intentionally
   migrate to it (see [Evolving the methodology](#evolving-the-methodology)).
-- **Not systemd.** Despite `scripts/webchat.service`, the unit is not installed.
 
 ---
 
@@ -235,9 +239,6 @@ This file is meant to **evolve**. When you change deployment in any way:
 
 Likely future migrations and what to change here when they happen:
 
-- **screen → systemd:** install `scripts/webchat.service`, replace the
-  [manual restart](#restarting-the-backend-manually) and process-check commands
-  with `systemctl restart/status webchat`, and update the Architecture diagram.
 - **Manual scp → committed/built frontend:** if `frontend/dist` is committed, or a
   build step is added on the host (install Node) or in CI, delete the
   [shipping-the-frontend](#the-one-non-obvious-constraint-shipping-the-frontend)
@@ -255,3 +256,4 @@ Likely future migrations and what to change here when they happen:
 | Date       | Change | By |
 |------------|--------|----|
 | 2026-06-16 | Initial methodology captured: screen + `uvicorn --reload`, Caddy, Dockerized stores, manual frontend scp, auto-migrations. Documented the no-Node/gitignored-assets constraint and the ghcr/systemd red herrings. | agent |
+| 2026-06-16 | Backend moved from a `screen` session to the `webchat` **systemd** service (auto-starts on boot; deploys now `git pull` → scp frontend → `sudo systemctl restart webchat`). Stores set to `restart: unless-stopped`; 4 GB swap added; host resized t3.small→t3.medium. | agent |

@@ -271,8 +271,10 @@ async def _load_session_history(session_id: str) -> List[ChatMessage]:
 def _build_system_prompt(has_kb: bool, provider: str, model: str) -> str:
     kb_note = (
         "\n\nYou have access to a knowledge base. "
-        "When answering, use the `retrieve_knowledge` tool to look up relevant information. "
-        "If the knowledge base returns empty results, rely on your own knowledge."
+        "Call the `retrieve_knowledge` tool once (at most twice) to look up relevant "
+        "information, then write a single complete answer grounded in what it returns. "
+        "If the knowledge base returns empty results, answer from your own knowledge. "
+        "Do not make a plan, do not repeat yourself, and do not call the tool in a loop."
         if has_kb
         else ""
     )
@@ -313,7 +315,7 @@ async def _query_with_knowledge(
     thought_count = 0
     start_time = time.monotonic()
     try:
-        from deepagents import create_deep_agent
+        from langgraph.prebuilt import create_react_agent
         from langchain_core.tools import tool
 
         if await graphrag_service.is_ready():
@@ -326,10 +328,13 @@ async def _query_with_knowledge(
         else:
             tools = []
 
-        agent = create_deep_agent(
+        # A ReAct agent (retrieve -> answer) converges in a few steps. The older
+        # deepagents planner tended to loop on its own planning/todo tools until it
+        # hit LangGraph's recursion limit, so it is intentionally not used here.
+        agent = create_react_agent(
             model=llm,
             tools=tools,
-            system_prompt=_build_system_prompt(
+            prompt=_build_system_prompt(
                 has_kb=len(tools) > 0,
                 provider=getattr(llm, "model", "unknown"),
                 model=getattr(llm, "model_name", "unknown"),
@@ -341,8 +346,10 @@ async def _query_with_knowledge(
         await websocket.send_json({"type": "start"})
         think_buf = ""
 
+        # recursion_limit is a hard backstop: a healthy RAG turn needs only a few
+        # super-steps, so a low cap fails fast instead of looping for pages.
         async for event in agent.astream_events(
-            {"messages": messages}, version="v2"
+            {"messages": messages}, version="v2", config={"recursion_limit": 12}
         ):
             kind = event["event"]
 

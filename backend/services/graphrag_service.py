@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -15,6 +16,8 @@ from backend.config import config
 logger = logging.getLogger(__name__)
 
 QDRANT_COLLECTION = "kb_chunks"
+# Must match the model used by the CocoIndex pipeline (384-dim vectors).
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 class GraphRAGService:
@@ -26,6 +29,30 @@ class GraphRAGService:
         self._qdrant_url = config.QDRANT_URL
         self._qdrant_ready = False
         self._qdrant_last_check: float = 0.0
+        self._embedder: Optional[Any] = None
+
+    async def _embed_query(self, text: str) -> Optional[list[float]]:
+        """Embed a query string with the same model used for indexing.
+
+        The model is loaded lazily on first use and the (CPU-bound) encode call
+        runs in a worker thread so it never blocks the event loop.
+        """
+        try:
+            if self._embedder is None:
+                def _load():
+                    from sentence_transformers import SentenceTransformer
+                    return SentenceTransformer(EMBEDDING_MODEL)
+
+                self._embedder = await asyncio.to_thread(_load)
+                logger.info("Loaded query embedder: %s", EMBEDDING_MODEL)
+
+            vec = await asyncio.to_thread(
+                lambda: self._embedder.encode(text, normalize_embeddings=False)
+            )
+            return vec.tolist() if hasattr(vec, "tolist") else list(vec)
+        except Exception as e:
+            logger.error("Query embedding failed: %s", e)
+            return None
 
     async def initialize(
         self,
@@ -109,12 +136,10 @@ class GraphRAGService:
             MATCH (e:Entity)
             WHERE e.name CONTAINS $term
             OPTIONAL MATCH (e)-[r:RELATED_TO]-(related:Entity)
-            OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(e)
             RETURN e.name AS entity_name,
                    e.type AS entity_type,
                    e.description AS entity_desc,
-                   collect(DISTINCT {name: related.name, rel: type(r)}) AS relations,
-                   collect(DISTINCT c.text)[0..3] AS snippets
+                   collect(DISTINCT {name: related.name, rel: type(r)}) AS relations
             LIMIT 10
             """
             async with self._neo4j_driver.session() as session:
@@ -131,10 +156,6 @@ class GraphRAGService:
                         parts.append(f"  Description: {rec['entity_desc']}")
                     if rels:
                         parts.append(f"  Related to: {', '.join(rels)}")
-                    if rec.get("snippets"):
-                        snippets = [s for s in rec["snippets"] if s]
-                        if snippets:
-                            parts.append(f"  Context: {snippets[0][:300]}")
                     all_parts.append("\n".join(parts))
 
         return "\n\n".join(all_parts) if all_parts else ""
@@ -166,38 +187,64 @@ class GraphRAGService:
         return []
 
     async def find_similar_chunks(self, query_text: str, top_k: int = 5) -> str:
-        """Find chunks similar to query text."""
+        """Find chunks semantically similar to the query via Qdrant vector search."""
         if not await self.qdrant_ready():
             return ""
 
-        # We need to embed the query. Use the same embedding model.
-        # Since we don't keep the embedder in memory here, we use a simple approach:
-        # rely on the deep_agent to pass embeddings or use LLM to extract terms
-        # For now, return empty — the main query flow uses retrieve_knowledge.
-        return ""
+        embedding = await self._embed_query(query_text)
+        if not embedding:
+            return ""
+
+        hits = await self._search_qdrant(embedding, top_k=top_k)
+        if not hits:
+            return ""
+
+        parts = []
+        for hit in hits:
+            payload = hit.get("payload", {}) or {}
+            text = (payload.get("text") or "").strip()
+            if not text:
+                continue
+            source = payload.get("filename", "unknown")
+            # Strip the Drive-id prefix from the filename for readability.
+            if "_Copy of " in source:
+                source = source.split("_Copy of ", 1)[1]
+            elif "_" in source:
+                source = source.split("_", 1)[1]
+            score = hit.get("score")
+            score_str = f" (relevance {score:.2f})" if isinstance(score, (int, float)) else ""
+            parts.append(f"[Source: {source}{score_str}]\n{text[:1500]}")
+
+        return "\n\n---\n\n".join(parts)
 
     # ── Combined retrieval (the main tool) ───────────────────────────────
 
     async def retrieve_knowledge(self, query: str, top_k: int = 5) -> str:
-        """Main retrieval function: extract entities, query graph + vectors, return context."""
-        if not self._neo4j_ready:
-            return "Knowledge graph is not connected."
+        """Main retrieval function: semantic chunk search (primary) + entity graph (secondary)."""
+        # Vector search over the indexed document chunks is the primary grounding
+        # signal — it returns the actual source text. The entity graph adds
+        # structured relationships on top.
+        vector_context = await self.find_similar_chunks(query, top_k=top_k)
 
-        # Extract potential entity terms from the query (simple heuristic)
-        # A more sophisticated approach would use LLM for entity extraction
-        terms = [t.strip() for t in query.split() if len(t.strip()) > 3][:10]
+        graph_context = ""
+        if self._neo4j_ready:
+            terms = [t.strip() for t in query.split() if len(t.strip()) > 3][:10]
+            graph_context = await self.find_subgraph(terms)
 
-        # Query Neo4j subgraph
-        graph_context = await self.find_subgraph(terms)
+        sections = []
+        if vector_context:
+            sections.append(
+                "Relevant passages from the knowledge base:\n\n" + vector_context
+            )
+        if graph_context:
+            sections.append(
+                "Related concepts from the knowledge graph:\n\n" + graph_context
+            )
 
-        if not graph_context:
+        if not sections:
             return "No relevant information found in the knowledge base."
 
-        return f"""
-Relevant information from the knowledge base:
-
-{graph_context}
-""".strip()
+        return "\n\n========\n\n".join(sections)
 
 
 graphrag_service = GraphRAGService()

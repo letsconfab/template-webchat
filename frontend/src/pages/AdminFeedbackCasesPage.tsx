@@ -42,6 +42,11 @@ export default function AdminFeedbackCasesPage() {
     text: string | null
     redaction_status: string
     created_at: string
+    notification: {
+      id: number
+      state: string
+      safe_error_category: string | null
+    } | null
   }>>([])
   const [reply, setReply] = useState('')
   const [loading, setLoading] = useState(true)
@@ -98,6 +103,11 @@ export default function AdminFeedbackCasesPage() {
     window.location.reload()
   }
 
+  const retryNotification = async (notificationId: number) => {
+    await api.post(`/admin/case-notifications/${notificationId}/retry`)
+    window.location.reload()
+  }
+
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>
   }
@@ -145,6 +155,14 @@ export default function AdminFeedbackCasesPage() {
                         ? caseReply.text
                         : 'Content unavailable'}
                     </p>
+                    {caseReply.notification?.state === 'failed' && (
+                      <button
+                        onClick={() => retryNotification(caseReply.notification!.id)}
+                        className="mt-2 rounded border px-2 py-1 text-xs"
+                      >
+                        Retry email ({caseReply.notification.safe_error_category})
+                      </button>
+                    )}
                   </div>
                 ))}
                 <textarea

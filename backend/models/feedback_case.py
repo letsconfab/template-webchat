@@ -85,3 +85,46 @@ class CaseReply(Base):
 
     case = relationship("FeedbackCase", back_populates="replies")
     author = relationship("User")
+    notification = relationship(
+        "CaseNotification",
+        back_populates="reply",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class CaseNotification(Base):
+    """Durable outbound notification for one committed admin reply."""
+
+    __tablename__ = "case_notifications"
+
+    id = Column(Integer, primary_key=True)
+    case_reply_id = Column(
+        Integer,
+        ForeignKey("case_replies.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    recipient_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    state = Column(String(16), nullable=False, default="pending")
+    attempt_count = Column(Integer, nullable=False, default=0)
+    safe_error_category = Column(String(40), nullable=True)
+    last_attempt_at = Column(DateTime, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    reply = relationship("CaseReply", back_populates="notification")
+    recipient = relationship("User")

@@ -25,6 +25,7 @@ from backend.database import init_db, close_db, AsyncSessionLocal
 from backend.routers import (
     auth,
     admin_feedback_cases,
+    case_notifications,
     drive,
     feedback,
     feedback_cases,
@@ -168,6 +169,7 @@ app.include_router(settings.router)
 app.include_router(feedback.router)
 app.include_router(feedback_cases.router)
 app.include_router(admin_feedback_cases.router)
+app.include_router(case_notifications.router)
 app.include_router(insights.router)
 app.include_router(wiki.router)
 app.include_router(drive.router)

@@ -11,12 +11,14 @@ from sqlalchemy.orm import selectinload
 from backend.database import get_db
 from backend.dependencies.auth import get_current_admin_user
 from backend.models.diagnostics import ExecutionTrace
-from backend.models.feedback_case import CaseReply, FeedbackCase
+from backend.models.feedback_case import CaseNotification, CaseReply, FeedbackCase
 from backend.models.user import User
 from backend.models.wiki import ChatMessage
 from backend.services.redaction import get_projection, mask_email
 from backend.services.redaction import project_text
 from backend.routers.feedback_cases import ReplyCreate
+from backend.routers.case_notifications import notification_response
+from backend.services.case_notifications import case_notification_service
 
 
 router = APIRouter(prefix="/api/admin/feedback-cases", tags=["admin-feedback-cases"])
@@ -29,7 +31,7 @@ async def _case_for_admin(db: AsyncSession, public_id: str) -> FeedbackCase:
             selectinload(FeedbackCase.feedback),
             selectinload(FeedbackCase.owner),
             selectinload(FeedbackCase.chat_session),
-            selectinload(FeedbackCase.replies),
+            selectinload(FeedbackCase.replies).selectinload(CaseReply.notification),
         )
         .where(FeedbackCase.public_id == public_id)
     )
@@ -210,6 +212,11 @@ async def replay_feedback_case(
                     else projection.status
                 ),
                 "created_at": reply.created_at.isoformat(),
+                "notification": (
+                    notification_response(reply.notification)
+                    if reply.notification
+                    else None
+                ),
             }
         )
     return {
@@ -258,11 +265,25 @@ async def reply_to_case_as_admin(
         raw_text=reply.raw_text,
     )
     case.status = "awaiting_user"
+    notification = CaseNotification(
+        case_reply_id=reply.id,
+        recipient_user_id=case.user_id,
+        state="pending",
+    )
+    db.add(notification)
     await db.commit()
+    await db.refresh(notification)
+    try:
+        notification = await case_notification_service.attempt(db, notification.id)
+    except Exception:
+        # The committed pending row is the recovery point for an interrupted
+        # process or unexpected delivery-worker failure.
+        pass
     return {
         "id": reply.id,
         "status": case.status,
         "created_at": reply.created_at.isoformat(),
+        "notification": notification_response(notification),
     }
 
 

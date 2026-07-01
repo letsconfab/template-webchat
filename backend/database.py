@@ -46,6 +46,7 @@ async def init_db():
     """
     from backend.models import (  # noqa: F401
         chat,
+        diagnostics,
         feedback_case,
         invite,
         settings,

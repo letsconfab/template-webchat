@@ -8,7 +8,7 @@ import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import ConfigurationWizard from './pages/ConfigurationWizard'
 import AdminSettings from './pages/AdminSettings'
-import FeedbackDashboard from './pages/FeedbackDashboard'
+import AdminFeedbackCasesPage from './pages/AdminFeedbackCasesPage'
 import InsightsReview from './pages/InsightsReview'
 import GoogleDriveSettings from './pages/GoogleDriveSettings'
 import FeedbackCasesPage from './pages/FeedbackCasesPage'
@@ -145,9 +145,17 @@ function App() {
                   path="/admin/feedback" 
                   element={
                     <ProtectedRoute requireAdmin>
-                      <FeedbackDashboard />
+                      <AdminFeedbackCasesPage />
                     </ProtectedRoute>
                   } 
+                />
+                <Route
+                  path="/admin/feedback/:caseId"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <AdminFeedbackCasesPage />
+                    </ProtectedRoute>
+                  }
                 />
                 <Route 
                   path="/admin/insights" 

@@ -1,6 +1,8 @@
 """FastAPI application for AI Copilot with GraphRAG knowledge base."""
 
 import logging
+import re
+import asyncio
 import time
 from typing import List, Optional, Dict
 from contextlib import asynccontextmanager
@@ -22,6 +24,7 @@ from backend.config import config, validate_config
 from backend.database import init_db, close_db, AsyncSessionLocal
 from backend.routers import (
     auth,
+    admin_feedback_cases,
     drive,
     feedback,
     feedback_cases,
@@ -43,6 +46,8 @@ from backend.models.wiki import ChatMessage as ChatMessageDB
 from backend.database import get_db
 from backend.dependencies.auth import get_current_active_user
 from backend.services.auth import verify_token
+from backend.services.execution_traces import persist_trace
+from backend.services.redaction import project_text, redactor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -162,6 +167,7 @@ app.include_router(invites.router)
 app.include_router(settings.router)
 app.include_router(feedback.router)
 app.include_router(feedback_cases.router)
+app.include_router(admin_feedback_cases.router)
 app.include_router(insights.router)
 app.include_router(wiki.router)
 app.include_router(drive.router)
@@ -303,6 +309,14 @@ async def _persist_chat_message(
                 msg_metadata=metadata,
             )
             db.add(row)
+            await db.flush()
+            await project_text(
+                db,
+                content_type="chat_message",
+                content_id=row.id,
+                source_field="content",
+                raw_text=content,
+            )
             await db.commit()
             await db.refresh(row)
             return row.id
@@ -313,6 +327,48 @@ async def _persist_chat_message(
             e,
         )
         return None
+
+
+async def _persist_execution_trace(
+    message_id: int,
+    events: list[dict],
+) -> None:
+    """Persist a bounded trace without allowing capture failure to break chat."""
+    try:
+        async with AsyncSessionLocal() as db:
+            try:
+                await persist_trace(
+                    db,
+                    chat_message_id=message_id,
+                    events=events,
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                await persist_trace(
+                    db,
+                    chat_message_id=message_id,
+                    events=[],
+                    capture_failed=True,
+                )
+                await db.commit()
+    except Exception as error:
+        logger.warning(
+            "Failed to persist execution trace (message=%s): %s",
+            message_id,
+            error,
+        )
+
+
+async def _redacted_source_identifiers(output: str) -> list[str]:
+    identifiers = re.findall(r"\[Source:\s*([^\]\n]+)", output)[:20]
+    try:
+        return [
+            (await asyncio.to_thread(redactor.redact, identifier))[:200]
+            for identifier in identifiers
+        ]
+    except Exception:
+        return []
 
 
 async def _load_session_history(chat_session_id: int) -> List[ChatMessage]:
@@ -383,6 +439,8 @@ async def _query_with_knowledge(
     full_response = ""
     had_error = False
     thought_count = 0
+    trace_events: list[dict] = []
+    tool_started_at: dict[str, float] = {}
     start_time = time.monotonic()
     try:
         from langgraph.prebuilt import create_react_agent
@@ -449,6 +507,17 @@ async def _query_with_knowledge(
 
             elif kind == "on_tool_start":
                 input_data = event["data"].get("input", {})
+                run_id = str(event.get("run_id", len(trace_events)))
+                tool_name = str(event.get("name", "unknown"))[:100]
+                tool_started_at[run_id] = time.monotonic()
+                trace_events.append(
+                    {
+                        "sequence": len(trace_events),
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "event_type": "tool_started",
+                        "tool_name": tool_name,
+                    }
+                )
                 thought_count += 1
                 await websocket.send_json({
                     "type": "think",
@@ -456,12 +525,50 @@ async def _query_with_knowledge(
                 })
 
             elif kind == "on_tool_end":
-                output = str(event["data"].get("output", ""))[:200]
+                raw_output = str(event["data"].get("output", ""))
+                output = raw_output[:200]
+                run_id = str(event.get("run_id", ""))
+                started = tool_started_at.pop(run_id, None)
+                sources = await _redacted_source_identifiers(raw_output)
+                trace_events.append(
+                    {
+                        "sequence": len(trace_events),
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "event_type": "tool_completed",
+                        "tool_name": str(event.get("name", "unknown"))[:100],
+                        "duration_ms": (
+                            int((time.monotonic() - started) * 1000)
+                            if started is not None
+                            else None
+                        ),
+                        "source_identifiers": sources,
+                        "result_count": len(sources),
+                        "summary": "Tool completed with redacted results.",
+                    }
+                )
                 thought_count += 1
                 await websocket.send_json({
                     "type": "think",
                     "content": output[:200],
                 })
+
+            elif kind == "on_tool_error":
+                run_id = str(event.get("run_id", ""))
+                started = tool_started_at.pop(run_id, None)
+                trace_events.append(
+                    {
+                        "sequence": len(trace_events),
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "event_type": "tool_failed",
+                        "tool_name": str(event.get("name", "unknown"))[:100],
+                        "duration_ms": (
+                            int((time.monotonic() - started) * 1000)
+                            if started is not None
+                            else None
+                        ),
+                        "safe_error_category": "tool_error",
+                    }
+                )
 
     except ImportError:
         logger.warning("deepagents not installed, falling back to simple LLM call")
@@ -501,6 +608,8 @@ async def _query_with_knowledge(
         history.append(
             ChatMessage(id=message_id, role="assistant", content=full_response)
         )
+        if message_id is not None:
+            await _persist_execution_trace(message_id, trace_events)
     try:
         await websocket.send_json({"type": "end", "message_id": message_id})
     except Exception:

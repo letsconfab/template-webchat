@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATE = ROOT / "scripts" / "migrate.py"
-EXPECTED_HEAD = "0003_feedback_cases"
+EXPECTED_HEAD = "0004_admin_replay_diagnostics"
 
 
 class MigrationCommandTests(unittest.TestCase):

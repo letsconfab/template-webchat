@@ -132,3 +132,10 @@ class ChatMessage(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     chat_session = relationship("ChatSession", back_populates="messages")
+    execution_trace = relationship(
+        "ExecutionTrace",
+        back_populates="chat_message",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

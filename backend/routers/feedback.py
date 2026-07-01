@@ -14,6 +14,7 @@ from backend.models.user import User
 from backend.models.chat import ChatSession
 from backend.models.feedback_case import FeedbackCase
 from backend.models.wiki import UserFeedback, ChatMessage
+from backend.services.redaction import get_projection, mask_email, project_text
 
 
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
@@ -185,6 +186,13 @@ async def create_feedback(
         db.add(db_feedback)
 
     await db.flush()
+    await project_text(
+        db,
+        content_type="feedback",
+        content_id=db_feedback.id,
+        source_field="message",
+        raw_text=db_feedback.message,
+    )
     case = None
     if feedback_data.feedback_type == "thumbs_down":
         result = await db.execute(
@@ -246,6 +254,13 @@ async def update_feedback(
     if feedback_data.categories is not None:
         feedback.categories = feedback_data.categories
 
+    await project_text(
+        db,
+        content_type="feedback",
+        content_id=feedback.id,
+        source_field="message",
+        raw_text=feedback.message,
+    )
     await db.commit()
 
     return {"id": feedback.id, "message": "Feedback updated successfully"}
@@ -279,7 +294,21 @@ async def get_all_feedback(
 
     return {
         "feedback": [
-            _feedback_to_response(f, user_email=f.user.email if f.user else None)
+            _feedback_to_response(
+                f,
+                user_email=mask_email(f.user.email) if f.user else None,
+            ).model_copy(
+                update={
+                    "message": (
+                        await get_projection(
+                            db,
+                            content_type="feedback",
+                            content_id=f.id,
+                            source_field="message",
+                        )
+                    ).text
+                }
+            )
             for f in feedbacks
         ],
         "total": total,
@@ -368,16 +397,32 @@ async def get_feedback_context(
             )
             messages = list(session_messages.scalars().all())
 
+    feedback_projection = await get_projection(
+        db,
+        content_type="feedback",
+        content_id=feedback.id,
+        source_field="message",
+    )
+    projected_messages = []
+    for message in reversed(messages):
+        projection = await get_projection(
+            db,
+            content_type="chat_message",
+            content_id=message.id,
+            source_field="content",
+        )
+        projected_messages.append(
+            {
+                "role": message.role,
+                "content": projection.text,
+                "redaction_status": projection.status,
+                "created_at": message.created_at.isoformat(),
+            }
+        )
     return {
         "feedback": _feedback_to_response(
-            feedback, user_email=feedback.user.email if feedback.user else None
-        ),
-        "messages": [
-            {
-                "role": m.role,
-                "content": m.content,
-                "created_at": m.created_at.isoformat(),
-            }
-            for m in reversed(messages)
-        ],
+            feedback,
+            user_email=mask_email(feedback.user.email) if feedback.user else None,
+        ).model_copy(update={"message": feedback_projection.text}),
+        "messages": projected_messages,
     }

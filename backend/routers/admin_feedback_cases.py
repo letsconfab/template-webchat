@@ -1,8 +1,9 @@
 """PII-safe administrative Feedback Case replay."""
 
+from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -10,10 +11,12 @@ from sqlalchemy.orm import selectinload
 from backend.database import get_db
 from backend.dependencies.auth import get_current_admin_user
 from backend.models.diagnostics import ExecutionTrace
-from backend.models.feedback_case import FeedbackCase
+from backend.models.feedback_case import CaseReply, FeedbackCase
 from backend.models.user import User
 from backend.models.wiki import ChatMessage
 from backend.services.redaction import get_projection, mask_email
+from backend.services.redaction import project_text
+from backend.routers.feedback_cases import ReplyCreate
 
 
 router = APIRouter(prefix="/api/admin/feedback-cases", tags=["admin-feedback-cases"])
@@ -26,6 +29,7 @@ async def _case_for_admin(db: AsyncSession, public_id: str) -> FeedbackCase:
             selectinload(FeedbackCase.feedback),
             selectinload(FeedbackCase.owner),
             selectinload(FeedbackCase.chat_session),
+            selectinload(FeedbackCase.replies),
         )
         .where(FeedbackCase.public_id == public_id)
     )
@@ -38,10 +42,15 @@ async def _case_for_admin(db: AsyncSession, public_id: str) -> FeedbackCase:
 @router.get("")
 async def list_admin_feedback_cases(
     limit: int = Query(50, ge=1, le=100),
+    case_status: str | None = Query(None, alias="status"),
+    category: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    email: str | None = None,
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    result = await db.execute(
+    query = (
         select(FeedbackCase)
         .options(
             selectinload(FeedbackCase.feedback),
@@ -49,13 +58,24 @@ async def list_admin_feedback_cases(
             selectinload(FeedbackCase.chat_session),
         )
         .order_by(FeedbackCase.created_at.desc(), FeedbackCase.id.desc())
-        .limit(limit)
     )
+    if case_status:
+        query = query.where(FeedbackCase.status == case_status)
+    if date_from:
+        query = query.where(FeedbackCase.created_at >= date_from)
+    if date_to:
+        query = query.where(FeedbackCase.created_at <= date_to)
+    result = await db.execute(query.limit(limit * 5))
     cases = [
         case
         for case in result.scalars().unique()
         if case.chat_session.ownership_state == "owned"
-    ]
+        and (category is None or category in (case.feedback.categories or []))
+        and (
+            email is None
+            or email.lower() in mask_email(case.owner.email).lower()
+        )
+    ][:limit]
     items = []
     for case in cases:
         comment = await get_projection(
@@ -167,6 +187,31 @@ async def replay_feedback_case(
         content_id=case.feedback_id,
         source_field="message",
     )
+    correspondence = []
+    for reply in case.replies:
+        projection = await get_projection(
+            db,
+            content_type="case_reply",
+            content_id=reply.id,
+            source_field="raw_text",
+        )
+        correspondence.append(
+            {
+                "id": reply.id,
+                "author_role": reply.author_role,
+                "text": (
+                    reply.raw_text
+                    if reply.author_role == "admin"
+                    else projection.text
+                ),
+                "redaction_status": (
+                    "succeeded"
+                    if reply.author_role == "admin"
+                    else projection.status
+                ),
+                "created_at": reply.created_at.isoformat(),
+            }
+        )
     return {
         "case": {
             "case_id": case.public_id,
@@ -177,5 +222,64 @@ async def replay_feedback_case(
             "account_email": mask_email(case.owner.email),
         },
         "messages": messages,
+        "replies": correspondence,
         "next_cursor": page[-1].id if has_more else None,
     }
+
+
+@router.post("/{case_id}/replies", status_code=status.HTTP_201_CREATED)
+async def reply_to_case_as_admin(
+    case_id: str,
+    reply_data: ReplyCreate,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await db.execute(
+        select(FeedbackCase)
+        .where(FeedbackCase.public_id == case_id)
+        .with_for_update()
+    )
+    case = result.scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=404, detail="Feedback Case not found")
+    reply = CaseReply(
+        case_id=case.id,
+        author_id=current_user.id,
+        author_role="admin",
+        raw_text=reply_data.text,
+    )
+    db.add(reply)
+    await db.flush()
+    await project_text(
+        db,
+        content_type="case_reply",
+        content_id=reply.id,
+        source_field="raw_text",
+        raw_text=reply.raw_text,
+    )
+    case.status = "awaiting_user"
+    await db.commit()
+    return {
+        "id": reply.id,
+        "status": case.status,
+        "created_at": reply.created_at.isoformat(),
+    }
+
+
+@router.post("/{case_id}/resolve")
+async def resolve_feedback_case(
+    case_id: str,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    result = await db.execute(
+        select(FeedbackCase)
+        .where(FeedbackCase.public_id == case_id)
+        .with_for_update()
+    )
+    case = result.scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=404, detail="Feedback Case not found")
+    case.status = "resolved"
+    await db.commit()
+    return {"status": case.status}

@@ -20,6 +20,12 @@ interface CaseDetail extends CaseSummary {
     user: { id: number; content: string; created_at: string } | null
     assistant: { id: number; content: string; created_at: string }
   }
+  replies: Array<{
+    id: number
+    author_role: 'user' | 'admin'
+    text: string
+    created_at: string
+  }>
 }
 
 const statusLabel = (status: CaseSummary['status']) => ({
@@ -34,6 +40,7 @@ export default function FeedbackCasesPage() {
   const [detail, setDetail] = useState<CaseDetail | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [reply, setReply] = useState('')
 
   useEffect(() => {
     setLoading(true)
@@ -58,6 +65,14 @@ export default function FeedbackCasesPage() {
     })
     setCases(previous => [...previous, ...(response.data.cases || [])])
     setNextCursor(response.data.next_cursor || null)
+  }
+
+  const submitReply = async () => {
+    if (!caseId || !reply.trim()) return
+    await api.post(`/feedback-cases/${caseId}/replies`, { text: reply })
+    const response = await api.get(`/feedback-cases/${caseId}`)
+    setDetail(response.data)
+    setReply('')
   }
 
   if (loading) {
@@ -121,6 +136,31 @@ export default function FeedbackCasesPage() {
                     <p className="whitespace-pre-wrap">{detail.rated_exchange.assistant.content}</p>
                   </div>
                 </section>
+                <section className="space-y-3">
+                  <h2 className="text-sm font-semibold">Correspondence</h2>
+                  {detail.replies.map(caseReply => (
+                    <div key={caseReply.id} className="rounded-lg border p-3 text-sm">
+                      <p className="mb-1 text-xs font-semibold">
+                        {caseReply.author_role === 'admin' ? 'Admin' : 'You'}
+                      </p>
+                      <p className="whitespace-pre-wrap">{caseReply.text}</p>
+                    </div>
+                  ))}
+                  <textarea
+                    value={reply}
+                    onChange={event => setReply(event.target.value)}
+                    maxLength={4000}
+                    placeholder="Add a reply"
+                    className="min-h-24 w-full rounded-md border bg-background p-3 text-sm"
+                  />
+                  <button
+                    onClick={submitReply}
+                    disabled={!reply.trim()}
+                    className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
+                  >
+                    Send reply
+                  </button>
+                </section>
               </CardContent>
             </Card>
           </>
@@ -163,4 +203,3 @@ export default function FeedbackCasesPage() {
     </div>
   )
 }
-

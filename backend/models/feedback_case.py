@@ -52,4 +52,36 @@ class FeedbackCase(Base):
     owner = relationship("User", back_populates="feedback_cases")
     chat_session = relationship("ChatSession")
     rated_message = relationship("ChatMessage")
+    replies = relationship(
+        "CaseReply",
+        back_populates="case",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="CaseReply.id",
+    )
 
+
+class CaseReply(Base):
+    """An immutable reply with the author's role captured at creation."""
+
+    __tablename__ = "case_replies"
+
+    id = Column(Integer, primary_key=True)
+    case_id = Column(
+        Integer,
+        ForeignKey("feedback_cases.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    author_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    author_role = Column(String(16), nullable=False)
+    raw_text = Column(String(4000), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    case = relationship("FeedbackCase", back_populates="replies")
+    author = relationship("User")

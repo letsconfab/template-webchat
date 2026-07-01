@@ -36,12 +36,33 @@ export default function AdminFeedbackCasesPage() {
   const [cases, setCases] = useState<AdminCase[]>([])
   const [selectedCase, setSelectedCase] = useState<AdminCase | null>(null)
   const [messages, setMessages] = useState<ReplayMessage[]>([])
+  const [replies, setReplies] = useState<Array<{
+    id: number
+    author_role: string
+    text: string | null
+    redaction_status: string
+    created_at: string
+  }>>([])
+  const [reply, setReply] = useState('')
   const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [emailFilter, setEmailFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   useEffect(() => {
     setLoading(true)
     if (!caseId) {
-      api.get('/admin/feedback-cases')
+      api.get('/admin/feedback-cases', {
+        params: {
+          ...(statusFilter ? { status: statusFilter } : {}),
+          ...(categoryFilter ? { category: categoryFilter } : {}),
+          ...(emailFilter ? { email: emailFilter } : {}),
+          ...(dateFrom ? { date_from: `${dateFrom}T00:00:00` } : {}),
+          ...(dateTo ? { date_to: `${dateTo}T23:59:59` } : {}),
+        },
+      })
         .then(response => setCases(response.data.cases || []))
         .finally(() => setLoading(false))
       return
@@ -55,6 +76,7 @@ export default function AdminFeedbackCasesPage() {
           params: cursor ? { cursor } : {},
         })
         setSelectedCase(response.data.case)
+        setReplies(response.data.replies || [])
         replay.push(...(response.data.messages || []))
         cursor = response.data.next_cursor
       } while (cursor)
@@ -62,7 +84,19 @@ export default function AdminFeedbackCasesPage() {
       setLoading(false)
     }
     loadReplay()
-  }, [caseId])
+  }, [caseId, statusFilter, categoryFilter, emailFilter, dateFrom, dateTo])
+
+  const sendReply = async () => {
+    if (!caseId || !reply.trim()) return
+    await api.post(`/admin/feedback-cases/${caseId}/replies`, { text: reply })
+    window.location.reload()
+  }
+
+  const resolveCase = async () => {
+    if (!caseId) return
+    await api.post(`/admin/feedback-cases/${caseId}/resolve`)
+    window.location.reload()
+  }
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div>
@@ -96,6 +130,38 @@ export default function AdminFeedbackCasesPage() {
                     ? selectedCase.comment || 'No comment'
                     : 'Content unavailable pending privacy processing'}
                 </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle>Correspondence</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                {replies.map(caseReply => (
+                  <div key={caseReply.id} className="rounded-lg border p-3 text-sm">
+                    <p className="mb-1 text-xs font-semibold">
+                      {caseReply.author_role === 'admin' ? 'Admin' : 'Tester'}
+                    </p>
+                    <p className="whitespace-pre-wrap">
+                      {caseReply.redaction_status === 'succeeded'
+                        ? caseReply.text
+                        : 'Content unavailable'}
+                    </p>
+                  </div>
+                ))}
+                <textarea
+                  value={reply}
+                  onChange={event => setReply(event.target.value)}
+                  maxLength={4000}
+                  placeholder="Reply to tester"
+                  className="min-h-24 w-full rounded-md border bg-background p-3 text-sm"
+                />
+                <div className="flex gap-2">
+                  <button onClick={sendReply} disabled={!reply.trim()} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">
+                    Send reply
+                  </button>
+                  <button onClick={resolveCase} className="rounded-md border px-4 py-2 text-sm">
+                    Resolve
+                  </button>
+                </div>
               </CardContent>
             </Card>
             <div className="space-y-3">
@@ -135,7 +201,24 @@ export default function AdminFeedbackCasesPage() {
             </div>
           </>
         ) : (
-          cases.map(feedbackCase => (
+          <>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <select
+                value={statusFilter}
+                onChange={event => setStatusFilter(event.target.value)}
+                className="rounded-md border bg-background px-3 py-2 text-sm"
+              >
+                <option value="">All statuses</option>
+                <option value="awaiting_admin">Awaiting admin</option>
+                <option value="awaiting_user">Awaiting user</option>
+                <option value="resolved">Resolved</option>
+              </select>
+              <input value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)} placeholder="Category" className="rounded-md border bg-background px-3 py-2 text-sm" />
+              <input value={emailFilter} onChange={event => setEmailFilter(event.target.value)} placeholder="Masked email" className="rounded-md border bg-background px-3 py-2 text-sm" />
+              <input type="date" value={dateFrom} onChange={event => setDateFrom(event.target.value)} className="rounded-md border bg-background px-3 py-2 text-sm" />
+              <input type="date" value={dateTo} onChange={event => setDateTo(event.target.value)} className="rounded-md border bg-background px-3 py-2 text-sm" />
+            </div>
+          {cases.map(feedbackCase => (
             <Link key={feedbackCase.case_id} to={`/admin/feedback/${feedbackCase.case_id}`}>
               <Card className="mb-3 hover:bg-muted/50">
                 <CardContent className="flex items-start justify-between p-5">
@@ -151,10 +234,10 @@ export default function AdminFeedbackCasesPage() {
                 </CardContent>
               </Card>
             </Link>
-          ))
+          ))}
+          </>
         )}
       </main>
     </div>
   )
 }
-

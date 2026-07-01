@@ -3,18 +3,35 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, field_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.database import get_db
 from backend.dependencies.auth import get_current_active_user
-from backend.models.feedback_case import FeedbackCase
+from backend.models.feedback_case import CaseReply, FeedbackCase
 from backend.models.user import User
 from backend.models.wiki import ChatMessage
+from backend.services.redaction import project_text
 
 
 router = APIRouter(prefix="/api/feedback-cases", tags=["feedback-cases"])
+MAX_REPLY_LENGTH = 4000
+
+
+class ReplyCreate(BaseModel):
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Reply cannot be empty")
+        if len(stripped) > MAX_REPLY_LENGTH:
+            raise ValueError(f"Reply must be at most {MAX_REPLY_LENGTH} characters")
+        return stripped
 
 
 def _summary(case: FeedbackCase) -> dict[str, Any]:
@@ -36,7 +53,10 @@ async def _owned_case(
 ) -> FeedbackCase:
     result = await db.execute(
         select(FeedbackCase)
-        .options(selectinload(FeedbackCase.feedback))
+        .options(
+            selectinload(FeedbackCase.feedback),
+            selectinload(FeedbackCase.replies),
+        )
         .where(
             FeedbackCase.public_id == public_id,
             FeedbackCase.user_id == user_id,
@@ -130,5 +150,56 @@ async def get_feedback_case(
                 "created_at": rated.created_at.isoformat(),
             },
         },
+        "replies": [
+            {
+                "id": reply.id,
+                "author_role": reply.author_role,
+                "text": reply.raw_text,
+                "created_at": reply.created_at.isoformat(),
+            }
+            for reply in case.replies
+        ],
     }
 
+
+@router.post("/{case_id}/replies", status_code=201)
+async def reply_to_feedback_case(
+    case_id: str,
+    reply_data: ReplyCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    result = await db.execute(
+        select(FeedbackCase)
+        .where(
+            FeedbackCase.public_id == case_id,
+            FeedbackCase.user_id == current_user.id,
+        )
+        .with_for_update()
+    )
+    case = result.scalar_one_or_none()
+    if case is None:
+        raise HTTPException(status_code=404, detail="Feedback Case not found")
+
+    reply = CaseReply(
+        case_id=case.id,
+        author_id=current_user.id,
+        author_role="user",
+        raw_text=reply_data.text,
+    )
+    db.add(reply)
+    await db.flush()
+    await project_text(
+        db,
+        content_type="case_reply",
+        content_id=reply.id,
+        source_field="raw_text",
+        raw_text=reply.raw_text,
+    )
+    case.status = "awaiting_admin"
+    await db.commit()
+    return {
+        "id": reply.id,
+        "status": case.status,
+        "created_at": reply.created_at.isoformat(),
+    }

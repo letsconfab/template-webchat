@@ -31,6 +31,12 @@ class User(Base):
     
     # Relationships
     created_invites = relationship("Invite", foreign_keys="Invite.created_by_id", back_populates="created_by")
+    chat_sessions = relationship(
+        "ChatSession",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, role={self.role})>"

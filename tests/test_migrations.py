@@ -10,15 +10,9 @@ import sys
 import tempfile
 import unittest
 
-from sqlalchemy import create_engine
-
-from backend.database import Base
-from backend.models import invite, settings, user, wiki  # noqa: F401
-
-
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATE = ROOT / "scripts" / "migrate.py"
-EXPECTED_HEAD = "0001_current_schema"
+EXPECTED_HEAD = "0002_owned_chat_sessions"
 
 
 class MigrationCommandTests(unittest.TestCase):
@@ -54,10 +48,26 @@ class MigrationCommandTests(unittest.TestCase):
     def test_existing_current_schema_is_stamped_without_data_loss(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "existing.db"
-            engine = create_engine(f"sqlite:///{database}")
-            Base.metadata.create_all(engine)
-            with engine.begin() as connection:
-                connection.exec_driver_sql(
+            env = os.environ.copy()
+            env["DATABASE_URL"] = f"sqlite+aiosqlite:///{database}"
+            baseline = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "alembic",
+                    "upgrade",
+                    "0001_current_schema",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(baseline.returncode, 0, baseline.stderr)
+            with sqlite3.connect(database) as connection:
+                connection.execute("DROP TABLE alembic_version")
+                connection.execute(
                     """
                     INSERT INTO users (
                         email, password_hash, role, is_active, created_at, updated_at
@@ -67,7 +77,6 @@ class MigrationCommandTests(unittest.TestCase):
                     )
                     """
                 )
-            engine.dispose()
 
             result = self.run_migrate(database)
 
@@ -75,7 +84,12 @@ class MigrationCommandTests(unittest.TestCase):
             self.assertEqual(self.revision(database), EXPECTED_HEAD)
             with sqlite3.connect(database) as connection:
                 email = connection.execute("SELECT email FROM users").fetchone()[0]
+                chat_sessions = connection.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'chat_sessions'"
+                ).fetchone()
             self.assertEqual(email, "kept@example.test")
+            self.assertIsNotNone(chat_sessions)
 
     def test_upgrade_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

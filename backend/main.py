@@ -6,14 +6,17 @@ from typing import List, Optional, Dict
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime
+from uuid import UUID
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, SystemMessage
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import config, validate_config
 from backend.database import init_db, close_db, AsyncSessionLocal
@@ -24,7 +27,12 @@ from backend.services.cocoindex_manager import cocoindex_manager
 from backend.services.graphrag_service import graphrag_service
 from backend.services.drive_sync_service import drive_sync_service
 from backend.models.settings import SystemSettings
+from backend.models.chat import ChatSession
+from backend.models.user import User
 from backend.models.wiki import ChatMessage as ChatMessageDB
+from backend.database import get_db
+from backend.dependencies.auth import get_current_active_user
+from backend.services.auth import verify_token
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,7 +61,6 @@ class ModelsResponse(BaseModel):
     models: List[str]
 
 
-chat_history: Dict[str, List[ChatMessage]] = {}
 user_sessions = {}
 
 
@@ -191,14 +198,57 @@ async def update_settings(settings: SettingsRequest):
     return {"status": "success"}
 
 
+async def _owned_chat_session(
+    db: AsyncSession,
+    session_id: str,
+    user_id: int,
+) -> ChatSession:
+    result = await db.execute(
+        select(ChatSession).where(
+            ChatSession.client_uuid == session_id,
+            ChatSession.user_id == user_id,
+            ChatSession.ownership_state == "owned",
+        )
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Chat Session not found")
+    return session
+
+
 @app.get("/api/chat-history")
-async def get_chat_history(session_id: str = "default"):
-    return {"messages": chat_history.get(session_id, [])}
+async def get_chat_history(
+    session_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    chat_session = await _owned_chat_session(db, session_id, current_user.id)
+    result = await db.execute(
+        select(ChatMessageDB)
+        .where(ChatMessageDB.chat_session_id == chat_session.id)
+        .order_by(ChatMessageDB.created_at, ChatMessageDB.id)
+    )
+    return {
+        "messages": [
+            ChatMessage(id=row.id, role=row.role, content=row.content).model_dump()
+            for row in result.scalars()
+        ]
+    }
 
 
 @app.delete("/api/chat-history")
-async def clear_chat_history(session_id: str = "default"):
-    chat_history[session_id] = []
+async def clear_chat_history(
+    session_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    chat_session = await _owned_chat_session(db, session_id, current_user.id)
+    await db.execute(
+        delete(ChatMessageDB).where(
+            ChatMessageDB.chat_session_id == chat_session.id
+        )
+    )
+    await db.commit()
     return {"status": "success"}
 
 
@@ -211,7 +261,8 @@ class ConnectionManager:
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def send_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
@@ -221,7 +272,7 @@ manager = ConnectionManager()
 
 
 async def _persist_chat_message(
-    session_id: str,
+    chat_session: ChatSession,
     role: str,
     content: str,
     metadata: Optional[dict] = None,
@@ -234,7 +285,8 @@ async def _persist_chat_message(
     try:
         async with AsyncSessionLocal() as db:
             row = ChatMessageDB(
-                session_id=session_id,
+                chat_session_id=chat_session.id,
+                session_id=chat_session.client_uuid,
                 role=role,
                 content=content,
                 msg_metadata=metadata,
@@ -244,19 +296,22 @@ async def _persist_chat_message(
             await db.refresh(row)
             return row.id
     except Exception as e:
-        logger.warning("Failed to persist chat message (session=%s): %s", session_id, e)
+        logger.warning(
+            "Failed to persist chat message (session=%s): %s",
+            chat_session.client_uuid,
+            e,
+        )
         return None
 
 
-async def _load_session_history(session_id: str) -> List[ChatMessage]:
+async def _load_session_history(chat_session_id: int) -> List[ChatMessage]:
     """Load persisted chat history for a session (oldest first, up to 100 rows)."""
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 select(ChatMessageDB)
-                .where(ChatMessageDB.session_id == session_id)
-                .order_by(ChatMessageDB.created_at)
-                .limit(100)
+                .where(ChatMessageDB.chat_session_id == chat_session_id)
+                .order_by(ChatMessageDB.created_at, ChatMessageDB.id)
             )
             rows = result.scalars().all()
             return [
@@ -264,7 +319,11 @@ async def _load_session_history(session_id: str) -> List[ChatMessage]:
                 for row in rows
             ]
     except Exception as e:
-        logger.warning("Failed to load chat history (session=%s): %s", session_id, e)
+        logger.warning(
+            "Failed to load chat history (chat_session_id=%s): %s",
+            chat_session_id,
+            e,
+        )
         return []
 
 
@@ -305,7 +364,7 @@ async def _query_with_knowledge(
     llm,
     user_message: str,
     history: List[ChatMessage],
-    session_id: str,
+    chat_session: ChatSession,
     websocket: WebSocket,
     provider: str = "unknown",
     model: str = "unknown",
@@ -417,7 +476,7 @@ async def _query_with_knowledge(
     if full_response:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         message_id = await _persist_chat_message(
-            session_id=session_id,
+            chat_session=chat_session,
             role="assistant",
             content=full_response,
             metadata={
@@ -428,7 +487,7 @@ async def _query_with_knowledge(
                 "error": had_error,
             },
         )
-        chat_history.setdefault(session_id, []).append(
+        history.append(
             ChatMessage(id=message_id, role="assistant", content=full_response)
         )
     try:
@@ -437,13 +496,97 @@ async def _query_with_knowledge(
         pass
 
 
+async def _bind_chat_session(user: User, session_id: str) -> ChatSession:
+    """Atomically bind a client UUID or return its existing owned session."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ChatSession).where(ChatSession.client_uuid == session_id)
+        )
+        chat_session = result.scalar_one_or_none()
+        if chat_session is None:
+            candidate = ChatSession(
+                client_uuid=session_id,
+                user_id=user.id,
+                ownership_state="owned",
+            )
+            db.add(candidate)
+            try:
+                await db.commit()
+                await db.refresh(candidate)
+                chat_session = candidate
+            except IntegrityError:
+                await db.rollback()
+                result = await db.execute(
+                    select(ChatSession).where(
+                        ChatSession.client_uuid == session_id
+                    )
+                )
+                chat_session = result.scalar_one_or_none()
+
+        if (
+            chat_session is None
+            or chat_session.ownership_state != "owned"
+            or chat_session.user_id != user.id
+        ):
+            raise PermissionError("Chat Session is unavailable")
+        return chat_session
+
+
+async def _authenticate_websocket(
+    websocket: WebSocket,
+    data: dict,
+) -> tuple[User, ChatSession] | None:
+    if data.get("type") != "auth":
+        await websocket.close(code=4401, reason="Authentication required")
+        return None
+    token = data.get("token")
+    payload = verify_token(token) if isinstance(token, str) else None
+    try:
+        user_id = int(payload["sub"]) if payload else None
+    except (KeyError, TypeError, ValueError):
+        user_id = None
+    if user_id is None:
+        await websocket.close(code=4401, reason="Authentication required")
+        return None
+
+    raw_session_id = data.get("session_id")
+    try:
+        session_id = str(UUID(raw_session_id))
+    except (AttributeError, TypeError, ValueError):
+        await websocket.close(code=4400, reason="Invalid Chat Session identifier")
+        return None
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+    if user is None:
+        await websocket.close(code=4401, reason="Authentication required")
+        return None
+    if not user.is_active:
+        await websocket.close(code=4403, reason="Chat Session unavailable")
+        return None
+
+    try:
+        chat_session = await _bind_chat_session(user, session_id)
+    except PermissionError:
+        await websocket.close(code=4403, reason="Chat Session unavailable")
+        return None
+    return user, chat_session
+
+
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
-    await manager.connect(websocket)
+    await websocket.accept()
 
     try:
         data = await websocket.receive_json()
-        session_id = data.get("session_id", "default")
+        authenticated = await _authenticate_websocket(websocket, data)
+        if authenticated is None:
+            return
+        _, chat_session = authenticated
+        manager.active_connections.append(websocket)
+
+        session_id = chat_session.client_uuid
         client_provider = data.get("provider", "openai")
         client_model = data.get("model", "gpt-4o-mini")
 
@@ -472,16 +615,10 @@ async def websocket_chat(websocket: WebSocket):
             "WebSocket session=%s provider=%s model=%s", session_id, provider, model
         )
 
-        if session_id not in chat_history:
-            persisted = await _load_session_history(session_id)
-            if persisted:
-                chat_history[session_id] = persisted
-
-        history = chat_history.get(session_id, [])
-        if history:
-            await websocket.send_json(
-                {"type": "history", "messages": [msg.model_dump() for msg in history]}
-            )
+        history = await _load_session_history(chat_session.id)
+        await websocket.send_json(
+            {"type": "history", "messages": [msg.model_dump() for msg in history]}
+        )
 
         status_msg = await _settings_status_message(settings)
         if status_msg:
@@ -508,19 +645,19 @@ async def websocket_chat(websocket: WebSocket):
                 else:
                     langfuse_service._initialized = False
 
-            if session_id not in chat_history:
-                chat_history[session_id] = []
             user_msg = ChatMessage(role="user", content=message)
-            chat_history[session_id].append(user_msg)
+            history.append(user_msg)
             user_msg.id = await _persist_chat_message(
-                session_id=session_id, role="user", content=message
+                chat_session=chat_session,
+                role="user",
+                content=message,
             )
 
             await _query_with_knowledge(
                 llm=llm_instance,
                 user_message=message,
-                history=chat_history[session_id],
-                session_id=session_id,
+                history=history,
+                chat_session=chat_session,
                 websocket=websocket,
                 provider=provider,
                 model=model,

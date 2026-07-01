@@ -113,8 +113,16 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, index=True)
+    chat_session_id = Column(
+        Integer,
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     session_id = Column(String(100), nullable=False, index=True)
     role = Column(String(20), nullable=False)  # 'user', 'assistant'
     content = Column(Text, nullable=False)
     msg_metadata = Column(JSON, nullable=True)  # Renamed to avoid reserved keyword
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    chat_session = relationship("ChatSession", back_populates="messages")

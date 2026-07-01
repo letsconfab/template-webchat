@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LEGACY_BASELINE = "0001_current_schema"
 CURRENT_SCHEMA_TABLES = {
     "users",
     "system_settings",
@@ -84,7 +85,8 @@ def upgrade() -> None:
         )
 
     print("Detected current pre-Alembic schema; stamping baseline without data changes.")
-    command.stamp(config, "head")
+    command.stamp(config, LEGACY_BASELINE)
+    command.upgrade(config, "head")
 
 
 def current() -> None:

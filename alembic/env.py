@@ -11,7 +11,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from backend.database import Base
-from backend.models import invite, settings, user, wiki  # noqa: F401
+from backend.models import chat, invite, settings, user, wiki  # noqa: F401
 
 
 config = context.config
@@ -59,4 +59,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     asyncio.run(run_async_migrations())
-

@@ -104,12 +104,13 @@ export class ChatWebSocket {
     this.ws = new WebSocket(WS_BASE)
     
     this.ws.onopen = () => {
-      // Send initial settings with session ID
+      // Authenticate before the server reads session data or chat settings.
       this.ws?.send(JSON.stringify({
+        type: 'auth',
+        token: localStorage.getItem('token'),
         session_id: getSessionId(),
         provider: settings.provider,
         model: settings.model,
-        api_key: settings.apiKey,
       }))
       this.connectionHandler?.(true)
     }

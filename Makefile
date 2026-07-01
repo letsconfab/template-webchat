@@ -2,6 +2,7 @@
 
 # Virtual environment path
 VENV = .venv
+PYTHON = python3.11
 
 # Python path
 PYTHONPATH = $(CURDIR)
@@ -21,7 +22,7 @@ COMPOSE_RUNTIME = $(shell \
 		echo "docker compose"; \
 	fi)
 
-.PHONY: help setup install install-full install-fe run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
+.PHONY: help check-python setup install install-full install-fe db-upgrade db-current run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
 
 # Default target
 help:
@@ -30,6 +31,8 @@ help:
 	@echo "  make install      - Install backend dependencies (creates venv)"
 	@echo "  make install-full - Install backend dependencies and note containerized RAG service"
 	@echo "  make install-fe   - Install frontend dependencies"
+	@echo "  make db-upgrade   - Upgrade or safely baseline the application database"
+	@echo "  make db-current   - Verify the database is at the migration head"
 	@echo "  make run          - Run both backend and frontend"
 	@echo "  make run-be       - Run backend only"
 	@echo "  make run-be-prod  - Run backend without auto-reload (production mode)"
@@ -46,24 +49,29 @@ help:
 	@echo "  make docker-push  - Push Docker image to GitHub Packages (requires CR_PAT env var)"
 	@echo "  Runtime          - $(CONTAINER_RUNTIME) / $(COMPOSE_RUNTIME)"
 
+# Runtime baseline
+check-python:
+	@$(PYTHON) -c 'import sys; assert sys.version_info[:2] == (3, 11), "Python 3.11 is required"'
+
 # Initial setup
-setup:
+setup: check-python
 	@echo "Creating database..."
 	@if [ -x "$(VENV)/bin/python" ]; then \
 		$(VENV)/bin/python scripts/ensure_database.py; \
 	else \
-		python3 -m venv $(VENV) && $(VENV)/bin/pip install asyncpg && $(VENV)/bin/python scripts/ensure_database.py; \
+		$(PYTHON) -m venv $(VENV) && $(VENV)/bin/pip install asyncpg && $(VENV)/bin/python scripts/ensure_database.py; \
 	fi
 	@echo "Database ready. Install dependencies with: make install && make install-fe"
 
 # Create virtual environment if it doesn't exist
-$(VENV):
-	python3 -m venv $(VENV)
+$(VENV): check-python
+	$(PYTHON) -m venv $(VENV)
 
 # Install dependencies (creates venv if needed)
 install: $(VENV)
 	@echo "Installing core backend dependencies..."
 	$(VENV)/bin/pip install -r requirements.txt
+	$(MAKE) db-upgrade
 	@echo "RAG-Anything runs in the separate Docker container. Use 'docker compose up' to start it."
 
 # Install backend dependencies and surface the containerized RAG service note
@@ -74,14 +82,20 @@ install-full: $(VENV)
 install-fe:
 	cd frontend && npm install
 
+db-upgrade: check-python $(VENV)
+	$(VENV)/bin/python scripts/migrate.py upgrade
+
+db-current: check-python $(VENV)
+	$(VENV)/bin/python scripts/migrate.py current
+
 # Run commands
 run: run-be run-fe
 
-run-be: $(VENV)
+run-be: db-upgrade
 	PYTHONPATH=.::./backend $(VENV)/bin/uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
 # Production mode: no auto-reload. Prefer the systemd unit (scripts/webchat.service) on servers.
-run-be-prod: $(VENV)
+run-be-prod: db-upgrade
 	PYTHONPATH=.::./backend $(VENV)/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 run-fe:

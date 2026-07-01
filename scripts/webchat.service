@@ -28,6 +28,7 @@ Group=<deploy-user>
 WorkingDirectory=<deploy-dir>
 Environment=PYTHONPATH=<deploy-dir>
 # .env in WorkingDirectory is loaded by the app itself (python-dotenv)
+ExecStartPre=<deploy-dir>/.venv/bin/python scripts/migrate.py upgrade
 ExecStart=<deploy-dir>/.venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5

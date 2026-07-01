@@ -2,7 +2,7 @@
 
 > **Audience:** human maintainers and coding agents shipping this app to production.
 > **Status:** living document. See [Keeping this document current](#keeping-this-document-current) and the [Revision history](#revision-history).
-> **Last verified:** 2026-06-16.
+> **Last verified:** 2026-07-01.
 
 > [!IMPORTANT]
 > **This repository is public.** Do **not** commit production connection specifics
@@ -18,8 +18,9 @@
 Production runs the FastAPI backend directly on an EC2 host as a **systemd
 service** (`webchat`), fronted by Caddy (TLS) and backed by Dockerized
 Postgres/Neo4j/Qdrant. **Deploying = push to `main`, then on the host `git pull` +
-ship the pre-built frontend bundle (the host has no Node) + `sudo systemctl restart
-webchat`.** Database migrations apply automatically on startup.
+ship the pre-built frontend bundle (the host has no Node) + run the migration
+preflight + `sudo systemctl restart webchat`.** Python 3.11 is required. The
+systemd unit also runs the migration preflight and refuses to start on failure.
 
 ```bash
 # 0. locally: merge work to main and push
@@ -36,8 +37,9 @@ ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
 scp -i $SSH_KEY frontend/dist/index.html $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/index.html
 scp -i $SSH_KEY frontend/dist/assets/*  $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/assets/
 
-# 4. restart the backend service, then verify
-ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST "sudo systemctl restart webchat"
+# 4. migrate, restart the backend service, then verify
+ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
+  "cd $DEPLOY_DIR && .venv/bin/python scripts/migrate.py upgrade && sudo systemctl restart webchat"
 curl -s $PUBLIC_URL/health   # -> {"status":"healthy"}
 ```
 
@@ -82,8 +84,9 @@ Key properties:
   Control it with `sudo systemctl {status,restart,stop} webchat` and read logs with
   `journalctl -u webchat`.
 - **No `--reload` in production.** A deploy therefore needs an explicit
-  `sudo systemctl restart webchat`, which re-runs the FastAPI lifespan
-  (`init_db` → `run_migrations`, so migrations apply on restart). A bare `git pull`
+  `sudo systemctl restart webchat`. `ExecStartPre` runs `alembic upgrade head`
+  through the safe migration wrapper; migration failure leaves the old process
+  stopped and is visible in `systemctl status`/the journal. A bare `git pull`
   alone does **not** pick up backend changes until the service is restarted.
 - **The Docker stores auto-start on boot** (`restart: unless-stopped` + Docker
   enabled), and a 4 GB swapfile (`/etc/fstab`) guards against OOM on the small host.
@@ -197,6 +200,35 @@ The unit is defined at `/etc/systemd/system/webchat.service` (installed from the
 
 > Risk: a failed restart takes the site down. Verify health immediately after.
 
+## Database upgrades and rollback
+
+Python 3.11 is the supported local and production runtime. Before restarting,
+run:
+
+```bash
+cd $DEPLOY_DIR
+.venv/bin/python --version
+.venv/bin/python scripts/migrate.py upgrade
+.venv/bin/python scripts/migrate.py current
+```
+
+The first command upgrades a fresh database to Alembic head. For an existing
+database at the supported pre-Alembic schema, it verifies the complete table
+set and stamps the baseline without changing rows, then applies later
+revisions. Re-execution is idempotent. Do not manually stamp partial schemas.
+
+Verify the reported revision matches:
+
+```bash
+.venv/bin/alembic heads
+```
+
+Feature migrations are additive. Rollback means disabling the affected feature
+flag and restoring the previous application revision while leaving the newer
+tables/nullable columns in place. Do not run destructive downgrades in
+production. Repair or roll forward a failed migration before restarting the
+service.
+
 ---
 
 ## Troubleshooting
@@ -257,3 +289,4 @@ Likely future migrations and what to change here when they happen:
 |------------|--------|----|
 | 2026-06-16 | Initial methodology captured: screen + `uvicorn --reload`, Caddy, Dockerized stores, manual frontend scp, auto-migrations. Documented the no-Node/gitignored-assets constraint and the ghcr/systemd red herrings. | agent |
 | 2026-06-16 | Backend moved from a `screen` session to the `webchat` **systemd** service (auto-starts on boot; deploys now `git pull` → scp frontend → `sudo systemctl restart webchat`). Stores set to `restart: unless-stopped`; 4 GB swap added; host resized t3.small→t3.medium. | agent |
+| 2026-07-01 | Adopted Python 3.11 and Alembic; deployment now fails before restart when a migration fails and uses additive rollback. | agent |

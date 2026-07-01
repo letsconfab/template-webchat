@@ -65,6 +65,9 @@ RUN mkdir -p /app/kb_assets && \
 
 # Copy backend code
 COPY --chown=appuser:appgroup backend/ ./backend/
+COPY --chown=appuser:appgroup alembic/ ./alembic/
+COPY --chown=appuser:appgroup alembic.ini pyproject.toml ./
+COPY --chown=appuser:appgroup scripts/migrate.py ./scripts/migrate.py
 COPY --chown=appuser:appgroup requirements.txt .
 
 # ❌ REMOVED FastEmbed preload block (this was causing build to hang)
@@ -88,6 +91,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Run the application
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "python scripts/migrate.py upgrade && exec uvicorn backend.main:app --host 0.0.0.0 --port 8000"]
 
 ENV PYTHONPATH=/app

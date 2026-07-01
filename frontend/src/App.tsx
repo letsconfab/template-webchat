@@ -11,6 +11,7 @@ import AdminSettings from './pages/AdminSettings'
 import FeedbackDashboard from './pages/FeedbackDashboard'
 import InsightsReview from './pages/InsightsReview'
 import GoogleDriveSettings from './pages/GoogleDriveSettings'
+import FeedbackCasesPage from './pages/FeedbackCasesPage'
 
 const InviteRedirect = () => {
   const { token } = useParams()
@@ -105,6 +106,22 @@ function App() {
                       <ChatPage />
                     </ProtectedRoute>
                   } 
+                />
+                <Route
+                  path="/feedback"
+                  element={
+                    <ProtectedRoute>
+                      <FeedbackCasesPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/feedback/:caseId"
+                  element={
+                    <ProtectedRoute>
+                      <FeedbackCasesPage />
+                    </ProtectedRoute>
+                  }
                 />
                 
                 {/* Admin Routes */}

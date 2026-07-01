@@ -3,13 +3,15 @@ from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import delete, select, func
 from sqlalchemy.orm import selectinload
 
 # from database import get_db
 from backend.database import get_db
 from backend.middleware.auth import get_admin_user, get_current_active_user
 from backend.models.user import User, UserRole
+from backend.models.chat import ChatSession
+from backend.models.wiki import UserFeedback
 from backend.schemas.user import UserResponse, UserUpdate
 
 router = APIRouter(prefix="/api/admin", tags=["admin", "users"])
@@ -110,6 +112,11 @@ async def delete_user(
             detail="Cannot delete yourself"
         )
     
+    # Existing feedback/message foreign keys predate database-level cascades.
+    # Delete the user's owned diagnostic roots in dependency order; Feedback
+    # Cases and Chat Messages cascade from these roots.
+    await db.execute(delete(UserFeedback).where(UserFeedback.user_id == user.id))
+    await db.execute(delete(ChatSession).where(ChatSession.user_id == user.id))
     await db.delete(user)
     await db.commit()
     

@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATE = ROOT / "scripts" / "migrate.py"
-EXPECTED_HEAD = "0002_owned_chat_sessions"
+EXPECTED_HEAD = "0003_feedback_cases"
 
 
 class MigrationCommandTests(unittest.TestCase):

@@ -37,6 +37,12 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    feedback_cases = relationship(
+        "FeedbackCase",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, role={self.role})>"

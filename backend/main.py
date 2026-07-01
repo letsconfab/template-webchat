@@ -20,7 +20,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import config, validate_config
 from backend.database import init_db, close_db, AsyncSessionLocal
-from backend.routers import auth, users, invites, settings, feedback, insights, wiki, drive
+from backend.routers import (
+    auth,
+    drive,
+    feedback,
+    feedback_cases,
+    insights,
+    invites,
+    settings,
+    users,
+    wiki,
+)
 from backend.llm_providers import LLMProvider, validate_api_key, get_available_models
 from backend.services.langfuse_service import langfuse_service
 from backend.services.cocoindex_manager import cocoindex_manager
@@ -151,6 +161,7 @@ app.include_router(users.router)
 app.include_router(invites.router)
 app.include_router(settings.router)
 app.include_router(feedback.router)
+app.include_router(feedback_cases.router)
 app.include_router(insights.router)
 app.include_router(wiki.router)
 app.include_router(drive.router)

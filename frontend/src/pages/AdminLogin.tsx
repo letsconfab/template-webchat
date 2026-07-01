@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -18,6 +18,7 @@ const AdminLogin: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false)
   const { login, user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
   const {
     register,
@@ -31,13 +32,16 @@ const AdminLogin: React.FC = () => {
   // Handle navigation after successful login
 useEffect(() => {
     if (user) {
-      if (user.role === 'admin') {
+      const requested = searchParams.get('returnTo')
+      if (requested?.startsWith('/') && !requested.startsWith('//')) {
+        navigate(requested)
+      } else if (user.role === 'admin') {
         navigate('/admin/dashboard')
       } else {
         navigate('/chat')
       }
     }
-  }, [user, navigate])
+  }, [user, navigate, searchParams])
 
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true)

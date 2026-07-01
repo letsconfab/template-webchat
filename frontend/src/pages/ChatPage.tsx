@@ -15,6 +15,7 @@ interface Message {
   thoughts?: string[]
   message_id?: number | null
   feedbackId?: number
+  caseId?: string
   feedbackDetailed?: boolean
 }
 
@@ -247,9 +248,10 @@ export default function ChatPage() {
       }
       const response = await api.post('/feedback', payload)
       const feedbackId: number | undefined = response.data?.id
+      const caseId: string | undefined = response.data?.case_id
 
       setMessages(prev => prev.map((m, idx) =>
-        idx === messageIndex ? { ...m, feedback: feedbackType, feedbackId } : m
+        idx === messageIndex ? { ...m, feedback: feedbackType, feedbackId, caseId } : m
       ))
 
       if (feedbackType === 'thumbs_down' && feedbackId) {
@@ -343,6 +345,11 @@ export default function ChatPage() {
                 </button>
               </Link>
             )}
+            <Link to="/feedback">
+              <button className="p-2 hover:bg-muted rounded-lg transition-colors" title="Feedback cases">
+                <ThumbsDown className="w-5 h-5" />
+              </button>
+            </Link>
             <Link to="/dashboard">
               <button className="p-2 hover:bg-muted rounded-lg transition-colors">
                 <MessageSquare className="w-5 h-5" />
@@ -504,6 +511,14 @@ export default function ChatPage() {
                           </>
                         )}
                       </div>
+                      {msg.caseId && (
+                        <Link
+                          to={`/feedback/${msg.caseId}`}
+                          className="mt-2 inline-block text-xs text-primary hover:underline"
+                        >
+                          View feedback case
+                        </Link>
+                      )}
                       {openPanelIdx === idx && (
                         <div className="mt-2 p-3 rounded-lg border border-border bg-background/60 space-y-2">
                           <p className="text-xs font-medium text-muted-foreground">

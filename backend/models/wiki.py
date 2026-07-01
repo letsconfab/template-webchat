@@ -105,6 +105,12 @@ class UserFeedback(Base):
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
     chat_message = relationship("ChatMessage", foreign_keys=[chat_message_id])
+    case = relationship(
+        "FeedbackCase",
+        back_populates="feedback",
+        uselist=False,
+        passive_deletes=True,
+    )
 
 
 class ChatMessage(Base):

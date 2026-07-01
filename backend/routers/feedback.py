@@ -1,6 +1,7 @@
 """User feedback router."""
 
 from typing import Any, List, Optional
+from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, desc, func
@@ -10,6 +11,8 @@ from sqlalchemy.orm import selectinload
 from backend.database import get_db
 from backend.dependencies.auth import get_current_active_user, get_current_admin_user
 from backend.models.user import User
+from backend.models.chat import ChatSession
+from backend.models.feedback_case import FeedbackCase
 from backend.models.wiki import UserFeedback, ChatMessage
 
 
@@ -128,12 +131,37 @@ async def create_feedback(
     If feedback for the same (user, chat_message_id) already exists, the
     existing row is updated instead — re-votes don't duplicate.
     """
-    db_feedback = None
+    rated_message = None
     if feedback_data.chat_message_id is not None:
+        result = await db.execute(
+            select(ChatMessage)
+            .join(
+                ChatSession,
+                ChatSession.id == ChatMessage.chat_session_id,
+            )
+            .where(
+                ChatMessage.id == feedback_data.chat_message_id,
+                ChatMessage.role == "assistant",
+                ChatSession.user_id == current_user.id,
+                ChatSession.ownership_state == "owned",
+            )
+            .with_for_update()
+        )
+        rated_message = result.scalar_one_or_none()
+        if rated_message is None:
+            raise HTTPException(status_code=404, detail="Chat message not found")
+    elif feedback_data.feedback_type == "thumbs_down":
+        raise HTTPException(
+            status_code=422,
+            detail="Negative feedback requires a rated assistant message",
+        )
+
+    db_feedback = None
+    if rated_message is not None:
         result = await db.execute(
             select(UserFeedback).where(
                 UserFeedback.user_id == current_user.id,
-                UserFeedback.chat_message_id == feedback_data.chat_message_id,
+                UserFeedback.chat_message_id == rated_message.id,
             )
         )
         db_feedback = result.scalars().first()
@@ -156,10 +184,36 @@ async def create_feedback(
         )
         db.add(db_feedback)
 
+    await db.flush()
+    case = None
+    if feedback_data.feedback_type == "thumbs_down":
+        result = await db.execute(
+            select(FeedbackCase).where(
+                FeedbackCase.feedback_id == db_feedback.id
+            )
+        )
+        case = result.scalar_one_or_none()
+        if case is None:
+            case = FeedbackCase(
+                public_id=str(uuid4()),
+                feedback_id=db_feedback.id,
+                user_id=current_user.id,
+                chat_session_id=rated_message.chat_session_id,
+                rated_message_id=rated_message.id,
+                status="awaiting_admin",
+            )
+            db.add(case)
+
     await db.commit()
     await db.refresh(db_feedback)
 
-    return {"id": db_feedback.id, "message": "Feedback submitted successfully"}
+    response = {
+        "id": db_feedback.id,
+        "message": "Feedback submitted successfully",
+    }
+    if case is not None:
+        response["case_id"] = case.public_id
+    return response
 
 
 @router.patch("/{feedback_id}")

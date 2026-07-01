@@ -44,7 +44,14 @@ async def init_db():
     Schema changes are an explicit deployment step through ``scripts/migrate.py``.
     Importing models here keeps relationship configuration deterministic.
     """
-    from backend.models import chat, invite, settings, user, wiki  # noqa: F401
+    from backend.models import (  # noqa: F401
+        chat,
+        feedback_case,
+        invite,
+        settings,
+        user,
+        wiki,
+    )
 
 
 async def close_db():

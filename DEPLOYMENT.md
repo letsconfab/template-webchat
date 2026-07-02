@@ -160,7 +160,9 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    Triton packages, rejects expanded wheel payloads above the documented 3 GiB
    dependency budget, and requires 4 GiB of free disk headroom. The CPU-only
    policy is defined in `requirements-production.txt`; do not install
-   `requirements.txt` directly in production.
+   `requirements.txt` directly in production. The checker bootstraps and
+   removes a disposable resolver virtualenv, so the host's system Python does
+   not need to expose `pip`.
 
 4. **Build and verify an isolated release environment:**
 

@@ -84,39 +84,54 @@ def validate_wheels(wheel_dir: Path, budget_bytes: int) -> tuple[int, int]:
 
 
 def resolve_wheels(wheel_dir: Path) -> None:
-    command = [
-        sys.executable,
-        "-m",
-        "pip",
-        "download",
-        "--requirement",
-        str(PRODUCTION_REQUIREMENTS),
-        "--dest",
-        str(wheel_dir),
-        "--platform",
-        "manylinux_2_28_x86_64",
-        "--platform",
-        "manylinux2014_x86_64",
-        "--platform",
-        "manylinux_2_17_x86_64",
-        "--platform",
-        "linux_x86_64",
-        "--python-version",
-        "3.13",
-        "--implementation",
-        "cp",
-        "--abi",
-        "cp313",
-        "--only-binary",
-        ":all:",
-    ]
-    try:
-        subprocess.run(command, cwd=REPO_ROOT, check=True)
-    except subprocess.CalledProcessError as exc:
-        raise CheckFailure(
-            "Linux Python 3.13 dependency resolution failed. "
-            "Run this command with network access and inspect pip's error above."
-        ) from exc
+    with tempfile.TemporaryDirectory(
+        prefix=".webchat-production-resolver-", dir=wheel_dir.parent
+    ) as tmp:
+        resolver_dir = Path(tmp)
+        resolver_python = resolver_dir / (
+            "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
+        )
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "venv", str(resolver_dir)],
+                cwd=REPO_ROOT,
+                check=True,
+            )
+            subprocess.run(
+                [
+                    str(resolver_python),
+                    "-m",
+                    "pip",
+                    "download",
+                    "--requirement",
+                    str(PRODUCTION_REQUIREMENTS),
+                    "--dest",
+                    str(wheel_dir),
+                    "--platform",
+                    "manylinux_2_28_x86_64",
+                    "--platform",
+                    "manylinux2014_x86_64",
+                    "--platform",
+                    "manylinux_2_17_x86_64",
+                    "--platform",
+                    "linux_x86_64",
+                    "--python-version",
+                    "3.13",
+                    "--implementation",
+                    "cp",
+                    "--abi",
+                    "cp313",
+                    "--only-binary",
+                    ":all:",
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise CheckFailure(
+                "Linux Python 3.13 dependency resolution failed. Verify that the "
+                "target Python provides venv/ensurepip, then inspect the error above."
+            ) from exc
 
 
 def parse_args() -> argparse.Namespace:

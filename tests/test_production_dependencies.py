@@ -8,7 +8,9 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
+from scripts import check_production_dependencies
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKER = REPO_ROOT / "scripts" / "check_production_dependencies.py"
@@ -45,6 +47,19 @@ class ProductionDependencyCheckTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("CPU-only Torch", result.stdout)
+
+    def test_resolution_bootstraps_pip_in_disposable_virtualenv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheel_dir = Path(tmp) / "wheels"
+            with patch.object(
+                check_production_dependencies.subprocess, "run"
+            ) as run:
+                check_production_dependencies.resolve_wheels(wheel_dir)
+
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(commands[0][:3], [sys.executable, "-m", "venv"])
+        self.assertNotEqual(commands[1][0], sys.executable)
+        self.assertEqual(commands[1][1:4], ["-m", "pip", "download"])
 
     def test_rejects_gpu_runtime_packages_with_actionable_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

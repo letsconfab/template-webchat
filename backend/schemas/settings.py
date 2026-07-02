@@ -52,6 +52,15 @@ class SystemSettingsBase(BaseModel):
     user_registration_enabled: Optional[bool] = Field(
         True, description="Enable user registration"
     )
+    admin_replay_enabled: Optional[bool] = Field(
+        False, description="Enable privacy-safe administrative replay"
+    )
+    tester_correspondence_enabled: Optional[bool] = Field(
+        False, description="Enable tester Feedback Case routes and replies"
+    )
+    tester_email_notifications_enabled: Optional[bool] = Field(
+        False, description="Enable generic tester case notification email"
+    )
 
     # LLM Configuration
     llm_provider: Optional[str] = Field(

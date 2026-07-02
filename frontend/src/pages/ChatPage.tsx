@@ -39,7 +39,7 @@ interface GraphRAGStatus {
 
 export default function ChatPage() {
   const navigate = useNavigate()
-  const { user, logout, isAdmin } = useAuth()
+  const { user, logout, isAdmin, features } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isConnected, setIsConnected] = useState(false)
@@ -345,11 +345,13 @@ export default function ChatPage() {
                 </button>
               </Link>
             )}
-            <Link to="/feedback">
-              <button className="p-2 hover:bg-muted rounded-lg transition-colors" title="Feedback cases">
-                <ThumbsDown className="w-5 h-5" />
-              </button>
-            </Link>
+            {features.tester_correspondence_enabled && (
+              <Link to="/feedback">
+                <button className="p-2 hover:bg-muted rounded-lg transition-colors" title="Feedback cases">
+                  <ThumbsDown className="w-5 h-5" />
+                </button>
+              </Link>
+            )}
             <Link to="/dashboard">
               <button className="p-2 hover:bg-muted rounded-lg transition-colors">
                 <MessageSquare className="w-5 h-5" />

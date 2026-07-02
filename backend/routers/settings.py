@@ -18,6 +18,7 @@ from backend.schemas.settings import (
     SystemSettingsUpdate,
 )
 from backend.services.auth import get_password_hash
+from backend.services.features import admin_replay_readiness
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -183,7 +184,17 @@ async def update_settings(
         )
 
     # Update fields
-    update_data = settings_update.dict(exclude_unset=True)
+    update_data = settings_update.model_dump(exclude_unset=True)
+    if update_data.get("admin_replay_enabled"):
+        readiness = await admin_replay_readiness(db)
+        if not readiness["ready"]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "Admin replay has pending privacy projections",
+                    "readiness": readiness,
+                },
+            )
     for field, value in update_data.items():
         setattr(settings, field, value)
 
@@ -193,6 +204,27 @@ async def update_settings(
     await db.refresh(settings)
 
     return settings
+
+
+@router.get("/features")
+async def get_runtime_features(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    settings = (
+        await db.execute(select(SystemSettings).limit(1))
+    ).scalar_one_or_none()
+    return {
+        "admin_replay_enabled": (
+            settings.admin_replay_enabled if settings else True
+        ),
+        "tester_correspondence_enabled": (
+            settings.tester_correspondence_enabled if settings else True
+        ),
+        "tester_email_notifications_enabled": (
+            settings.tester_email_notifications_enabled if settings else True
+        ),
+    }
 
 
 @router.post("/reset-configuration")

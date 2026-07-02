@@ -95,6 +95,9 @@ class CaseNotificationApiTests(unittest.TestCase):
                 max_login_attempts=5,
                 email_notifications_enabled=True,
                 user_registration_enabled=True,
+                admin_replay_enabled=True,
+                tester_correspondence_enabled=True,
+                tester_email_notifications_enabled=True,
                 llm_provider="openai",
                 llm_model="model",
                 rag_provider="openai",
@@ -341,4 +344,3 @@ class CaseNotificationApiTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

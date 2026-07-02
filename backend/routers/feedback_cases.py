@@ -14,6 +14,7 @@ from backend.models.feedback_case import CaseReply, FeedbackCase
 from backend.models.user import User
 from backend.models.wiki import ChatMessage
 from backend.services.redaction import project_text
+from backend.services.features import require_feature
 
 
 router = APIRouter(prefix="/api/feedback-cases", tags=["feedback-cases"])
@@ -75,6 +76,7 @@ async def list_feedback_cases(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await require_feature(db, "tester_correspondence_enabled")
     query = (
         select(FeedbackCase)
         .options(selectinload(FeedbackCase.feedback))
@@ -110,6 +112,7 @@ async def get_feedback_case(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await require_feature(db, "tester_correspondence_enabled")
     case = await _owned_case(db, case_id, current_user.id)
     rated = await db.get(ChatMessage, case.rated_message_id)
     if rated is None:
@@ -169,6 +172,7 @@ async def reply_to_feedback_case(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await require_feature(db, "tester_correspondence_enabled")
     result = await db.execute(
         select(FeedbackCase)
         .where(

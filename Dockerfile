@@ -67,7 +67,7 @@ RUN mkdir -p /app/kb_assets && \
 COPY --chown=appuser:appgroup backend/ ./backend/
 COPY --chown=appuser:appgroup alembic/ ./alembic/
 COPY --chown=appuser:appgroup alembic.ini pyproject.toml ./
-COPY --chown=appuser:appgroup scripts/migrate.py ./scripts/migrate.py
+COPY --chown=appuser:appgroup scripts/migrate.py scripts/backfill_feedback_cases.py ./scripts/
 COPY --chown=appuser:appgroup requirements.txt .
 
 # ❌ REMOVED FastEmbed preload block (this was causing build to hang)

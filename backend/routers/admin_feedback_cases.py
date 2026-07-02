@@ -19,9 +19,19 @@ from backend.services.redaction import project_text
 from backend.routers.feedback_cases import ReplyCreate
 from backend.routers.case_notifications import notification_response
 from backend.services.case_notifications import case_notification_service
+from backend.services.features import require_feature
+from backend.services.features import admin_replay_readiness
 
 
 router = APIRouter(prefix="/api/admin/feedback-cases", tags=["admin-feedback-cases"])
+
+
+@router.get("/rollout/readiness")
+async def get_replay_readiness(
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int | bool]:
+    return await admin_replay_readiness(db)
 
 
 async def _case_for_admin(db: AsyncSession, public_id: str) -> FeedbackCase:
@@ -52,6 +62,7 @@ async def list_admin_feedback_cases(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await require_feature(db, "admin_replay_enabled")
     query = (
         select(FeedbackCase)
         .options(
@@ -108,6 +119,7 @@ async def replay_feedback_case(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await require_feature(db, "admin_replay_enabled")
     case = await _case_for_admin(db, case_id)
     rated = await db.get(ChatMessage, case.rated_message_id)
     if rated is None:
@@ -241,6 +253,8 @@ async def reply_to_case_as_admin(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await require_feature(db, "admin_replay_enabled")
+    await require_feature(db, "tester_correspondence_enabled")
     result = await db.execute(
         select(FeedbackCase)
         .where(FeedbackCase.public_id == case_id)
@@ -293,6 +307,8 @@ async def resolve_feedback_case(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
+    await require_feature(db, "admin_replay_enabled")
+    await require_feature(db, "tester_correspondence_enabled")
     result = await db.execute(
         select(FeedbackCase)
         .where(FeedbackCase.public_id == case_id)

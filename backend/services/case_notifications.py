@@ -44,7 +44,11 @@ class CaseNotificationService:
 
     @staticmethod
     def _configured(settings: SystemSettings | None) -> bool:
-        if settings is None or not settings.email_notifications_enabled:
+        if (
+            settings is None
+            or not settings.email_notifications_enabled
+            or not settings.tester_email_notifications_enabled
+        ):
             return False
         return all(
             (
@@ -126,4 +130,3 @@ class CaseNotificationService:
 
 
 case_notification_service = CaseNotificationService()
-

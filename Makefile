@@ -22,7 +22,7 @@ COMPOSE_RUNTIME = $(shell \
 		echo "docker compose"; \
 	fi)
 
-.PHONY: help check-python setup install install-full install-fe db-upgrade db-current run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
+.PHONY: help check-python setup install install-full install-fe db-upgrade db-current feedback-backfill run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
 
 # Default target
 help:
@@ -33,6 +33,7 @@ help:
 	@echo "  make install-fe   - Install frontend dependencies"
 	@echo "  make db-upgrade   - Upgrade or safely baseline the application database"
 	@echo "  make db-current   - Verify the database is at the migration head"
+	@echo "  make feedback-backfill - Resume legacy ownership/case/redaction backfill"
 	@echo "  make run          - Run both backend and frontend"
 	@echo "  make run-be       - Run backend only"
 	@echo "  make run-be-prod  - Run backend without auto-reload (production mode)"
@@ -87,6 +88,9 @@ db-upgrade: check-python $(VENV)
 
 db-current: check-python $(VENV)
 	$(VENV)/bin/python scripts/migrate.py current
+
+feedback-backfill: check-python $(VENV)
+	$(VENV)/bin/python scripts/backfill_feedback_cases.py
 
 # Run commands
 run: run-be run-fe

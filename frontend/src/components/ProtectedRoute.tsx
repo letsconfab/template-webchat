@@ -1,17 +1,20 @@
 import React from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import type { RuntimeFeatures } from '../contexts/AuthContext'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
   requireAdmin?: boolean
+  requiredFeature?: keyof RuntimeFeatures
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
   children, 
-  requireAdmin = false 
+  requireAdmin = false,
+  requiredFeature,
 }) => {
-  const { isAuthenticated, isAdmin, isLoading } = useAuth()
+  const { isAuthenticated, isAdmin, isLoading, features } = useAuth()
   const location = useLocation()
 
   if (isLoading) {
@@ -29,6 +32,10 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   if (requireAdmin && !isAdmin) {
     return <Navigate to="/login" replace />
+  }
+
+  if (requiredFeature && !features[requiredFeature]) {
+    return <Navigate to={isAdmin ? '/admin/dashboard' : '/chat'} replace />
   }
 
   return <>{children}</>

@@ -21,7 +21,20 @@ interface AuthContextType {
   isLoading: boolean;
   isAdmin: boolean;
   isAuthenticated: boolean;
+  features: RuntimeFeatures;
 }
+
+export interface RuntimeFeatures {
+  admin_replay_enabled: boolean;
+  tester_correspondence_enabled: boolean;
+  tester_email_notifications_enabled: boolean;
+}
+
+const defaultFeatures: RuntimeFeatures = {
+  admin_replay_enabled: false,
+  tester_correspondence_enabled: false,
+  tester_email_notifications_enabled: false,
+};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -37,6 +50,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
+  const [features, setFeatures] = useState<RuntimeFeatures>(defaultFeatures);
 
   const isAdmin = user?.role === 'admin';
   const isAuthenticated = !!token && !!user;
@@ -54,6 +68,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const response = await api.get('/auth/me');
       setUser(response.data);
+      const featureResponse = await api.get('/settings/features');
+      setFeatures(featureResponse.data);
     } catch (error) {
       console.error('Failed to fetch user:', error);
       localStorage.removeItem('token');
@@ -77,6 +93,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Fetch user fresh (important)
     const userResponse = await api.get('/auth/me');
     setUser(userResponse.data);
+    const featureResponse = await api.get('/settings/features');
+    setFeatures(featureResponse.data);
 
     toast.success('Login successful!');
 
@@ -119,6 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);
+    setFeatures(defaultFeatures);
     delete api.defaults.headers.common['Authorization'];
     toast.success('Logged out successfully');
   };
@@ -135,6 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         isAdmin,
         isAuthenticated,
+        features,
       }}
     >
       {children}

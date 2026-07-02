@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATE = ROOT / "scripts" / "migrate.py"
-EXPECTED_HEAD = "0006_case_notifications"
+EXPECTED_HEAD = "0007_rollout_flags"
 
 
 class MigrationCommandTests(unittest.TestCase):

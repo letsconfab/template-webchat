@@ -229,6 +229,27 @@ tables/nullable columns in place. Do not run destructive downgrades in
 production. Repair or roll forward a failed migration before restarting the
 service.
 
+### Feedback Case phased rollout
+
+Keep `admin_replay_enabled`, `tester_correspondence_enabled`, and
+`tester_email_notifications_enabled` disabled during the initial deploy.
+
+1. Deploy schema, WebSocket authentication, and Execution Trace capture with
+   all Feedback Case UIs disabled. Verify migration head, authenticated owner
+   reconnect, cross-user denial, and trace capture failure isolation.
+2. Run `make feedback-backfill` until its `pending` count is zero. Repeat runs
+   are safe. Verify quarantined sessions are absent from both replay APIs,
+   failed redactions remain fail-closed, replay pagination is complete, and
+   account deletion covers migrated data. Enable admin replay only after
+   `/api/admin/feedback-cases/rollout/readiness` reports `ready: true`.
+3. Verify case transitions, the absolute authenticated deep link, generic
+   email content, SMTP delivery, and retry. Then enable tester correspondence
+   and tester email notifications.
+
+Rollback disables the three flags and restores the previous application
+revision. Leave the additive schema and migrated rows in place; do not
+downgrade or delete backfilled data.
+
 ---
 
 ## Troubleshooting

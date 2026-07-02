@@ -9,6 +9,7 @@ from backend.database import get_db
 from backend.dependencies.auth import get_current_admin_user
 from backend.models.user import User
 from backend.services.case_notifications import case_notification_service
+from backend.services.features import require_feature
 
 
 router = APIRouter(
@@ -38,9 +39,9 @@ async def retry_case_notification(
     current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await require_feature(db, "tester_email_notifications_enabled")
     try:
         notification = await case_notification_service.attempt(db, notification_id)
     except LookupError:
         raise HTTPException(status_code=404, detail="Notification not found")
     return notification_response(notification)
-

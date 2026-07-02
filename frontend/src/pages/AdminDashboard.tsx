@@ -35,7 +35,7 @@ const AdminDashboard: React.FC = () => {
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const invitesPerPage = 5
-  const { user, logout } = useAuth()
+  const { user, logout, features } = useAuth()
   const navigate = useNavigate()
 
   const {
@@ -230,6 +230,7 @@ const AdminDashboard: React.FC = () => {
               </CardContent>
             </Card>
 
+          {features.admin_replay_enabled && (
           <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-amber-50/30">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
@@ -252,6 +253,7 @@ const AdminDashboard: React.FC = () => {
                 </Link>
               </CardContent>
             </Card>
+          )}
 
           <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-indigo-50/30">
               <CardHeader className="pb-4">

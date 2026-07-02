@@ -110,7 +110,7 @@ function App() {
                 <Route
                   path="/feedback"
                   element={
-                    <ProtectedRoute>
+                    <ProtectedRoute requiredFeature="tester_correspondence_enabled">
                       <FeedbackCasesPage />
                     </ProtectedRoute>
                   }
@@ -118,7 +118,7 @@ function App() {
                 <Route
                   path="/feedback/:caseId"
                   element={
-                    <ProtectedRoute>
+                    <ProtectedRoute requiredFeature="tester_correspondence_enabled">
                       <FeedbackCasesPage />
                     </ProtectedRoute>
                   }
@@ -144,7 +144,7 @@ function App() {
                 <Route 
                   path="/admin/feedback" 
                   element={
-                    <ProtectedRoute requireAdmin>
+                    <ProtectedRoute requireAdmin requiredFeature="admin_replay_enabled">
                       <AdminFeedbackCasesPage />
                     </ProtectedRoute>
                   } 
@@ -152,7 +152,7 @@ function App() {
                 <Route
                   path="/admin/feedback/:caseId"
                   element={
-                    <ProtectedRoute requireAdmin>
+                    <ProtectedRoute requireAdmin requiredFeature="admin_replay_enabled">
                       <AdminFeedbackCasesPage />
                     </ProtectedRoute>
                   }

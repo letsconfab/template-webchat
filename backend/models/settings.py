@@ -44,6 +44,11 @@ class SystemSettings(Base):
     # Feature Flags
     email_notifications_enabled = Column(Boolean, default=True, nullable=False)
     user_registration_enabled = Column(Boolean, default=True, nullable=False)
+    admin_replay_enabled = Column(Boolean, default=False, nullable=False)
+    tester_correspondence_enabled = Column(Boolean, default=False, nullable=False)
+    tester_email_notifications_enabled = Column(
+        Boolean, default=False, nullable=False
+    )
 
     # LLM Configuration (admin-controlled, shared by all users)
     llm_provider = Column(String(50), default="openai", nullable=False)

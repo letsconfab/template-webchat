@@ -1,0 +1,4 @@
+# Production uses the official, hash-pinned CPython 3.13 x86_64 CPU wheel.
+# Unconstrained Linux Torch wheels can pull multi-gigabyte NVIDIA runtimes.
+-r requirements.txt
+torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.10.0%2Bcpu-cp313-cp313-manylinux_2_28_x86_64.whl#sha256=8d316e5bf121f1eab1147e49ad0511a9d92e4c45cc357d1ab0bee440da71a095

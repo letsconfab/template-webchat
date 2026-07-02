@@ -29,12 +29,15 @@ git checkout main && git merge --ff-only <feature-branch> && git push origin mai
 # 1. build the frontend locally (the server cannot build it)
 cd frontend && npm run build && cd ..
 
-# 2. on the host: pull code and prepare the Python 3.13 release environment
+# 2. on the host: pull code, preflight dependencies/disk, then prepare the release environment
 ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
   "cd $DEPLOY_DIR && PREVIOUS_SHA=\$(git rev-parse HEAD) && \
    git checkout -- frontend/dist/index.html && git pull --ff-only origin $DEPLOY_BRANCH && \
-   RELEASE_SHA=\$(git rev-parse HEAD) && python3.13 -m venv .venv.release-\$RELEASE_SHA && \
-   .venv.release-\$RELEASE_SHA/bin/pip install -r requirements.txt && \
+   RELEASE_SHA=\$(git rev-parse HEAD) && python3.13 scripts/check_production_dependencies.py && \
+   python3.13 -m venv .venv.release-\$RELEASE_SHA && \
+   .venv.release-\$RELEASE_SHA/bin/pip install -r requirements-production.txt && \
+   HF_HOME=.cache/huggingface .venv.release-\$RELEASE_SHA/bin/python -c \
+     'from sentence_transformers import SentenceTransformer; m = SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\", device=\"cpu\"); assert m.device.type == \"cpu\"' && \
    .venv.release-\$RELEASE_SHA/bin/python -c 'import backend.main' && \
    mv .venv .venv.rollback-\$PREVIOUS_SHA && mv .venv.release-\$RELEASE_SHA .venv"
 
@@ -130,6 +133,8 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
 - SSH access to the host (key in `$SSH_KEY`); values in `deploy.local.md`.
 - Local Node toolchain (to build the frontend) and a clean local clone.
 - Python 3.13 on the host.
+- At least 4 GiB free on the production checkout filesystem before resolving
+  dependencies or creating a release virtualenv.
 - Write access to `origin/main`.
 
 ### Steps
@@ -137,7 +142,7 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    (usually a clean fast-forward) and `git push origin main`.
 2. **Build the frontend locally:** `cd frontend && npm run build`. Note the bundle
    hash in `dist/index.html` matches `dist/assets/`.
-3. **Pull backend code on the host and build an isolated release environment:**
+3. **Pull backend code and run the dependency/disk preflight on the host:**
 
    ```bash
    cd $DEPLOY_DIR
@@ -145,15 +150,41 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    git checkout -- frontend/dist/index.html
    git pull --ff-only origin $DEPLOY_BRANCH
    RELEASE_SHA=$(git rev-parse HEAD)
+   python3.13 scripts/check_production_dependencies.py
+   ```
+
+   The preflight resolves binary wheels for clean Linux CPython 3.13 before
+   creating or populating a release virtualenv. It requires the official,
+   hash-pinned
+   `torch==2.10.0+cpu` wheel, rejects NVIDIA/CUDA/cuDNN/cuBLAS/NCCL/NVSHMEM and
+   Triton packages, rejects expanded wheel payloads above the documented 3 GiB
+   dependency budget, and requires 4 GiB of free disk headroom. The CPU-only
+   policy is defined in `requirements-production.txt`; do not install
+   `requirements.txt` directly in production.
+
+4. **Build and verify an isolated release environment:**
+
+   ```bash
    python3.13 -m venv ".venv.release-$RELEASE_SHA"
-   ".venv.release-$RELEASE_SHA/bin/pip" install -r requirements.txt
+   ".venv.release-$RELEASE_SHA/bin/pip" install -r requirements-production.txt
+   HF_HOME=.cache/huggingface ".venv.release-$RELEASE_SHA/bin/python" -c \
+     'from sentence_transformers import SentenceTransformer; model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu"); assert model.device.type == "cpu"'
    ".venv.release-$RELEASE_SHA/bin/python" -c "import backend.main"
    ```
 
    Do not install release dependencies into the running `.venv`. Building a
    separate environment proves dependency installation and preserves the
-   current environment until the release is ready.
-4. **Activate the release environment and migrate:**
+   current environment until the release is ready. The model check also warms
+   the shared Hugging Face cache and proves the configured embedding model can
+   initialize without a GPU.
+
+   If resolution, installation, or verification fails, leave the active
+   `.venv` untouched. Once no install process is using it, remove only the
+   partial `".venv.release-$RELEASE_SHA"` directory and retry from the
+   dependency preflight. Never delete or replace `.venv`, and retain any
+   `.venv.rollback-*` directory until a successful deployment has passed smoke
+   tests.
+5. **Activate the release environment and migrate:**
 
    ```bash
    mv .venv ".venv.rollback-$PREVIOUS_SHA"
@@ -172,9 +203,9 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
 
    Retain the rollback environment until the release and its smoke tests have
    been verified.
-5. **Ship the frontend** (only if the frontend changed): scp `dist/index.html` and
+6. **Ship the frontend** (only if the frontend changed): scp `dist/index.html` and
    `dist/assets/*` into `$DEPLOY_DIR/frontend/dist/`.
-6. **Restart the backend:** `sudo systemctl restart webchat`, then confirm health
+7. **Restart the backend:** `sudo systemctl restart webchat`, then confirm health
    (see [Verification](#verification)).
    The systemd `ExecStartPre` repeats the idempotent migration preflight and
    refuses to start the new process if the database is not upgradeable.
@@ -303,6 +334,8 @@ downgrade or delete backfilled data.
 | Backend changes not live after a pull | service not restarted | `sudo systemctl restart webchat` (see [Managing the backend service](#managing-the-backend-service)) |
 | Site down after a reboot | a store or the backend didn't come up | check `docker ps` + `systemctl status webchat`; both are set to auto-start, so investigate logs |
 | `SECRET_KEY`/`NEO4J_PASSWORD` default errors on start | Server `.env` missing production secrets | App refuses to start in production with defaults — set real values in `$DEPLOY_DIR/.env` |
+| Dependency preflight reports GPU runtimes | Production Torch pin/index was removed or bypassed | Restore `requirements-production.txt`; do not create the release virtualenv |
+| Dependency preflight reports insufficient disk | Fewer than 4 GiB are free on the release filesystem | Remove only stale incomplete `.venv.release-*` directories after verifying no install uses them; never remove active `.venv` |
 
 ---
 
@@ -352,3 +385,4 @@ Likely future migrations and what to change here when they happen:
 | 2026-06-16 | Backend moved from a `screen` session to the `webchat` **systemd** service (auto-starts on boot; deploys now `git pull` → scp frontend → `sudo systemctl restart webchat`). Stores set to `restart: unless-stopped`; 4 GB swap added; host resized t3.small→t3.medium. | agent |
 | 2026-07-01 | Adopted Python 3.11 and Alembic; deployment now fails before restart when a migration fails and uses additive rollback. | agent |
 | 2026-07-02 | Promoted Python 3.13 to the application runtime baseline and added isolated release virtualenv creation with retained-environment rollback. | agent |
+| 2026-07-02 | Pinned production to CPU-only Torch and added Linux dependency, GPU-runtime, expanded-size, and disk-capacity preflights before release virtualenv creation. | agent |

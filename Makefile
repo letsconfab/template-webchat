@@ -22,13 +22,14 @@ COMPOSE_RUNTIME = $(shell \
 		echo "docker compose"; \
 	fi)
 
-.PHONY: help check-python setup install install-full install-fe db-upgrade db-current feedback-backfill run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
+.PHONY: help check-python check-production-deps setup install install-full install-fe db-upgrade db-current feedback-backfill run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
 
 # Default target
 help:
 	@echo "template-webchat - Available commands:"
 	@echo "  make setup         - Initial setup (create db, install deps)"
 	@echo "  make install      - Install backend dependencies (creates venv)"
+	@echo "  make check-production-deps - Resolve and size Linux CPU-only dependencies"
 	@echo "  make install-full - Install backend dependencies and note containerized RAG service"
 	@echo "  make install-fe   - Install frontend dependencies"
 	@echo "  make db-upgrade   - Upgrade or safely baseline the application database"
@@ -53,6 +54,9 @@ help:
 # Runtime baseline
 check-python:
 	@$(PYTHON) -c 'import sys; assert sys.version_info[:2] == (3, 13), "Python 3.13 is required"'
+
+check-production-deps: check-python
+	$(PYTHON) scripts/check_production_dependencies.py
 
 # Initial setup
 setup: check-python

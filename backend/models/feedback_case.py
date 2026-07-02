@@ -2,7 +2,15 @@
 
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import (
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 
 from backend.database import Base
@@ -12,9 +20,20 @@ class FeedbackCase(Base):
     """A durable negative rating tied to its owned conversation."""
 
     __tablename__ = "feedback_cases"
+    __table_args__ = (
+        UniqueConstraint(
+            "public_id",
+            name="uq_feedback_cases_public_id",
+        ),
+        Index(
+            "ix_feedback_cases_public_id",
+            "public_id",
+            unique=True,
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
-    public_id = Column(String(36), nullable=False, unique=True, index=True)
+    public_id = Column(String(36), nullable=False)
     feedback_id = Column(
         Integer,
         ForeignKey("user_feedback.id", ondelete="CASCADE"),

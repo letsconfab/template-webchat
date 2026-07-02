@@ -90,7 +90,10 @@ class CaseNotificationService:
         notification.last_attempt_at = datetime.utcnow()
         notification.state = "pending"
         notification.safe_error_category = None
-        await db.commit()
+        # Keep the row lock through the SMTP attempt. The reply and initial
+        # pending notification were committed before this method is called;
+        # retaining this lock only serializes retries for the same notification.
+        await db.flush()
 
         if not self._configured(settings):
             notification.state = "failed"

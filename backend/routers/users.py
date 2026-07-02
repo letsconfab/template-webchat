@@ -3,7 +3,7 @@ from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete, select, func
+from sqlalchemy import and_, delete, or_, select, func
 from sqlalchemy.orm import selectinload
 
 # from database import get_db
@@ -11,7 +11,9 @@ from backend.database import get_db
 from backend.middleware.auth import get_admin_user, get_current_active_user
 from backend.models.user import User, UserRole
 from backend.models.chat import ChatSession
-from backend.models.wiki import UserFeedback
+from backend.models.diagnostics import AdminProjection
+from backend.models.feedback_case import CaseReply, FeedbackCase
+from backend.models.wiki import ChatMessage, UserFeedback
 from backend.schemas.user import UserResponse, UserUpdate
 
 router = APIRouter(prefix="/api/admin", tags=["admin", "users"])
@@ -115,6 +117,35 @@ async def delete_user(
     # Existing feedback/message foreign keys predate database-level cascades.
     # Delete the user's owned diagnostic roots in dependency order; Feedback
     # Cases and Chat Messages cascade from these roots.
+    message_ids = (
+        select(ChatMessage.id)
+        .join(ChatSession, ChatSession.id == ChatMessage.chat_session_id)
+        .where(ChatSession.user_id == user.id)
+    )
+    feedback_ids = select(UserFeedback.id).where(UserFeedback.user_id == user.id)
+    reply_ids = (
+        select(CaseReply.id)
+        .join(FeedbackCase, FeedbackCase.id == CaseReply.case_id)
+        .where(FeedbackCase.user_id == user.id)
+    )
+    await db.execute(
+        delete(AdminProjection).where(
+            or_(
+                and_(
+                    AdminProjection.content_type == "chat_message",
+                    AdminProjection.content_id.in_(message_ids),
+                ),
+                and_(
+                    AdminProjection.content_type == "feedback",
+                    AdminProjection.content_id.in_(feedback_ids),
+                ),
+                and_(
+                    AdminProjection.content_type == "case_reply",
+                    AdminProjection.content_id.in_(reply_ids),
+                ),
+            )
+        )
+    )
     await db.execute(delete(UserFeedback).where(UserFeedback.user_id == user.id))
     await db.execute(delete(ChatSession).where(ChatSession.user_id == user.id))
     await db.delete(user)

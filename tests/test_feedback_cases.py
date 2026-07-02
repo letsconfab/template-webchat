@@ -17,6 +17,7 @@ from backend.database import Base, get_db
 from backend.models import invite, settings  # noqa: F401
 from backend.models.chat import ChatSession
 from backend.models.feedback_case import FeedbackCase
+from backend.models.diagnostics import AdminProjection
 from backend.models.user import User
 from backend.models.wiki import ChatMessage, UserFeedback
 from backend.routers import feedback, feedback_cases, users
@@ -125,6 +126,7 @@ class FeedbackCaseApiTests(unittest.TestCase):
     def setUp(self) -> None:
         async def reset_feedback() -> None:
             async with self.sessions() as session:
+                await session.execute(delete(AdminProjection))
                 await session.execute(delete(FeedbackCase))
                 await session.execute(delete(UserFeedback))
                 await session.commit()
@@ -360,15 +362,24 @@ class FeedbackCaseApiTests(unittest.TestCase):
         )
         self.assertEqual(deleted.status_code, 200)
 
-        async def remaining() -> tuple[int, bool]:
+        async def remaining() -> tuple[int, int, bool]:
             async with self.sessions() as session:
                 cases = await session.execute(
                     select(FeedbackCase).where(FeedbackCase.user_id == 104)
                 )
+                projections = await session.execute(
+                    select(AdminProjection).where(
+                        AdminProjection.content_type == "feedback"
+                    )
+                )
                 admin = await session.get(User, 103)
-                return len(cases.scalars().all()), admin is not None
+                return (
+                    len(cases.scalars().all()),
+                    len(projections.scalars().all()),
+                    admin is not None,
+                )
 
-        self.assertEqual(asyncio.run(remaining()), (0, True))
+        self.assertEqual(asyncio.run(remaining()), (0, 0, True))
 
 
 if __name__ == "__main__":

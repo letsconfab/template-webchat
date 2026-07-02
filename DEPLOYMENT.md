@@ -2,7 +2,7 @@
 
 > **Audience:** human maintainers and coding agents shipping this app to production.
 > **Status:** living document. See [Keeping this document current](#keeping-this-document-current) and the [Revision history](#revision-history).
-> **Last verified:** 2026-07-01.
+> **Last verified:** 2026-07-02.
 
 > [!IMPORTANT]
 > **This repository is public.** Do **not** commit production connection specifics
@@ -19,7 +19,7 @@ Production runs the FastAPI backend directly on an EC2 host as a **systemd
 service** (`webchat`), fronted by Caddy (TLS) and backed by Dockerized
 Postgres/Neo4j/Qdrant. **Deploying = push to `main`, then on the host `git pull` +
 ship the pre-built frontend bundle (the host has no Node) + run the migration
-preflight + `sudo systemctl restart webchat`.** Python 3.11 is required. The
+preflight + `sudo systemctl restart webchat`.** Python 3.13 is required. The
 systemd unit also runs the migration preflight and refuses to start on failure.
 
 ```bash
@@ -29,9 +29,14 @@ git checkout main && git merge --ff-only <feature-branch> && git push origin mai
 # 1. build the frontend locally (the server cannot build it)
 cd frontend && npm run build && cd ..
 
-# 2. on the host: pull backend code (see deploy.local.md for $VARS)
+# 2. on the host: pull code and prepare the Python 3.13 release environment
 ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
-  "cd $DEPLOY_DIR && git checkout -- frontend/dist/index.html && git pull --ff-only origin $DEPLOY_BRANCH"
+  "cd $DEPLOY_DIR && PREVIOUS_SHA=\$(git rev-parse HEAD) && \
+   git checkout -- frontend/dist/index.html && git pull --ff-only origin $DEPLOY_BRANCH && \
+   RELEASE_SHA=\$(git rev-parse HEAD) && python3.13 -m venv .venv.release-\$RELEASE_SHA && \
+   .venv.release-\$RELEASE_SHA/bin/pip install -r requirements.txt && \
+   .venv.release-\$RELEASE_SHA/bin/python -c 'import backend.main' && \
+   mv .venv .venv.rollback-\$PREVIOUS_SHA && mv .venv.release-\$RELEASE_SHA .venv"
 
 # 3. ship the built frontend (index.html + hashed assets)
 scp -i $SSH_KEY frontend/dist/index.html $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/index.html
@@ -124,6 +129,7 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
 ### Prerequisites
 - SSH access to the host (key in `$SSH_KEY`); values in `deploy.local.md`.
 - Local Node toolchain (to build the frontend) and a clean local clone.
+- Python 3.13 on the host.
 - Write access to `origin/main`.
 
 ### Steps
@@ -131,14 +137,47 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    (usually a clean fast-forward) and `git push origin main`.
 2. **Build the frontend locally:** `cd frontend && npm run build`. Note the bundle
    hash in `dist/index.html` matches `dist/assets/`.
-3. **Pull backend code on the host:**
-   `cd $DEPLOY_DIR && git checkout -- frontend/dist/index.html && git pull --ff-only origin $DEPLOY_BRANCH`.
-4. **Ship the frontend** (only if the frontend changed): scp `dist/index.html` and
+3. **Pull backend code on the host and build an isolated release environment:**
+
+   ```bash
+   cd $DEPLOY_DIR
+   PREVIOUS_SHA=$(git rev-parse HEAD)
+   git checkout -- frontend/dist/index.html
+   git pull --ff-only origin $DEPLOY_BRANCH
+   RELEASE_SHA=$(git rev-parse HEAD)
+   python3.13 -m venv ".venv.release-$RELEASE_SHA"
+   ".venv.release-$RELEASE_SHA/bin/pip" install -r requirements.txt
+   ".venv.release-$RELEASE_SHA/bin/python" -c "import backend.main"
+   ```
+
+   Do not install release dependencies into the running `.venv`. Building a
+   separate environment proves dependency installation and preserves the
+   current environment until the release is ready.
+4. **Activate the release environment and migrate:**
+
+   ```bash
+   mv .venv ".venv.rollback-$PREVIOUS_SHA"
+   mv ".venv.release-$RELEASE_SHA" .venv
+   .venv/bin/python scripts/migrate.py upgrade
+   .venv/bin/python scripts/migrate.py current
+   ```
+
+   If either migration command fails, restore the previous virtualenv before
+   taking any further deployment action:
+
+   ```bash
+   mv .venv ".venv.failed-$RELEASE_SHA"
+   mv ".venv.rollback-$PREVIOUS_SHA" .venv
+   ```
+
+   Retain the rollback environment until the release and its smoke tests have
+   been verified.
+5. **Ship the frontend** (only if the frontend changed): scp `dist/index.html` and
    `dist/assets/*` into `$DEPLOY_DIR/frontend/dist/`.
-5. **Restart the backend:** `sudo systemctl restart webchat`, then confirm health
+6. **Restart the backend:** `sudo systemctl restart webchat`, then confirm health
    (see [Verification](#verification)).
-6. **Migrations:** apply automatically on startup via `run_migrations()` (idempotent,
-   guarded with `IF NOT EXISTS` / `information_schema` checks). No manual step.
+   The systemd `ExecStartPre` repeats the idempotent migration preflight and
+   refuses to start the new process if the database is not upgradeable.
 
 ---
 
@@ -169,12 +208,13 @@ confirm GraphRAG grounding, or `/api/feedback/admin` shape with an admin token).
 ## Rollback
 
 Because deploys are a `git pull` + scp, rollback is a checkout of the previous
-commit plus re-shipping that commit's frontend build:
+commit, restoration of its retained virtualenv, and re-shipping that commit's
+frontend build:
 
 ```bash
 # on the host: roll backend code back
 ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
-  "cd $DEPLOY_DIR && git checkout -- frontend/dist/index.html && git reset --hard <previous-good-sha>"
+  "cd $DEPLOY_DIR && git checkout -- frontend/dist/index.html && git reset --hard <previous-good-sha> && mv .venv .venv.failed && mv .venv.rollback-<previous-good-sha> .venv"
 # locally: rebuild that SHA's frontend and scp dist/* back (see Runbook step 4)
 ```
 
@@ -202,7 +242,7 @@ The unit is defined at `/etc/systemd/system/webchat.service` (installed from the
 
 ## Database upgrades and rollback
 
-Python 3.11 is the supported local and production runtime. Before restarting,
+Python 3.13 is the supported local and production runtime. Before restarting,
 run:
 
 ```bash
@@ -311,3 +351,4 @@ Likely future migrations and what to change here when they happen:
 | 2026-06-16 | Initial methodology captured: screen + `uvicorn --reload`, Caddy, Dockerized stores, manual frontend scp, auto-migrations. Documented the no-Node/gitignored-assets constraint and the ghcr/systemd red herrings. | agent |
 | 2026-06-16 | Backend moved from a `screen` session to the `webchat` **systemd** service (auto-starts on boot; deploys now `git pull` → scp frontend → `sudo systemctl restart webchat`). Stores set to `restart: unless-stopped`; 4 GB swap added; host resized t3.small→t3.medium. | agent |
 | 2026-07-01 | Adopted Python 3.11 and Alembic; deployment now fails before restart when a migration fails and uses additive rollback. | agent |
+| 2026-07-02 | Promoted Python 3.13 to the application runtime baseline and added isolated release virtualenv creation with retained-environment rollback. | agent |

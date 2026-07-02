@@ -2,7 +2,7 @@
 
 # Virtual environment path
 VENV = .venv
-PYTHON = python3.11
+PYTHON = python3.13
 
 # Python path
 PYTHONPATH = $(CURDIR)
@@ -52,7 +52,7 @@ help:
 
 # Runtime baseline
 check-python:
-	@$(PYTHON) -c 'import sys; assert sys.version_info[:2] == (3, 11), "Python 3.11 is required"'
+	@$(PYTHON) -c 'import sys; assert sys.version_info[:2] == (3, 13), "Python 3.13 is required"'
 
 # Initial setup
 setup: check-python

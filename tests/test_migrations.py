@@ -16,11 +16,15 @@ EXPECTED_HEAD = "0007_rollout_flags"
 
 
 class MigrationCommandTests(unittest.TestCase):
-    def run_migrate(self, database: Path) -> subprocess.CompletedProcess[str]:
+    def run_migrate(
+        self,
+        database: Path,
+        action: str = "upgrade",
+    ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["DATABASE_URL"] = f"sqlite+aiosqlite:///{database}"
         return subprocess.run(
-            [sys.executable, str(MIGRATE), "upgrade"],
+            [sys.executable, str(MIGRATE), action],
             cwd=ROOT,
             env=env,
             capture_output=True,
@@ -101,6 +105,17 @@ class MigrationCommandTests(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stderr)
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertEqual(self.revision(database), EXPECTED_HEAD)
+
+    def test_current_reports_head_after_upgrade(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "current.db"
+            upgrade = self.run_migrate(database)
+
+            current = self.run_migrate(database, "current")
+
+            self.assertEqual(upgrade.returncode, 0, upgrade.stderr)
+            self.assertEqual(current.returncode, 0, current.stderr)
+            self.assertIn(f"{EXPECTED_HEAD} (head)", current.stdout)
 
     def test_migration_failure_is_reported(self) -> None:
         env = os.environ.copy()

@@ -19,7 +19,7 @@ RUN npm run build
 
 
 # Stage 2: Build Python backend
-FROM python:3.11-slim AS backend-builder
+FROM python:3.13-slim AS backend-builder
 
 WORKDIR /app
 
@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 
 # Stage 3: Final image
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 

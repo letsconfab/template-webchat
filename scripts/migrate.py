@@ -102,9 +102,9 @@ def current() -> None:
 
 
 def main() -> int:
-    if sys.version_info[:2] != (3, 11):
+    if sys.version_info[:2] != (3, 13):
         print(
-            f"Migration failed: Python 3.11 is required, got "
+            f"Migration failed: Python 3.13 is required, got "
             f"{sys.version_info.major}.{sys.version_info.minor}",
             file=sys.stderr,
         )

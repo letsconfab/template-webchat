@@ -2,7 +2,7 @@
 
 AI chat application with authentication, admin tooling, and a knowledge-book pipeline powered by a separate RAG-Anything container.
 
-Backend development and deployment require Python 3.11. The checked-in
+Backend development and deployment require Python 3.13. The checked-in
 `.python-version`, package metadata, Make targets, and container image enforce
 that runtime baseline.
 

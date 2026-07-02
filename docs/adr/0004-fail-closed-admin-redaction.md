@@ -18,7 +18,7 @@ cached, versioned administrative projection. User messages, assistant
 messages, feedback comments, source labels, and user Case Replies each record
 projection status as `pending`, `succeeded`, or `failed`.
 
-Generate projections locally under Python 3.11 with structured recognizers and
+Generate projections locally under Python 3.13 with structured recognizers and
 English named-entity recognition for people and locations. Do not send content
 to an LLM for redaction.
 
@@ -35,4 +35,3 @@ failures reduce diagnostic visibility instead of confidentiality. Backfill and
 readiness tooling must expose pending and failed counts, and admin replay
 cannot be enabled while eligible projections remain pending. Projection schema
 or recognizer changes require a new version and reprocessing.
-

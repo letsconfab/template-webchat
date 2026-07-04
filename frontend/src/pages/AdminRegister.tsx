@@ -93,7 +93,7 @@ const AdminRegister: React.FC = () => {
       clearTimeout(emailTimeout)
     }
     // Set new timeout to check invite after 500ms
-    const timeout = setTimeout(() => {
+    const timeout = window.setTimeout(() => {
       checkInviteByEmail(email)
     }, 500)
     setEmailTimeout(timeout)

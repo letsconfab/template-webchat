@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Loader2, ShieldCheck } from 'lucide-react'
 
+import { Alert, AlertDescription } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { api } from '../services/api'
@@ -49,6 +50,10 @@ export default function AdminFeedbackCasesPage() {
     } | null
   }>>([])
   const [reply, setReply] = useState('')
+  const [correspondenceEnabled, setCorrespondenceEnabled] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [actionSuccess, setActionSuccess] = useState('')
+  const [submittingAction, setSubmittingAction] = useState<'reply' | 'resolve' | null>(null)
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
@@ -74,6 +79,10 @@ export default function AdminFeedbackCasesPage() {
     }
 
     const loadReplay = async () => {
+      const features = await api.get('/settings/features')
+      setCorrespondenceEnabled(
+        Boolean(features.data.tester_correspondence_enabled),
+      )
       let cursor: number | null = null
       const replay: ReplayMessage[] = []
       do {
@@ -92,15 +101,64 @@ export default function AdminFeedbackCasesPage() {
   }, [caseId, statusFilter, categoryFilter, emailFilter, dateFrom, dateTo])
 
   const sendReply = async () => {
-    if (!caseId || !reply.trim()) return
-    await api.post(`/admin/feedback-cases/${caseId}/replies`, { text: reply })
-    window.location.reload()
+    if (
+      !caseId
+      || !correspondenceEnabled
+      || !reply.trim()
+      || submittingAction
+    ) return
+    const text = reply.trim()
+    setActionError('')
+    setActionSuccess('')
+    setSubmittingAction('reply')
+    try {
+      const response = await api.post(
+        `/admin/feedback-cases/${caseId}/replies`,
+        { text },
+      )
+      setReplies(current => [
+        ...current,
+        {
+          id: response.data.id,
+          author_role: 'admin',
+          text,
+          redaction_status: 'succeeded',
+          created_at: response.data.created_at,
+          notification: response.data.notification,
+        },
+      ])
+      setSelectedCase(current => (
+        current ? { ...current, status: response.data.status } : current
+      ))
+      setReply('')
+      setActionSuccess('Reply sent.')
+    } catch {
+      setActionError(
+        'Reply could not be sent. Your draft has been preserved. Please try again.',
+      )
+    } finally {
+      setSubmittingAction(null)
+    }
   }
 
   const resolveCase = async () => {
-    if (!caseId) return
-    await api.post(`/admin/feedback-cases/${caseId}/resolve`)
-    window.location.reload()
+    if (!caseId || !correspondenceEnabled || submittingAction) return
+    setActionError('')
+    setActionSuccess('')
+    setSubmittingAction('resolve')
+    try {
+      const response = await api.post(
+        `/admin/feedback-cases/${caseId}/resolve`,
+      )
+      setSelectedCase(current => (
+        current ? { ...current, status: response.data.status } : current
+      ))
+      setActionSuccess('Case resolved.')
+    } catch {
+      setActionError('Case could not be resolved. Please try again.')
+    } finally {
+      setSubmittingAction(null)
+    }
   }
 
   const retryNotification = async (notificationId: number) => {
@@ -145,6 +203,24 @@ export default function AdminFeedbackCasesPage() {
             <Card>
               <CardHeader><CardTitle>Correspondence</CardTitle></CardHeader>
               <CardContent className="space-y-3">
+                {!correspondenceEnabled && (
+                  <Alert>
+                    <AlertDescription>
+                      Correspondence is not enabled. Replies and case resolution
+                      are unavailable until the production rollout is completed.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {actionError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{actionError}</AlertDescription>
+                  </Alert>
+                )}
+                {actionSuccess && (
+                  <p role="status" className="text-sm text-green-700">
+                    {actionSuccess}
+                  </p>
+                )}
                 {replies.map(caseReply => (
                   <div key={caseReply.id} className="rounded-lg border p-3 text-sm">
                     <p className="mb-1 text-xs font-semibold">
@@ -170,14 +246,29 @@ export default function AdminFeedbackCasesPage() {
                   onChange={event => setReply(event.target.value)}
                   maxLength={4000}
                   placeholder="Reply to tester"
+                  disabled={!correspondenceEnabled}
                   className="min-h-24 w-full rounded-md border bg-background p-3 text-sm"
                 />
                 <div className="flex gap-2">
-                  <button onClick={sendReply} disabled={!reply.trim()} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">
-                    Send reply
+                  <button
+                    onClick={sendReply}
+                    disabled={
+                      !correspondenceEnabled
+                      || !reply.trim()
+                      || submittingAction !== null
+                    }
+                    className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
+                  >
+                    {submittingAction === 'reply' ? 'Sending reply…' : 'Send reply'}
                   </button>
-                  <button onClick={resolveCase} className="rounded-md border px-4 py-2 text-sm">
-                    Resolve
+                  <button
+                    onClick={resolveCase}
+                    disabled={
+                      !correspondenceEnabled || submittingAction !== null
+                    }
+                    className="rounded-md border px-4 py-2 text-sm disabled:opacity-50"
+                  >
+                    {submittingAction === 'resolve' ? 'Resolving…' : 'Resolve'}
                   </button>
                 </div>
               </CardContent>

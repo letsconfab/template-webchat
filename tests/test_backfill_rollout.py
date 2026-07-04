@@ -284,6 +284,23 @@ class BackfillRolloutTests(unittest.TestCase):
             ).status_code,
             404,
         )
+        admin_reply = self.client.post(
+            f"/api/admin/feedback-cases/{cases[0].public_id}/replies",
+            json={"text": "This must remain gated"},
+            headers=self.headers(503),
+        )
+        admin_resolve = self.client.post(
+            f"/api/admin/feedback-cases/{cases[0].public_id}/resolve",
+            headers=self.headers(503),
+        )
+        self.assertEqual(
+            (admin_reply.status_code, admin_reply.json()["detail"]),
+            (404, "Feature not enabled"),
+        )
+        self.assertEqual(
+            (admin_resolve.status_code, admin_resolve.json()["detail"]),
+            (404, "Feature not enabled"),
+        )
 
         correspondence_enabled = self.client.put(
             "/api/settings/current",

@@ -15,7 +15,7 @@ export const api = axios.create({
 // Add request interceptor to include auth token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = window.localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -31,7 +31,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
+      window.localStorage.removeItem('token');
       window.location.href = '/login';
     }
     return Promise.reject(error);
@@ -107,7 +107,7 @@ export class ChatWebSocket {
       // Authenticate before the server reads session data or chat settings.
       this.ws?.send(JSON.stringify({
         type: 'auth',
-        token: localStorage.getItem('token'),
+        token: window.localStorage.getItem('token'),
         session_id: getSessionId(),
         provider: settings.provider,
         model: settings.model,

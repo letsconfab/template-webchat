@@ -4,9 +4,14 @@
 #   <deploy-user>  -> the OS user that runs the app
 #   <deploy-dir>   -> absolute path to the git checkout (the WorkingDirectory)
 #
-# Install:
-#   sed -e 's|<deploy-user>|youruser|g' -e 's|<deploy-dir>|/home/youruser/template-webchat|g' \
-#       scripts/webchat.service | sudo tee /etc/systemd/system/webchat.service
+# Render and install:
+#   python3 scripts/render_webchat_service.py \
+#       --template scripts/webchat.service \
+#       --output /tmp/webchat.service \
+#       --deploy-user youruser \
+#       --deploy-dir /home/youruser/template-webchat
+#   systemd-analyze verify /tmp/webchat.service
+#   sudo install -m 0644 /tmp/webchat.service /etc/systemd/system/webchat.service
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now webchat
 #   journalctl -u webchat -f

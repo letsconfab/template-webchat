@@ -30,22 +30,30 @@ git checkout main && git merge --ff-only <feature-branch> && git push origin mai
 cd frontend && npm run build && cd ..
 
 # 2. on the host: pull code, preflight dependencies/disk, then prepare the release environment
+PREVIOUS_SHA=$(ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
+  git -C $DEPLOY_DIR rev-parse HEAD)
 ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
   "cd $DEPLOY_DIR && PREVIOUS_SHA=\$(git rev-parse HEAD) && \
    git checkout -- frontend/dist/index.html && git pull --ff-only origin $DEPLOY_BRANCH && \
    RELEASE_SHA=\$(git rev-parse HEAD) && python3.13 scripts/check_production_dependencies.py && \
    python3.13 -m venv .venv.release-\$RELEASE_SHA && \
-   .venv.release-\$RELEASE_SHA/bin/pip install -r requirements-production.txt && \
-   HF_HOME=.cache/huggingface .venv.release-\$RELEASE_SHA/bin/python -c \
-     'from sentence_transformers import SentenceTransformer; m = SentenceTransformer(\"sentence-transformers/all-MiniLM-L6-v2\", device=\"cpu\"); assert m.device.type == \"cpu\"' && \
-   .venv.release-\$RELEASE_SHA/bin/python -c 'import backend.main' && \
-   mv .venv .venv.rollback-\$PREVIOUS_SHA && mv .venv.release-\$RELEASE_SHA .venv"
+   .venv.release-\$RELEASE_SHA/bin/pip install -r requirements-production.txt"
 
-# 3. ship the built frontend (index.html + hashed assets)
+# 3. verify through tracked scripts, then transactionally activate the environment
+ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
+  "cd $DEPLOY_DIR && RELEASE_SHA=\$(git rev-parse HEAD) && \
+   .venv.release-\$RELEASE_SHA/bin/python scripts/verify_release.py model \
+     --cache-dir /home/$DEPLOY_USER/.cache/huggingface && \
+   .venv.release-\$RELEASE_SHA/bin/python scripts/verify_release.py backend-import && \
+   .venv.release-\$RELEASE_SHA/bin/python scripts/manage_release_environment.py activate \
+     --active .venv --release .venv.release-\$RELEASE_SHA \
+     --rollback .venv.rollback-\$PREVIOUS_SHA"
+
+# 4. ship the built frontend (index.html + hashed assets)
 scp -i $SSH_KEY frontend/dist/index.html $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/index.html
 scp -i $SSH_KEY frontend/dist/assets/*  $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/assets/
 
-# 4. migrate, restart the backend service, then verify
+# 5. migrate, restart the backend service, then verify
 ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
   "cd $DEPLOY_DIR && .venv/bin/python scripts/migrate.py upgrade && sudo systemctl restart webchat"
 curl -s $PUBLIC_URL/health   # -> {"status":"healthy"}
@@ -169,9 +177,9 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    ```bash
    python3.13 -m venv ".venv.release-$RELEASE_SHA"
    ".venv.release-$RELEASE_SHA/bin/pip" install -r requirements-production.txt
-   HF_HOME=.cache/huggingface ".venv.release-$RELEASE_SHA/bin/python" -c \
-     'from sentence_transformers import SentenceTransformer; model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu"); assert model.device.type == "cpu"'
-   ".venv.release-$RELEASE_SHA/bin/python" -c "import backend.main"
+   ".venv.release-$RELEASE_SHA/bin/python" scripts/verify_release.py model \
+     --cache-dir "$HOME/.cache/huggingface"
+   ".venv.release-$RELEASE_SHA/bin/python" scripts/verify_release.py backend-import
    ```
 
    Do not install release dependencies into the running `.venv`. Building a
@@ -189,8 +197,11 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
 5. **Activate the release environment and migrate:**
 
    ```bash
-   mv .venv ".venv.rollback-$PREVIOUS_SHA"
-   mv ".venv.release-$RELEASE_SHA" .venv
+   ".venv.release-$RELEASE_SHA/bin/python" scripts/manage_release_environment.py \
+     activate \
+     --active .venv \
+     --release ".venv.release-$RELEASE_SHA" \
+     --rollback ".venv.rollback-$PREVIOUS_SHA"
    .venv/bin/python scripts/migrate.py upgrade
    .venv/bin/python scripts/migrate.py current
    ```
@@ -199,15 +210,37 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    taking any further deployment action:
 
    ```bash
-   mv .venv ".venv.failed-$RELEASE_SHA"
-   mv ".venv.rollback-$PREVIOUS_SHA" .venv
+   .venv/bin/python scripts/manage_release_environment.py rollback \
+     --active .venv \
+     --rollback ".venv.rollback-$PREVIOUS_SHA" \
+     --failed ".venv.failed-$RELEASE_SHA"
    ```
 
    Retain the rollback environment until the release and its smoke tests have
    been verified.
-6. **Ship the frontend** (only if the frontend changed): scp `dist/index.html` and
+6. **Render and validate the systemd unit locally, then install it:**
+
+   ```bash
+   python3.13 scripts/render_webchat_service.py \
+     --template scripts/webchat.service \
+     --output "/tmp/webchat.service.$RELEASE_SHA" \
+     --deploy-user "$DEPLOY_USER" \
+     --deploy-dir "$DEPLOY_DIR"
+   scp -i "$SSH_KEY" "/tmp/webchat.service.$RELEASE_SHA" \
+     "$DEPLOY_USER@$DEPLOY_HOST:/tmp/webchat.service.$RELEASE_SHA"
+   ssh -i "$SSH_KEY" "$DEPLOY_USER@$DEPLOY_HOST" \
+     systemd-analyze verify "/tmp/webchat.service.$RELEASE_SHA"
+   ssh -i "$SSH_KEY" "$DEPLOY_USER@$DEPLOY_HOST" \
+     sudo install -m 0644 "/tmp/webchat.service.$RELEASE_SHA" \
+     /etc/systemd/system/webchat.service
+   ```
+
+   Do not render the unit with remote `sed`; SSH does not preserve remote argv
+   boundaries and shell metacharacters may be reinterpreted.
+
+7. **Ship the frontend** (only if the frontend changed): scp `dist/index.html` and
    `dist/assets/*` into `$DEPLOY_DIR/frontend/dist/`.
-7. **Restart the backend:** `sudo systemctl restart webchat`, then confirm health
+8. **Restart the backend:** `sudo systemctl restart webchat`, then confirm health
    (see [Verification](#verification)).
    The systemd `ExecStartPre` repeats the idempotent migration preflight and
    refuses to start the new process if the database is not upgradeable.
@@ -247,8 +280,14 @@ frontend build:
 ```bash
 # on the host: roll backend code back
 ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
-  "cd $DEPLOY_DIR && git checkout -- frontend/dist/index.html && git reset --hard <previous-good-sha> && mv .venv .venv.failed && mv .venv.rollback-<previous-good-sha> .venv"
-# locally: rebuild that SHA's frontend and scp dist/* back (see Runbook step 4)
+  "cd $DEPLOY_DIR && \
+   .venv/bin/python scripts/manage_release_environment.py rollback \
+     --active .venv \
+     --rollback .venv.rollback-<previous-good-sha> \
+     --failed .venv.failed-<failed-release-sha> && \
+   git checkout -- frontend/dist/index.html && \
+   git reset --hard <previous-good-sha>"
+# locally: rebuild that SHA's frontend and scp dist/* back (see Runbook step 7)
 ```
 
 After resetting the code, `sudo systemctl restart webchat` to load it. Prefer

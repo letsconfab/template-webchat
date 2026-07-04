@@ -128,6 +128,25 @@ class ServiceRendererTests(unittest.TestCase):
         )
         self.assertNotIn("<deploy-", rendered)
 
+    def test_unit_executes_only_the_rename_safe_interpreter(self) -> None:
+        template = SERVICE_TEMPLATE.read_text(encoding="utf-8")
+
+        exec_lines = [
+            line
+            for line in template.splitlines()
+            if line.startswith(("ExecStart", "ExecStop", "ExecReload"))
+        ]
+
+        self.assertTrue(exec_lines)
+        for line in exec_lines:
+            command = line.split("=", 1)[1].strip().lstrip("-@:+!")
+            self.assertTrue(
+                command.startswith("<deploy-dir>/.venv/bin/python"),
+                "Unit must exec .venv/bin/python (a rename-safe symlink); "
+                "console scripts break after transactional activation "
+                f"renames the release environment: {line}",
+            )
+
     def test_rejects_relative_deploy_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(

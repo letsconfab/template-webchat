@@ -336,8 +336,15 @@ revisions. Re-execution is idempotent. Do not manually stamp partial schemas.
 Verify the reported revision matches:
 
 ```bash
-.venv/bin/alembic heads
+.venv/bin/python -m alembic heads
 ```
+
+Always invoke tools from the activated environment as modules
+(`.venv/bin/python -m <tool>`), never through their console scripts
+(`.venv/bin/uvicorn`, `.venv/bin/alembic`, `.venv/bin/pip`, ...). Console
+scripts hard-code the interpreter path recorded when the virtualenv was
+created, so they stop working after the release environment is renamed to
+`.venv` during activation; `bin/python` is a symlink and survives the rename.
 
 Feature migrations are additive. Rollback means disabling the affected feature
 flag and restoring the previous application revision while leaving the newer

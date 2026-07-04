@@ -12,11 +12,13 @@ from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from dotenv import load_dotenv
 from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import create_async_engine
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE_VARIABLE = "MIGRATE_ENV_FILE"
 LEGACY_BASELINE = "0001_current_schema"
 CURRENT_SCHEMA_TABLES = {
     "users",
@@ -34,6 +36,22 @@ def alembic_config() -> Config:
     config = Config(ROOT / "alembic.ini")
     config.set_main_option("script_location", str(ROOT / "alembic"))
     return config
+
+
+def database_url() -> str:
+    """Resolve DATABASE_URL from the environment or the repository .env.
+
+    Deployment entry points invoke this script directly, without the
+    application settings module, so the checkout .env must be loaded here.
+    An already-exported DATABASE_URL always wins over the file.
+    """
+    load_dotenv(os.environ.get(ENV_FILE_VARIABLE, ROOT / ".env"))
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise RuntimeError(
+            f"DATABASE_URL is not set in the environment or in {ROOT / '.env'}"
+        )
+    return url
 
 
 async def get_table_names(database_url: str) -> set[str]:
@@ -63,8 +81,8 @@ async def get_current_revision(database_url: str) -> str | None:
 
 
 def upgrade() -> None:
-    database_url = os.environ["DATABASE_URL"]
-    tables = asyncio.run(get_table_names(database_url))
+    url = database_url()
+    tables = asyncio.run(get_table_names(url))
     config = alembic_config()
 
     if "alembic_version" in tables:
@@ -92,13 +110,25 @@ def upgrade() -> None:
 def current() -> None:
     config = alembic_config()
     expected_heads = set(ScriptDirectory.from_config(config).get_heads())
-    revision = asyncio.run(get_current_revision(os.environ["DATABASE_URL"]))
+    revision = asyncio.run(get_current_revision(database_url()))
     if revision not in expected_heads:
         raise RuntimeError(
             f"Database revision {revision or 'none'} is not at head "
             f"({', '.join(sorted(expected_heads))})"
         )
     print(f"{revision} (head)")
+
+
+def check() -> None:
+    """Prove environment loading and database connectivity without mutating.
+
+    Succeeds at any revision, including a pre-Alembic database, so it can run
+    before the first upgrade to validate the full execution path.
+    """
+    config = alembic_config()
+    heads = ", ".join(sorted(ScriptDirectory.from_config(config).get_heads()))
+    revision = asyncio.run(get_current_revision(database_url()))
+    print(f"database revision: {revision or 'none'}; script head: {heads}")
 
 
 def main() -> int:
@@ -116,6 +146,8 @@ def main() -> int:
             upgrade()
         elif action == "current":
             current()
+        elif action == "check":
+            check()
         else:
             raise ValueError(f"Unknown action: {action}")
     except Exception as error:

@@ -180,13 +180,17 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    ".venv.release-$RELEASE_SHA/bin/python" scripts/verify_release.py model \
      --cache-dir "$HOME/.cache/huggingface"
    ".venv.release-$RELEASE_SHA/bin/python" scripts/verify_release.py backend-import
+   ".venv.release-$RELEASE_SHA/bin/python" scripts/migrate.py check
    ```
 
    Do not install release dependencies into the running `.venv`. Building a
    separate environment proves dependency installation and preserves the
    current environment until the release is ready. The model check also warms
    the shared Hugging Face cache and proves the configured embedding model can
-   initialize without a GPU.
+   initialize without a GPU. The non-mutating `migrate.py check` proves the
+   migration entry point can resolve `DATABASE_URL` (from the checkout `.env`
+   when it is not exported) and reach PostgreSQL before anything is activated;
+   it succeeds at any revision, including a pre-Alembic database.
 
    If resolution, installation, or verification fails, leave the active
    `.venv` untouched. Once no install process is using it, remove only the

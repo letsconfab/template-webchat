@@ -117,6 +117,79 @@ class MigrationCommandTests(unittest.TestCase):
             self.assertEqual(current.returncode, 0, current.stderr)
             self.assertIn(f"{EXPECTED_HEAD} (head)", current.stdout)
 
+    def run_migrate_with_env(
+        self,
+        env: dict[str, str],
+        action: str = "upgrade",
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(MIGRATE), action],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_upgrade_loads_database_url_from_env_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "dotenv.db"
+            env_file = Path(directory) / ".env"
+            env_file.write_text(
+                f"DATABASE_URL=sqlite+aiosqlite:///{database}\n",
+                encoding="utf-8",
+            )
+            env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL"}
+            env["MIGRATE_ENV_FILE"] = str(env_file)
+
+            result = self.run_migrate_with_env(env)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.revision(database), EXPECTED_HEAD)
+
+    def test_environment_variable_overrides_env_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            exported = Path(directory) / "exported.db"
+            from_file = Path(directory) / "from-file.db"
+            env_file = Path(directory) / ".env"
+            env_file.write_text(
+                f"DATABASE_URL=sqlite+aiosqlite:///{from_file}\n",
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env["DATABASE_URL"] = f"sqlite+aiosqlite:///{exported}"
+            env["MIGRATE_ENV_FILE"] = str(env_file)
+
+            result = self.run_migrate_with_env(env)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.revision(exported), EXPECTED_HEAD)
+            self.assertFalse(from_file.exists())
+
+    def test_missing_database_url_reports_clear_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL"}
+            env["MIGRATE_ENV_FILE"] = str(Path(directory) / "absent.env")
+
+            result = self.run_migrate_with_env(env)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("DATABASE_URL is not set", result.stderr)
+
+    def test_check_succeeds_before_and_after_upgrade(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "check.db"
+
+            before = self.run_migrate(database, "check")
+            upgrade = self.run_migrate(database)
+            after = self.run_migrate(database, "check")
+
+            self.assertEqual(before.returncode, 0, before.stderr)
+            self.assertIn("database revision: none", before.stdout)
+            self.assertEqual(upgrade.returncode, 0, upgrade.stderr)
+            self.assertEqual(after.returncode, 0, after.stderr)
+            self.assertIn(f"database revision: {EXPECTED_HEAD}", after.stdout)
+
     def test_migration_failure_is_reported(self) -> None:
         env = os.environ.copy()
         env["DATABASE_URL"] = "not-a-database-url"

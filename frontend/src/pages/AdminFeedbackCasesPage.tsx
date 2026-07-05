@@ -5,6 +5,7 @@ import { Loader2, ShieldCheck } from 'lucide-react'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Markdown } from '../components/Markdown'
 import { api } from '../services/api'
 
 interface AdminCase {
@@ -285,11 +286,15 @@ export default function AdminFeedbackCasesPage() {
                       {message.is_rated && <Badge>Rated answer</Badge>}
                       {message.is_post_feedback && <Badge variant="secondary">After rated answer</Badge>}
                     </div>
-                    <p className="whitespace-pre-wrap text-sm">
-                      {message.redaction_status === 'succeeded'
-                        ? message.content
-                        : 'Content unavailable pending privacy processing'}
-                    </p>
+                    {message.redaction_status === 'succeeded' ? (
+                      <Markdown className="prose prose-sm max-w-none text-sm dark:prose-invert">
+                        {message.content}
+                      </Markdown>
+                    ) : (
+                      <p className="text-sm">
+                        Content unavailable pending privacy processing
+                      </p>
+                    )}
                     {message.role === 'assistant' && message.execution_trace && (
                       <details className="text-xs">
                         <summary className="cursor-pointer font-medium">

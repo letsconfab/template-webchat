@@ -5,8 +5,7 @@ import { ChatWebSocket, type Settings as ChatSettings, getSessionId, api } from 
 import { useAuth } from '../contexts/AuthContext'
 import { Badge } from '../components/ui/badge'
 import { Textarea } from '../components/ui/textarea'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { Markdown } from '../components/Markdown'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -475,13 +474,13 @@ export default function ChatPage() {
                     </div>
                   )}
                   
-                  <div
+                  <Markdown
                     className={`prose prose-sm max-w-none ${
                       msg.role === 'user' ? 'prose-invert' : 'dark:prose-invert'
                     }`}
                   >
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                  </div>
+                    {msg.content}
+                  </Markdown>
                   
                   {msg.role === 'assistant' && (
                     <>
@@ -588,9 +587,9 @@ export default function ChatPage() {
                     </div>
                   )}
                   {currentResponse && (
-                    <div className="px-4 py-3 prose prose-sm max-w-none dark:prose-invert">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentResponse}</ReactMarkdown>
-                    </div>
+                    <Markdown className="px-4 py-3 prose prose-sm max-w-none dark:prose-invert">
+                      {currentResponse}
+                    </Markdown>
                   )}
                   {!currentResponse && thinkingLines.length > 0 && (
                     <div className="px-4 pb-3">

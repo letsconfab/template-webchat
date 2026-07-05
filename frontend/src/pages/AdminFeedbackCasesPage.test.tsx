@@ -49,9 +49,9 @@ function featureHandler(correspondenceEnabled: boolean) {
   )
 }
 
-function replayHandler() {
+function replayHandler(overrides: Partial<ReturnType<typeof replayResponse>> = {}) {
   return http.get(`/api/admin/feedback-cases/${caseId}/replay`, () =>
-    HttpResponse.json(replayResponse()),
+    HttpResponse.json({ ...replayResponse(), ...overrides }),
   )
 }
 
@@ -135,6 +135,65 @@ describe('AdminFeedbackCasesPage', () => {
     expect(draft).toHaveValue('')
     expect(submittedText).toBe('Thanks for the feedback.')
     expect(submitCount).toBe(1)
+  })
+
+  it('renders succeeded assistant replay content as Markdown, not raw text', async () => {
+    server.use(
+      featureHandler(false),
+      replayHandler({
+        messages: [
+          {
+            id: 1,
+            role: 'assistant',
+            content: '## Level 1\n\n**bold**\n\n| a | b |\n| - | - |\n| 1 | 2 |',
+            redaction_status: 'succeeded',
+            created_at: '2026-07-04T12:01:00Z',
+            is_rated: false,
+            is_post_feedback: false,
+            execution_trace: null,
+          },
+        ],
+      }),
+    )
+
+    const { container } = renderCasePage()
+    await screen.findByPlaceholderText('Reply to tester')
+
+    // Markdown is rendered to real DOM elements...
+    expect(container.querySelector('h2')).toHaveTextContent('Level 1')
+    expect(container.querySelector('strong')).toHaveTextContent('bold')
+    expect(container.querySelector('table')).toBeInTheDocument()
+    // ...and the literal syntax is gone.
+    expect(screen.queryByText(/## Level 1/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/\| a \| b \|/)).not.toBeInTheDocument()
+  })
+
+  it('keeps unavailable replay content plain and does not render it as Markdown', async () => {
+    server.use(
+      featureHandler(false),
+      replayHandler({
+        messages: [
+          {
+            id: 2,
+            role: 'assistant',
+            content: null,
+            redaction_status: 'pending',
+            created_at: '2026-07-04T12:02:00Z',
+            is_rated: false,
+            is_post_feedback: false,
+            execution_trace: null,
+          },
+        ],
+      }),
+    )
+
+    const { container } = renderCasePage()
+    await screen.findByPlaceholderText('Reply to tester')
+
+    expect(
+      screen.getByText('Content unavailable pending privacy processing'),
+    ).toBeVisible()
+    expect(container.querySelector('h2')).not.toBeInTheDocument()
   })
 
   it('shows an error when case resolution fails', async () => {

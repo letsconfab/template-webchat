@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -13,12 +13,18 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>
 
+function isSafeReturnTo(path: string | null | undefined): path is string {
+  return !!path && path.startsWith('/') && !path.startsWith('//')
+}
+
 const AdminLogin: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const { login, user } = useAuth()
+  const { login, user, isLoading: authLoading, featuresLoaded } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  // Survives effect re-runs after a destructive sessionStorage read/clear.
+  const returnToRef = useRef<string | null>(null)
 
   const {
     register,
@@ -29,27 +35,57 @@ const AdminLogin: React.FC = () => {
     resolver: zodResolver(loginSchema)
   })
 
+  // Promote session-only deep links into the URL so StrictMode remounts and
+  // later effect runs still see returnTo even if sessionStorage was cleared.
+  useEffect(() => {
+    const fromQuery = searchParams.get('returnTo')
+    if (isSafeReturnTo(fromQuery)) {
+      returnToRef.current = fromQuery
+      return
+    }
+    if (returnToRef.current) {
+      return
+    }
+    let fromSession: string | null = null
+    try {
+      fromSession = sessionStorage.getItem('postLoginReturnTo')
+    } catch {
+      // Ignore sessionStorage failures (private mode quotas, etc.).
+    }
+    if (!isSafeReturnTo(fromSession)) {
+      return
+    }
+    returnToRef.current = fromSession
+    navigate(`/login?returnTo=${encodeURIComponent(fromSession)}`, { replace: true })
+  }, [searchParams, navigate])
+
   // Handle navigation after successful login
   useEffect(() => {
-    if (user) {
-      const fromQuery = searchParams.get('returnTo')
-      let fromSession: string | null = null
+    if (!user || authLoading) {
+      return
+    }
+    const requested = returnToRef.current ?? searchParams.get('returnTo')
+    const isFeatureGatedFeedback =
+      typeof requested === 'string' && requested.startsWith('/feedback')
+    if (isFeatureGatedFeedback && !featuresLoaded) {
+      return
+    }
+    if (isSafeReturnTo(requested)) {
+      returnToRef.current = requested
+      navigate(requested)
+      // Clear only after committing navigation so a re-run still has session
+      // backup when the query does not yet carry returnTo.
       try {
-        fromSession = sessionStorage.getItem('postLoginReturnTo')
         sessionStorage.removeItem('postLoginReturnTo')
       } catch {
         // Ignore sessionStorage failures (private mode quotas, etc.).
       }
-      const requested = fromQuery || fromSession
-      if (requested?.startsWith('/') && !requested.startsWith('//')) {
-        navigate(requested)
-      } else if (user.role === 'admin') {
-        navigate('/admin/dashboard')
-      } else {
-        navigate('/chat')
-      }
+    } else if (user.role === 'admin') {
+      navigate('/admin/dashboard')
+    } else {
+      navigate('/chat')
     }
-  }, [user, navigate, searchParams])
+  }, [user, authLoading, featuresLoaded, navigate, searchParams])
 
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true)

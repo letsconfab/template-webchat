@@ -29,6 +29,11 @@ function LocationProbe({ label }: { label: string }) {
   )
 }
 
+function LoginSearchProbe() {
+  const location = useLocation()
+  return <p data-testid="login-search">{location.search.replace(/^\?/, '')}</p>
+}
+
 function renderEmailLinkFlow() {
   return render(
     <AuthProvider>
@@ -160,5 +165,145 @@ describe('post-login redirect from email feedback link', () => {
       expect(screen.getByTestId('current-path')).toHaveTextContent(feedbackPath)
     })
     expect(screen.queryByRole('heading', { name: 'Chat page' })).not.toBeInTheDocument()
+  })
+
+  it('still returns to the Feedback Case after sessionStorage is cleared once returnTo is in the query', async () => {
+    sessionStorage.setItem('postLoginReturnTo', feedbackPath)
+    server.use(
+      http.post('/api/auth/login', () =>
+        HttpResponse.json({ access_token: 'test-token' }),
+      ),
+      http.get('/api/auth/me', () =>
+        HttpResponse.json({
+          id: 1,
+          email: 'tester@example.com',
+          role: 'user',
+          is_active: true,
+          created_at: '2026-07-14T12:00:00Z',
+          updated_at: '2026-07-14T12:00:00Z',
+        }),
+      ),
+      http.get('/api/settings/features', () =>
+        HttpResponse.json({
+          admin_replay_enabled: true,
+          tester_correspondence_enabled: true,
+          tester_email_notifications_enabled: true,
+        }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/login']}>
+          <Routes>
+            <Route
+              path="/login"
+              element={
+                <>
+                  <AdminLogin />
+                  <LoginSearchProbe />
+                </>
+              }
+            />
+            <Route
+              path="/chat"
+              element={
+                <ProtectedRoute>
+                  <LocationProbe label="Chat page" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/feedback/:caseId"
+              element={
+                <ProtectedRoute requiredFeature="tester_correspondence_enabled">
+                  <LocationProbe label="Feedback case page" />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('login-search')).toHaveTextContent(
+        `returnTo=${encodeURIComponent(feedbackPath)}`,
+      )
+    })
+
+    // Simulate a destructive read / StrictMode remount clearing the session key
+    // after the deep link has already been promoted into the query.
+    sessionStorage.removeItem('postLoginReturnTo')
+
+    await user.type(screen.getByLabelText('Email Address'), 'tester@example.com')
+    await user.type(screen.getByLabelText('Password'), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('current-path')).toHaveTextContent(feedbackPath)
+    })
+    expect(screen.queryByRole('heading', { name: 'Chat page' })).not.toBeInTheDocument()
+  })
+
+  it('sends a normal user without a return target to /chat', async () => {
+    server.use(
+      http.post('/api/auth/login', () =>
+        HttpResponse.json({ access_token: 'test-token' }),
+      ),
+      http.get('/api/auth/me', () =>
+        HttpResponse.json({
+          id: 1,
+          email: 'tester@example.com',
+          role: 'user',
+          is_active: true,
+          created_at: '2026-07-14T12:00:00Z',
+          updated_at: '2026-07-14T12:00:00Z',
+        }),
+      ),
+      http.get('/api/settings/features', () =>
+        HttpResponse.json({
+          admin_replay_enabled: true,
+          tester_correspondence_enabled: true,
+          tester_email_notifications_enabled: true,
+        }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/login']}>
+          <Routes>
+            <Route path="/login" element={<AdminLogin />} />
+            <Route
+              path="/chat"
+              element={
+                <ProtectedRoute>
+                  <LocationProbe label="Chat page" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/feedback/:caseId"
+              element={
+                <ProtectedRoute requiredFeature="tester_correspondence_enabled">
+                  <LocationProbe label="Feedback case page" />
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    )
+
+    await user.type(screen.getByLabelText('Email Address'), 'tester@example.com')
+    await user.type(screen.getByLabelText('Password'), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('current-path')).toHaveTextContent('/chat')
+    })
   })
 })

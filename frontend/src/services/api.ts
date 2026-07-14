@@ -3,6 +3,38 @@ import axios from 'axios';
 const API_BASE = '/api';
 const WS_BASE = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}${window.location.port ? ':' + window.location.port : ''}/ws/chat`;
 
+const AUTH_PAGE_PATHS = new Set(['/login', '/register', '/setup']);
+
+/**
+ * Where to send the browser after a 401. Returns null when already on an auth
+ * page so an existing `returnTo` query is not wiped by a hard redirect loop.
+ */
+export function loginRedirectForUnauthorized(
+  pathname: string,
+  search: string = '',
+): string | null {
+  if (AUTH_PAGE_PATHS.has(pathname)) {
+    return null;
+  }
+  const returnTo = `${pathname}${search}`;
+  if (!returnTo.startsWith('/') || returnTo.startsWith('//')) {
+    return '/login';
+  }
+  return `/login?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+/** Persist a same-origin relative path for post-login recovery after a 401. */
+export function rememberPostLoginReturnTo(returnTo: string): void {
+  if (!returnTo.startsWith('/') || returnTo.startsWith('//')) {
+    return;
+  }
+  try {
+    sessionStorage.setItem('postLoginReturnTo', returnTo);
+  } catch {
+    // Ignore sessionStorage failures (private mode quotas, etc.).
+  }
+}
+
 // Create axios instance
 export const api = axios.create({
   baseURL: API_BASE,
@@ -32,7 +64,14 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       window.localStorage.removeItem('token');
-      window.location.href = '/login';
+      const href = loginRedirectForUnauthorized(
+        window.location.pathname,
+        window.location.search,
+      );
+      if (href) {
+        rememberPostLoginReturnTo(`${window.location.pathname}${window.location.search}`);
+        window.location.href = href;
+      }
     }
     return Promise.reject(error);
   }

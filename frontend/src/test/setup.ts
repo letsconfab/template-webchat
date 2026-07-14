@@ -31,5 +31,6 @@ afterEach(() => {
   cleanup()
   server.resetHandlers()
   storage.clear()
+  sessionStorage.clear()
 })
 afterAll(() => server.close())

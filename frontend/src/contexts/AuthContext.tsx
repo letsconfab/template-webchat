@@ -67,9 +67,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchUser = async () => {
     try {
       const response = await api.get('/auth/me');
-      setUser(response.data);
       const featureResponse = await api.get('/settings/features');
+      // Features must be set before user. AdminLogin navigates as soon as
+      // `user` is set; ProtectedRoute would otherwise see default feature
+      // flags and bounce email deep-links (e.g. /feedback/:id) to /chat.
       setFeatures(featureResponse.data);
+      setUser(response.data);
     } catch (error) {
       console.error('Failed to fetch user:', error);
       localStorage.removeItem('token');
@@ -90,11 +93,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(access_token);
     api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
 
-    // Fetch user fresh (important)
+    // Fetch user + features before exposing `user` so post-login navigation
+    // to feature-gated routes (e.g. /feedback/:id) is not bounced to /chat.
     const userResponse = await api.get('/auth/me');
-    setUser(userResponse.data);
     const featureResponse = await api.get('/settings/features');
     setFeatures(featureResponse.data);
+    setUser(userResponse.data);
 
     toast.success('Login successful!');
 

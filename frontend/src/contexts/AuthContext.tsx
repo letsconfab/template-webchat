@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../services/api';
 
@@ -22,6 +22,8 @@ interface AuthContextType {
   isAdmin: boolean;
   isAuthenticated: boolean;
   features: RuntimeFeatures;
+  /** False until /settings/features has been fetched for the current session. */
+  featuresLoaded: boolean;
 }
 
 export interface RuntimeFeatures {
@@ -51,6 +53,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
   const [features, setFeatures] = useState<RuntimeFeatures>(defaultFeatures);
+  const [featuresLoaded, setFeaturesLoaded] = useState(false);
+  // Login hydrates user+features before setToken; skip the duplicate token-effect fetch.
+  const skipNextTokenFetch = useRef(false);
 
   const isAdmin = user?.role === 'admin';
   const isAuthenticated = !!token && !!user;
@@ -58,6 +63,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (token) {
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      if (skipNextTokenFetch.current) {
+        skipNextTokenFetch.current = false;
+        setIsLoading(false);
+        return;
+      }
       fetchUser();
     } else {
       setIsLoading(false);
@@ -68,15 +78,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const response = await api.get('/auth/me');
       const featureResponse = await api.get('/settings/features');
-      // Features must be set before user. AdminLogin navigates as soon as
-      // `user` is set; ProtectedRoute would otherwise see default feature
-      // flags and bounce email deep-links (e.g. /feedback/:id) to /chat.
+      // Features must be marked loaded before user. AdminLogin navigates as
+      // soon as `user` is set; ProtectedRoute would otherwise see default
+      // feature flags and bounce email deep-links (e.g. /feedback/:id) to /chat.
       setFeatures(featureResponse.data);
+      setFeaturesLoaded(true);
       setUser(response.data);
     } catch (error) {
       console.error('Failed to fetch user:', error);
       localStorage.removeItem('token');
       setToken(null);
+      setUser(null);
+      setFeatures(defaultFeatures);
+      setFeaturesLoaded(false);
       delete api.defaults.headers.common['Authorization'];
     } finally {
       setIsLoading(false);
@@ -88,16 +102,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const response = await api.post('/auth/login', { email, password });
     const { access_token } = response.data;
 
-    // Save token
-    localStorage.setItem('token', access_token);
-    setToken(access_token);
     api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+    localStorage.setItem('token', access_token);
 
-    // Fetch user + features before exposing `user` so post-login navigation
-    // to feature-gated routes (e.g. /feedback/:id) is not bounced to /chat.
+    // Fetch user + features before exposing auth state so post-login
+    // navigation to feature-gated routes is not bounced to /chat.
     const userResponse = await api.get('/auth/me');
     const featureResponse = await api.get('/settings/features');
     setFeatures(featureResponse.data);
+    setFeaturesLoaded(true);
+    skipNextTokenFetch.current = true;
+    setToken(access_token);
     setUser(userResponse.data);
 
     toast.success('Login successful!');
@@ -142,6 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(null);
     setUser(null);
     setFeatures(defaultFeatures);
+    setFeaturesLoaded(false);
     delete api.defaults.headers.common['Authorization'];
     toast.success('Logged out successfully');
   };
@@ -159,6 +175,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAdmin,
         isAuthenticated,
         features,
+        featuresLoaded,
       }}
     >
       {children}

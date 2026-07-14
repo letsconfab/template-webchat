@@ -30,9 +30,17 @@ const AdminLogin: React.FC = () => {
   })
 
   // Handle navigation after successful login
-useEffect(() => {
+  useEffect(() => {
     if (user) {
-      const requested = searchParams.get('returnTo')
+      const fromQuery = searchParams.get('returnTo')
+      let fromSession: string | null = null
+      try {
+        fromSession = sessionStorage.getItem('postLoginReturnTo')
+        sessionStorage.removeItem('postLoginReturnTo')
+      } catch {
+        // Ignore sessionStorage failures (private mode quotas, etc.).
+      }
+      const requested = fromQuery || fromSession
       if (requested?.startsWith('/') && !requested.startsWith('//')) {
         navigate(requested)
       } else if (user.role === 'admin') {

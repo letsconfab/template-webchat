@@ -14,10 +14,10 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   requireAdmin = false,
   requiredFeature,
 }) => {
-  const { isAuthenticated, isAdmin, isLoading, features } = useAuth()
+  const { isAuthenticated, isAdmin, isLoading, features, featuresLoaded } = useAuth()
   const location = useLocation()
 
-  if (isLoading) {
+  if (isLoading || (isAuthenticated && requiredFeature && !featuresLoaded)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -27,6 +27,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   if (!isAuthenticated) {
     const returnTo = `${location.pathname}${location.search}`
+    try {
+      sessionStorage.setItem('postLoginReturnTo', returnTo)
+    } catch {
+      // Ignore sessionStorage failures (private mode quotas, etc.).
+    }
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />
   }
 

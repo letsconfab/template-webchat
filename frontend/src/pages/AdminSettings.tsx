@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Badge } from '../components/ui/badge'
 import { Loader2, Save, RotateCcw, CheckCircle, AlertCircle, Mail, Globe, Shield, Settings, Bot } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { AdminLayout } from '../components/admin/AdminLayout'
 
 interface SystemSettings {
   id: number
@@ -184,51 +185,40 @@ export default function AdminSettings() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/admin/dashboard')}
-            >
-              ← Back
-            </Button>
-            <div>
-              <h1 className="text-3xl font-bold">System Settings</h1>
-              <p className="text-muted-foreground">
-                Manage your application configuration
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={handleResetConfiguration}
-              className="text-red-600 hover:text-red-700"
-            >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Reset Configuration
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={!hasChanges || isSaving}
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Changes
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
+    <AdminLayout
+      title="System Settings"
+      actions={
+        <>
+          <Button
+            variant="outline"
+            onClick={handleResetConfiguration}
+            className="text-destructive hover:text-destructive"
+          >
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Reset Configuration
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={!hasChanges || isSaving}
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Save Changes
+              </>
+            )}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-muted-foreground mb-6">
+        Manage your application configuration
+      </p>
 
         {/* Status Badge */}
         <div className="mb-6">
@@ -635,7 +625,6 @@ export default function AdminSettings() {
             </Card>
           </TabsContent>
         </Tabs>
-      </div>
-    </div>
+    </AdminLayout>
   )
 }

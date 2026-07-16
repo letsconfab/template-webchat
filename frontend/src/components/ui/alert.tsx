@@ -1,42 +1,59 @@
 import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
 
-interface AlertProps extends React.HTMLAttributes<HTMLDivElement> {
-  variant?: 'default' | 'destructive'
-}
+import { cn } from "../../lib/utils"
 
-const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
-  ({ className = "", variant = 'default', children, ...props }, ref) => {
-    const baseClasses = "relative w-full rounded-lg border p-4"
-    const variantClasses = variant === 'destructive' 
-      ? "border-red-200 bg-red-50 text-red-800"
-      : "border-gray-200 bg-gray-50 text-gray-800"
-    
-    return (
-      <div
-        ref={ref}
-        role="alert"
-        className={`${baseClasses} ${variantClasses} ${className}`}
-        {...props}
-      >
-        {children}
-      </div>
-    )
+const alertVariants = cva(
+  "relative w-full rounded-lg border p-4 [&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground",
+  {
+    variants: {
+      variant: {
+        default: "bg-background text-foreground",
+        destructive:
+          "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
   }
 )
+
+const Alert = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof alertVariants>
+>(({ className, variant, ...props }, ref) => (
+  <div
+    ref={ref}
+    role="alert"
+    className={cn(alertVariants({ variant }), className)}
+    {...props}
+  />
+))
 Alert.displayName = "Alert"
+
+const AlertTitle = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLHeadingElement>
+>(({ className, ...props }, ref) => (
+  <h5
+    ref={ref}
+    className={cn("mb-1 font-medium leading-none tracking-tight", className)}
+    {...props}
+  />
+))
+AlertTitle.displayName = "AlertTitle"
 
 const AlertDescription = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(({ className = "", children, ...props }, ref) => (
+>(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={`text-sm ${className}`}
+    className={cn("text-sm [&_p]:leading-relaxed", className)}
     {...props}
-  >
-    {children}
-  </div>
+  />
 ))
 AlertDescription.displayName = "AlertDescription"
 
-export { Alert, AlertDescription }
+export { Alert, AlertTitle, AlertDescription }

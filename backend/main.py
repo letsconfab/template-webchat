@@ -24,7 +24,9 @@ from backend.config import config, validate_config
 from backend.database import init_db, close_db, AsyncSessionLocal
 from backend.routers import (
     auth,
+    admin_analytics,
     admin_feedback_cases,
+    bulk_invites,
     case_notifications,
     drive,
     feedback,
@@ -165,10 +167,12 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(invites.router)
+app.include_router(bulk_invites.router)
 app.include_router(settings.router)
 app.include_router(feedback.router)
 app.include_router(feedback_cases.router)
 app.include_router(admin_feedback_cases.router)
+app.include_router(admin_analytics.router)
 app.include_router(case_notifications.router)
 app.include_router(insights.router)
 app.include_router(wiki.router)

@@ -1,0 +1,39 @@
+# systemd unit TEMPLATE for the template-webchat bulk-invite worker.
+#
+# Separate from webchat.service so web deploys do not interrupt SMTP in flight.
+# Exactly one consumer globally — do not run multiple instances.
+#
+# Render and install (same placeholders as webchat.service):
+#   python3 scripts/render_webchat_service.py \
+#       --template scripts/webchat-invite-worker.service \
+#       --output /tmp/webchat-invite-worker.service \
+#       --deploy-user youruser \
+#       --deploy-dir /home/youruser/template-webchat
+#   systemd-analyze verify /tmp/webchat-invite-worker.service
+#   sudo install -m 0644 /tmp/webchat-invite-worker.service \
+#       /etc/systemd/system/webchat-invite-worker.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now webchat-invite-worker
+#   journalctl -u webchat-invite-worker -f
+
+[Unit]
+Description=template-webchat bulk invite SMTP worker
+After=network-online.target docker.service webchat.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=<deploy-user>
+Group=<deploy-user>
+WorkingDirectory=<deploy-dir>
+Environment=PYTHONPATH=<deploy-dir>
+ExecStart=<deploy-dir>/.venv/bin/python scripts/invite_worker.py
+Restart=always
+RestartSec=5
+# Generous enough to finish an in-flight SMTP + commit (narrows at-least-once window).
+TimeoutStopSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

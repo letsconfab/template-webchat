@@ -2,10 +2,26 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { HttpResponse, http } from 'msw'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { server } from '../test/server'
 import AdminFeedbackCasesPage from './AdminFeedbackCasesPage'
+
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 1, email: 'admin@example.com', role: 'admin' },
+    logout: vi.fn(),
+    isAuthenticated: true,
+    isAdmin: true,
+    isLoading: false,
+    featuresLoaded: true,
+    features: {
+      admin_replay_enabled: true,
+      tester_correspondence_enabled: true,
+      tester_email_notifications_enabled: true,
+    },
+  }),
+}))
 
 const caseId = 'case-123'
 

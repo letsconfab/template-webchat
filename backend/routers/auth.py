@@ -16,6 +16,7 @@ from backend.services.auth import (
     verify_password
 )
 from backend.config import config
+from backend.services.invites import canonicalize_email, reap_expired_invites
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
@@ -29,8 +30,12 @@ async def register(
     try:
         print("REGISTER CALLED:", user_data.email)
 
-        # Check if user already exists
-        result = await db.execute(select(User).where(User.email == user_data.email))
+        canonical = canonicalize_email(str(user_data.email))
+        await reap_expired_invites(db)
+
+        result = await db.execute(
+            select(User).where(User.email_canonical == canonical)
+        )
         existing_user = result.scalar_one_or_none()
 
         if existing_user:
@@ -39,16 +44,13 @@ async def register(
                 detail="Email already registered"
             )
 
-        # Import invite model
-        from backend.models.invite import Invite
+        from backend.models.invite import Invite, InviteStatus
 
-        # 🔥 FIX: use "pending" string (matches DB)
         invite_result = await db.execute(
             select(Invite).where(
                 and_(
-                    Invite.email == user_data.email,
-                    Invite.status == "pending",
-                    Invite.expiry_date > datetime.utcnow()
+                    Invite.email_canonical == canonical,
+                    Invite.status == InviteStatus.PENDING,
                 )
             )
         )
@@ -62,15 +64,12 @@ async def register(
                 detail="No valid invite found"
             )
 
-        # Determine role from invite
         user_role = invite.role if invite else "user"
-
-        # Hash password
         hashed_password = get_password_hash(user_data.password)
 
-        # Create user
         db_user = User(
-            email=user_data.email,
+            email=str(user_data.email).strip(),
+            email_canonical=canonical,
             password_hash=hashed_password,
             role=user_role,
             is_active=True
@@ -78,8 +77,7 @@ async def register(
 
         db.add(db_user)
 
-        # Mark invite as used
-        invite.status = "accepted"
+        invite.status = InviteStatus.ACCEPTED
         invite.updated_at = datetime.utcnow()
 
         await db.commit()
@@ -109,7 +107,10 @@ async def admin_register(
             detail="Passwords do not match"
         )
 
-    result = await db.execute(select(User).where(User.email == admin_data.email))
+    canonical = canonicalize_email(str(admin_data.email))
+    result = await db.execute(
+        select(User).where(User.email_canonical == canonical)
+    )
     existing_admin = result.scalar_one_or_none()
 
     if existing_admin:
@@ -121,7 +122,8 @@ async def admin_register(
     hashed_password = get_password_hash(admin_data.password)
 
     db_admin = User(
-        email=admin_data.email,
+        email=str(admin_data.email).strip(),
+        email_canonical=canonical,
         password_hash=hashed_password,
         role="admin",
         is_active=True
@@ -140,7 +142,10 @@ async def login(
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Authenticate user and return access token."""
-    result = await db.execute(select(User).where(User.email == user_credentials.email))
+    canonical = canonicalize_email(str(user_credentials.email))
+    result = await db.execute(
+        select(User).where(User.email_canonical == canonical)
+    )
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(user_credentials.password, user.password_hash):
@@ -155,6 +160,9 @@ async def login(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Inactive user"
         )
+
+    user.last_login_at = datetime.utcnow()
+    await db.commit()
 
     access_token_expires = timedelta(minutes=config.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(

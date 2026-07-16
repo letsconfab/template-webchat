@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { LogOut, Lightbulb, Check, X, FileText, Clock } from 'lucide-react'
-import { useAuth } from '../contexts/AuthContext'
+import { Lightbulb, Check, X, Clock } from 'lucide-react'
 import { api } from '../services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
+import { AdminLayout } from '../components/admin/AdminLayout'
 
 interface Insight {
   id: number
@@ -22,8 +21,6 @@ const InsightsReview: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending')
   const [currentPage, setCurrentPage] = useState(1)
   const insightsPerPage = 10
-  const { user, logout } = useAuth()
-  const navigate = useNavigate()
 
   useEffect(() => {
     loadInsights()
@@ -62,11 +59,6 @@ const InsightsReview: React.FC = () => {
     }
   }
 
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
-  }
-
   const filteredInsights = insights.filter(i => filter === 'all' || i.status === filter)
   const paginatedInsights = filteredInsights.slice(
     (currentPage - 1) * insightsPerPage,
@@ -79,39 +71,7 @@ const InsightsReview: React.FC = () => {
   const rejectedCount = insights.filter(i => i.status === 'rejected').length
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md shadow-lg border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Link to="/admin/dashboard" className="flex-shrink-0">
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Insights Review
-                </h1>
-              </Link>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Link
-                to="/admin/dashboard"
-                className="flex items-center px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-white/60 hover:shadow-md transition-all duration-200 border border-gray-200"
-              >
-                <FileText className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Admin</span>
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-md hover:shadow-lg transition-all duration-200"
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Logout</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <AdminLayout title="Insights Review">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card className="bg-gradient-to-br from-amber-500 to-orange-600 text-white">
@@ -278,8 +238,7 @@ const InsightsReview: React.FC = () => {
             )}
           </CardContent>
         </Card>
-      </main>
-    </div>
+    </AdminLayout>
   )
 }
 

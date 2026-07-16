@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { api } from '../services/api'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
+import { AnalyticsOverviewSection } from '../components/admin/AnalyticsOverviewSection'
 
 const inviteSchema = z.object({
   email: z.string().email('Invalid email address')
@@ -31,6 +32,9 @@ const AdminDashboard: React.FC = () => {
   const [showEmbedModal, setShowEmbedModal] = useState(false)
   const [selectedRole, setSelectedRole] = useState<'general' | 'admin'>('general')
   const [invites, setInvites] = useState<Invite[]>([])
+  const [invitesTotal, setInvitesTotal] = useState(0)
+  const [invitesAccepted, setInvitesAccepted] = useState(0)
+  const [invitesPending, setInvitesPending] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
@@ -53,7 +57,10 @@ const AdminDashboard: React.FC = () => {
     const loadInvites = async () => {
       try {
         const response = await api.get('/admin/invites')
-        setInvites(response.data.invites || [])
+        setInvites(response.data.items || [])
+        setInvitesTotal(response.data.total ?? (response.data.items || []).length)
+        setInvitesAccepted(response.data.accepted ?? 0)
+        setInvitesPending(response.data.pending ?? 0)
       } catch (error: any) {
         console.error('Failed to load invites:', error)
       }
@@ -72,6 +79,8 @@ const AdminDashboard: React.FC = () => {
 
       const invite = response.data
       setInvites([invite, ...invites])
+      setInvitesTotal((prev) => prev + 1)
+      setInvitesPending((prev) => prev + 1)
       setInviteSuccess(`Invite sent to ${data.email} as ${selectedRole}`)
       reset()
       setShowInviteModal(false)
@@ -160,32 +169,6 @@ const AdminDashboard: React.FC = () => {
         {/* Admin Features Cards */}
         <h2 className="text-xl font-semibold mb-4">Quick Links</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {/* <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Your Role</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold capitalize">{user?.role}</div>
-              <p className="text-xs text-muted-foreground">
-                {user?.role === 'admin' ? 'Full system access' : 'Standard user access'}
-              </p>
-            </CardContent>
-          </Card> */}
-
-          {/* <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Account Status</CardTitle>
-              <Settings className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">Active</div>
-              <p className="text-xs text-muted-foreground">
-                Account is in good standing
-              </p>
-            </CardContent>
-          </Card> */}
-
            <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-blue-50/30">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
@@ -278,6 +261,29 @@ const AdminDashboard: React.FC = () => {
               </CardContent>
             </Card>
 
+          <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-slate-50/30">
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="p-2 bg-gradient-to-br from-slate-600 to-slate-800 rounded-lg">
+                    <Users className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="text-xs text-slate-600 font-medium bg-slate-100 px-2 py-1 rounded-full">Admin</div>
+                </div>
+                <CardTitle className="text-lg font-bold text-gray-900 mt-3">User Management</CardTitle>
+                <CardDescription className="text-gray-600">
+                  View last seen, filter stale accounts, and deactivate users
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link to="/admin/users">
+                  <Button variant="outline" className="w-full bg-white/80 hover:bg-white border-slate-200 hover:border-slate-300 text-slate-700 hover:text-slate-800 shadow-sm hover:shadow-md transition-all duration-200">
+                    <Users className="h-4 w-4 mr-2" />
+                    Manage Users
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+
           <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-cyan-50/30">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
@@ -302,38 +308,7 @@ const AdminDashboard: React.FC = () => {
             </Card>
         </div>
 
-        {/* Admin Tools Section */}
-        {/* <div className="space-y-4 mb-8">
-          <h2 className="text-xl font-semibold">Admin Tools</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-
-            <Card>
-                <CardHeader>
-                  <CardTitle>System Settings</CardTitle>
-                  <CardDescription>
-                  Configure application settings and LLM settings
-                  </CardDescription>
-                </CardHeader>
-              <CardContent>
-                <Link to="/admin/settings">
-                  <Button variant="outline" className="w-full">
-                    <Settings className="h-4 w-4 mr-2" />
-                    Settings
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </div>
-        </div> */}
-
-        {/* Embed Section */}
-        <div className="space-y-4 mb-8">
-          <h2 className="text-xl font-semibold">Analytics</h2>
-          <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
-           
-          </div>
-        </div>
+        <AnalyticsOverviewSection />
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -349,7 +324,7 @@ const AdminDashboard: React.FC = () => {
                       Total Invites
                     </dt>
                     <dd className="text-3xl font-bold text-white">
-                      {invites.length}
+                      {invitesTotal}
                     </dd>
                   </dl>
                 </div>
@@ -369,7 +344,7 @@ const AdminDashboard: React.FC = () => {
                       Accepted Invites
                     </dt>
                     <dd className="text-3xl font-bold text-white">
-                      {invites.filter(i => i.status === 'accepted').length}
+                      {invitesAccepted}
                     </dd>
                   </dl>
                 </div>
@@ -389,7 +364,7 @@ const AdminDashboard: React.FC = () => {
                       Pending Invites
                     </dt>
                     <dd className="text-3xl font-bold text-white">
-                      {invites.filter(i => i.status === 'pending').length}
+                      {invitesPending}
                     </dd>
                   </dl>
                 </div>
@@ -552,7 +527,7 @@ const AdminDashboard: React.FC = () => {
                         Choose the role for the user you want to invite:
                       </p>
                       <div className="space-y-4">
-                        <label className="flex items-center p-4 border-2 rounded-xl cursor-pointer hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 transition-all duration-200 ${selectedRole === 'general' ? 'border-blue-500 bg-gradient-to-r from-blue-50 to-purple-50' : 'border-gray-200'}">
+                        <label className={`flex items-center p-4 border-2 rounded-xl cursor-pointer hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 transition-all duration-200 ${selectedRole === 'general' ? 'border-blue-500 bg-gradient-to-r from-blue-50 to-purple-50' : 'border-gray-200'}`}>
                           <input
                             type="radio"
                             name="role"
@@ -566,7 +541,7 @@ const AdminDashboard: React.FC = () => {
                             <div className="text-sm text-gray-600 mt-1">Can access chat and basic features</div>
                           </div>
                         </label>
-                        <label className="flex items-center p-4 border-2 rounded-xl cursor-pointer hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 transition-all duration-200 ${selectedRole === 'admin' ? 'border-purple-500 bg-gradient-to-r from-purple-50 to-pink-50' : 'border-gray-200'}">
+                        <label className={`flex items-center p-4 border-2 rounded-xl cursor-pointer hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 transition-all duration-200 ${selectedRole === 'admin' ? 'border-purple-500 bg-gradient-to-r from-purple-50 to-pink-50' : 'border-gray-200'}`}>
                           <input
                             type="radio"
                             name="role"

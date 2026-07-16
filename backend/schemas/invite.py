@@ -1,16 +1,17 @@
 """Pydantic schemas for invite-related operations."""
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, EmailStr
+
+from backend.models.user import UserRole
 
 
 class InviteCreate(BaseModel):
     """Invite creation schema."""
 
     email: EmailStr
-    role: str = "user"  # "admin" or "user"
+    role: UserRole = UserRole.USER
 
 
 class InviteResponse(BaseModel):
@@ -43,7 +44,16 @@ class InviteStatusUpdate(BaseModel):
 
 
 class InviteListResponse(BaseModel):
-    """Invite list response schema."""
+    """Paginated invite list envelope (same shape as user list).
 
-    invites: list[InviteResponse]
+    ``total`` is a real COUNT(*) over the same status predicate as the page.
+    ``accepted`` / ``pending`` are unfiltered status counts (after the expiry
+    reaper), so dashboard tiles stay correct beyond a single page.
+    """
+
+    items: list[InviteResponse]
     total: int
+    skip: int
+    limit: int
+    accepted: int = 0
+    pending: int = 0

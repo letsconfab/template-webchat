@@ -351,11 +351,13 @@ export default function ChatPage() {
                 </button>
               </Link>
             )}
-            <Link to="/dashboard">
-              <button className="p-2 hover:bg-muted rounded-lg transition-colors">
-                <MessageSquare className="w-5 h-5" />
-              </button>
-            </Link>
+            {isAdmin && (
+              <Link to="/admin/dashboard">
+                <button className="p-2 hover:bg-muted rounded-lg transition-colors" title="Admin dashboard">
+                  <MessageSquare className="w-5 h-5" />
+                </button>
+              </Link>
+            )}
             <button onClick={handleLogout} className="p-2 hover:bg-muted rounded-lg transition-colors">
               <LogOut className="w-5 h-5" />
             </button>

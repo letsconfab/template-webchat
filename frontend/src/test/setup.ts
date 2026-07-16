@@ -4,6 +4,7 @@ import { cleanup } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
 
 import { server } from './server'
+import '../index.css'
 
 const storage = new Map<string, string>()
 const localStorage = {

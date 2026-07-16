@@ -22,7 +22,7 @@ COMPOSE_RUNTIME = $(shell \
 		echo "docker compose"; \
 	fi)
 
-.PHONY: help check-python check-production-deps setup install install-full install-fe db-upgrade db-current feedback-backfill run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
+.PHONY: help check-python check-production-deps setup install install-full install-fe db-upgrade db-current feedback-backfill user-activity-backfill audit-email-canonical run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
 
 # Default target
 help:
@@ -35,6 +35,8 @@ help:
 	@echo "  make db-upgrade   - Upgrade or safely baseline the application database"
 	@echo "  make db-current   - Verify the database is at the migration head"
 	@echo "  make feedback-backfill - Resume legacy ownership/case/redaction backfill"
+	@echo "  make user-activity-backfill - Resume inferred_last_activity_at backfill"
+	@echo "  make audit-email-canonical - Report email collisions before 0009 migration"
 	@echo "  make run          - Run both backend and frontend"
 	@echo "  make run-be       - Run backend only"
 	@echo "  make run-be-prod  - Run backend without auto-reload (production mode)"
@@ -95,6 +97,12 @@ db-current: check-python $(VENV)
 
 feedback-backfill: check-python $(VENV)
 	$(VENV)/bin/python scripts/backfill_feedback_cases.py
+
+user-activity-backfill: check-python $(VENV)
+	$(VENV)/bin/python scripts/backfill_user_activity.py
+
+audit-email-canonical: check-python $(VENV)
+	$(VENV)/bin/python scripts/audit_email_canonical.py
 
 # Run commands
 run: run-be run-fe

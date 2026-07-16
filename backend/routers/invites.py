@@ -1,16 +1,14 @@
 """Invite management router for user invitation system."""
 
-from datetime import datetime, timedelta
-from typing import Any, List
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 
-# from database import get_db
 from backend.database import get_db
-from backend.middleware.auth import get_admin_user, get_current_active_user
+from backend.middleware.auth import get_admin_user
 from backend.models.user import User
 from backend.models.invite import Invite, InviteStatus
 from backend.schemas.invite import (
@@ -19,10 +17,13 @@ from backend.schemas.invite import (
     InviteAccept,
     InviteListResponse,
 )
-
-# from services.auth import generate_secure_token
-from backend.services.auth import generate_secure_token
 from backend.services.email import email_service
+from backend.services.invites import (
+    InviteClaimError,
+    canonicalize_email,
+    claim_invite,
+    reap_expired_invites,
+)
 
 router = APIRouter(prefix="/api", tags=["invites"])
 
@@ -34,55 +35,31 @@ async def create_invite(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Create and send user invitation (admin only)."""
-    # Check if user already exists
-    result = await db.execute(select(User).where(User.email == invite_data.email))
-    existing_user = result.scalar_one_or_none()
-
-    if existing_user:
+    role = (
+        invite_data.role.value
+        if hasattr(invite_data.role, "value")
+        else invite_data.role
+    )
+    try:
+        db_invite = await claim_invite(
+            db,
+            email=str(invite_data.email),
+            role=role,
+            created_by_id=current_user.id,
+        )
+    except InviteClaimError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email already exists",
-        )
+            detail=exc.detail,
+        ) from exc
 
-    # Check for existing pending invite
-    result = await db.execute(
-        select(Invite).where(
-            and_(
-                Invite.email == invite_data.email,
-                Invite.status == InviteStatus.PENDING,
-                Invite.expiry_date > datetime.utcnow(),
-            )
-        )
-    )
-    existing_invite = result.scalar_one_or_none()
-
-    if existing_invite:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Pending invitation already exists for this email",
-        )
-
-    # Generate unique token
-    token = generate_secure_token()
-
-    # Create invite
-    db_invite = Invite(
-        email=invite_data.email,
-        token=token,
-        role=invite_data.role,
-        status=InviteStatus.PENDING,
-        expiry_date=datetime.utcnow() + timedelta(days=7),  # 7 days expiry
-        created_by_id=current_user.id,
-    )
-
-    db.add(db_invite)
     await db.commit()
     await db.refresh(db_invite)
 
     # Send invitation email
     email_sent = await email_service.send_invite_email(
-        to_email=invite_data.email,
-        invite_token=token,
+        to_email=db_invite.email,
+        invite_token=db_invite.token,
         inviter_name=current_user.email,
         db=db,
     )
@@ -107,27 +84,64 @@ async def get_invites(
     current_user: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
-    """Get all invites (admin only)."""
-    query = select(Invite).options(selectinload(Invite.created_by))
+    """Get all invites (admin only).
 
+    ``total`` is COUNT(*) over the same status filter as the page.
+    ``accepted`` / ``pending`` are global status counts after the reaper.
+    """
+    await reap_expired_invites(db)
+    await db.commit()
+
+    filters = []
     if status:
-        query = query.where(Invite.status == status)
+        filters.append(Invite.status == status)
 
+    count_q = select(func.count(Invite.id))
+    if filters:
+        count_q = count_q.where(*filters)
+    total = await db.scalar(count_q) or 0
+
+    accepted = (
+        await db.scalar(
+            select(func.count(Invite.id)).where(Invite.status == InviteStatus.ACCEPTED)
+        )
+        or 0
+    )
+    pending = (
+        await db.scalar(
+            select(func.count(Invite.id)).where(Invite.status == InviteStatus.PENDING)
+        )
+        or 0
+    )
+
+    query = select(Invite).options(selectinload(Invite.created_by))
+    if filters:
+        query = query.where(*filters)
     query = query.offset(skip).limit(limit).order_by(Invite.created_at.desc())
 
     result = await db.execute(query)
     invites = result.scalars().all()
 
-    return {"invites": invites, "total": len(invites)}
+    return {
+        "items": invites,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "accepted": accepted,
+        "pending": pending,
+    }
 
 
 @router.get("/check-invite/{email}")
 async def check_invite_by_email(email: str, db: AsyncSession = Depends(get_db)) -> Any:
     """Check if email has a pending invite or already registered."""
-    from backend.models.user import User
+    canonical = canonicalize_email(email)
+    await reap_expired_invites(db)
+    await db.commit()
 
-    # Check if user already exists
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(
+        select(User).where(User.email_canonical == canonical)
+    )
     existing_user = result.scalar_one_or_none()
 
     if existing_user:
@@ -138,13 +152,11 @@ async def check_invite_by_email(email: str, db: AsyncSession = Depends(get_db)) 
             "already_registered": True,
         }
 
-    # Check if has pending invite
     result = await db.execute(
         select(Invite).where(
             and_(
-                Invite.email == email,
+                Invite.email_canonical == canonical,
                 Invite.status == InviteStatus.PENDING,
-                Invite.expiry_date > datetime.utcnow(),
             )
         )
     )
@@ -157,18 +169,20 @@ async def check_invite_by_email(email: str, db: AsyncSession = Depends(get_db)) 
             "message": f"You've been invited to join as {invite.role}. Complete your registration below.",
             "already_registered": False,
         }
-    else:
-        return {
-            "has_invite": False,
-            "role": None,
-            "message": None,
-            "already_registered": False,
-        }
+    return {
+        "has_invite": False,
+        "role": None,
+        "message": None,
+        "already_registered": False,
+    }
 
 
 @router.get("/accept-invite/{token}")
 async def check_invite_token(token: str, db: AsyncSession = Depends(get_db)) -> Any:
     """Check if invite token is valid."""
+    await reap_expired_invites(db)
+    await db.commit()
+
     result = await db.execute(
         select(Invite).where(
             and_(Invite.token == token, Invite.status == InviteStatus.PENDING)
@@ -183,7 +197,6 @@ async def check_invite_token(token: str, db: AsyncSession = Depends(get_db)) -> 
         )
 
     if invite.is_expired:
-        # Mark as expired
         invite.status = InviteStatus.EXPIRED
         await db.commit()
         raise HTTPException(
@@ -203,9 +216,8 @@ async def accept_invite(
     token: str, accept_data: InviteAccept, db: AsyncSession = Depends(get_db)
 ) -> Any:
     """Accept invitation and create user account."""
-    from sqlalchemy.orm import selectinload
+    await reap_expired_invites(db)
 
-    # Find and validate invite - eager load created_by relationship
     result = await db.execute(
         select(Invite)
         .options(selectinload(Invite.created_by))
@@ -220,25 +232,23 @@ async def accept_invite(
         )
 
     if invite.is_expired:
-        # Mark as expired
         invite.status = InviteStatus.EXPIRED
         await db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invitation has expired"
         )
 
-    # Check if token matches
     if token != accept_data.token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token"
         )
 
-    # Check if user already exists
-    result = await db.execute(select(User).where(User.email == invite.email))
+    result = await db.execute(
+        select(User).where(User.email_canonical == invite.email_canonical)
+    )
     existing_user = result.scalar_one_or_none()
 
     if existing_user:
-        # Mark invite as accepted
         invite.status = InviteStatus.ACCEPTED
         await db.commit()
         raise HTTPException(
@@ -246,32 +256,28 @@ async def accept_invite(
             detail="User with this email already exists",
         )
 
-    # Create new user
-    from ..services.auth import get_password_hash
+    from backend.services.auth import get_password_hash
 
     hashed_password = get_password_hash(accept_data.password)
 
     db_user = User(
         email=invite.email,
+        email_canonical=invite.email_canonical,
         password_hash=hashed_password,
-        role=invite.role,  # Use role from invite (admin or user)
+        role=invite.role,
         is_active=True,
     )
 
     db.add(db_user)
-
-    # Mark invite as accepted
     invite.status = InviteStatus.ACCEPTED
 
     await db.commit()
     await db.refresh(db_user)
 
-    # Send welcome email
     await email_service.send_welcome_email(
         to_email=db_user.email, user_name=db_user.email, db=db
     )
 
-    # Send notification to admin who created the invite
     if invite.created_by_id:
         admin_email = invite.created_by.email if invite.created_by else None
         if admin_email:

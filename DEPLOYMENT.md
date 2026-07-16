@@ -316,6 +316,46 @@ The unit is defined at `/etc/systemd/system/webchat.service` (installed from the
 
 > Risk: a failed restart takes the site down. Verify health immediately after.
 
+### Bulk invite worker (separate unit)
+
+CSV bulk invites are drained by a **second** systemd unit,
+`webchat-invite-worker`, not by the web process. The API only creates,
+previews, displays, and cancels batches; it never sends. Delivery is
+**at-least-once** (a crash between relay accept and commit can leave
+`unknown_delivery`).
+
+Template: `scripts/webchat-invite-worker.service` (same `<deploy-user>` /
+`<deploy-dir>` placeholders; render with `scripts/render_webchat_service.py`).
+`TimeoutStopSec=120` so an in-flight SMTP can finish and commit.
+
+```bash
+# install / update (once per host, and after unit template changes)
+python3 scripts/render_webchat_service.py \
+  --template scripts/webchat-invite-worker.service \
+  --output /tmp/webchat-invite-worker.service \
+  --deploy-user "$DEPLOY_USER" \
+  --deploy-dir "$DEPLOY_DIR"
+scp -i "$SSH_KEY" /tmp/webchat-invite-worker.service \
+  "$DEPLOY_USER@$DEPLOY_HOST:/tmp/webchat-invite-worker.service"
+ssh -i "$SSH_KEY" "$DEPLOY_USER@$DEPLOY_HOST" \
+  'systemd-analyze verify /tmp/webchat-invite-worker.service && \
+   sudo install -m 0644 /tmp/webchat-invite-worker.service \
+     /etc/systemd/system/webchat-invite-worker.service && \
+   sudo systemctl daemon-reload && \
+   sudo systemctl enable --now webchat-invite-worker'
+
+# day-to-day
+ssh -i "$SSH_KEY" "$DEPLOY_USER@$DEPLOY_HOST" \
+  'systemctl status webchat-invite-worker; journalctl -u webchat-invite-worker -f'
+```
+
+Restart the worker after code that changes bulk-invite send logic. A normal
+`webchat` deploy/restart does **not** stop the invite worker (by design).
+Run exactly one instance globally — do not scale replicas.
+
+> After first install, confirm both units: `systemctl is-active webchat
+> webchat-invite-worker`.
+
 ## Database upgrades and rollback
 
 Python 3.13 is the supported local and production runtime. Before restarting,
@@ -435,6 +475,7 @@ Likely future migrations and what to change here when they happen:
 |------------|--------|----|
 | 2026-06-16 | Initial methodology captured: screen + `uvicorn --reload`, Caddy, Dockerized stores, manual frontend scp, auto-migrations. Documented the no-Node/gitignored-assets constraint and the ghcr/systemd red herrings. | agent |
 | 2026-06-16 | Backend moved from a `screen` session to the `webchat` **systemd** service (auto-starts on boot; deploys now `git pull` → scp frontend → `sudo systemctl restart webchat`). Stores set to `restart: unless-stopped`; 4 GB swap added; host resized t3.small→t3.medium. | agent |
+| 2026-07-16 | Documented separate `webchat-invite-worker` systemd unit for CSV bulk invites (API never sends; at-least-once delivery). | agent |
 | 2026-07-01 | Adopted Python 3.11 and Alembic; deployment now fails before restart when a migration fails and uses additive rollback. | agent |
 | 2026-07-02 | Promoted Python 3.13 to the application runtime baseline and added isolated release virtualenv creation with retained-environment rollback. | agent |
 | 2026-07-02 | Pinned production to CPU-only Torch and added Linux dependency, GPU-runtime, expanded-size, and disk-capacity preflights before release virtualenv creation. | agent |

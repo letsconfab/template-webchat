@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import ConfigurationChecker from './components/ConfigurationChecker'
@@ -12,6 +13,7 @@ import AdminFeedbackCasesPage from './pages/AdminFeedbackCasesPage'
 import InsightsReview from './pages/InsightsReview'
 import GoogleDriveSettings from './pages/GoogleDriveSettings'
 import FeedbackCasesPage from './pages/FeedbackCasesPage'
+import AdminUsersPage from './pages/AdminUsersPage'
 
 const InviteRedirect = () => {
   const { token } = useParams()
@@ -77,6 +79,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
+        <Toaster richColors position="top-right" />
         <Routes>
           {/* Configuration Wizard - accessible without configuration check */}
           <Route path="/setup" element={<ConfigurationWizard />} />
@@ -95,7 +98,7 @@ function App() {
                   path="/dashboard" 
                   element={
                     <ProtectedRoute requireAdmin>
-                      <AdminDashboard />
+                      <Navigate to="/admin/dashboard" replace />
                     </ProtectedRoute>
                   } 
                 />
@@ -140,6 +143,14 @@ function App() {
                       <AdminSettings />
                     </ProtectedRoute>
                   } 
+                />
+                <Route
+                  path="/admin/users"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <AdminUsersPage />
+                    </ProtectedRoute>
+                  }
                 />
                 <Route 
                   path="/admin/feedback" 

@@ -315,52 +315,6 @@ async def get_all_feedback(
     }
 
 
-@router.get("/stats")
-async def get_feedback_stats(
-    current_user: User = Depends(get_current_admin_user),
-    db: AsyncSession = Depends(get_db),
-) -> Any:
-    """Get feedback statistics (admin only)."""
-    from datetime import datetime, timedelta
-
-    # Last 30 days stats
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-
-    result = await db.execute(
-        select(UserFeedback).where(UserFeedback.created_at >= thirty_days_ago)
-    )
-    all_feedback = result.scalars().all()
-
-    positive = sum(1 for f in all_feedback if f.feedback_type == "thumbs_up")
-    negative = sum(1 for f in all_feedback if f.feedback_type == "thumbs_down")
-    total = len(all_feedback)
-
-    category_counts: dict = {}
-    for f in all_feedback:
-        for cat in f.categories or []:
-            category_counts[cat] = category_counts.get(cat, 0) + 1
-
-    # Last 24 hours negative
-    yesterday = datetime.utcnow() - timedelta(days=1)
-    recent_negative = await db.execute(
-        select(UserFeedback).where(
-            UserFeedback.feedback_type == "thumbs_down",
-            UserFeedback.created_at >= yesterday,
-        )
-    )
-    recent_negative_count = len(recent_negative.scalars().all())
-
-    return {
-        "total": total,
-        "positive": positive,
-        "negative": negative,
-        "positive_percentage": round(positive / total * 100, 1) if total > 0 else 0,
-        "negative_percentage": round(negative / total * 100, 1) if total > 0 else 0,
-        "recent_negative_count": recent_negative_count,
-        "categories": category_counts,
-    }
-
-
 @router.get("/{feedback_id}/context")
 async def get_feedback_context(
     feedback_id: int,

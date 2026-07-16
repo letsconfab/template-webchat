@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Loader2, ShieldCheck } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Markdown } from '../components/Markdown'
 import { api } from '../services/api'
+import { AdminLayout } from '../components/admin/AdminLayout'
 
 interface AdminCase {
   case_id: string
@@ -172,17 +173,8 @@ export default function AdminFeedbackCasesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5" />
-            <h1 className="text-xl font-semibold">Feedback case review</h1>
-          </div>
-          <Link to="/admin/dashboard" className="text-sm text-primary hover:underline">Admin dashboard</Link>
-        </div>
-      </header>
-      <main className="mx-auto max-w-5xl space-y-4 px-4 py-8">
+    <AdminLayout title="Feedback case review">
+      <div className="space-y-4">
         {caseId && selectedCase ? (
           <>
             <Link to="/admin/feedback" className="text-sm text-primary hover:underline">← All cases</Link>
@@ -351,7 +343,7 @@ export default function AdminFeedbackCasesPage() {
           ))}
           </>
         )}
-      </main>
-    </div>
+      </div>
+    </AdminLayout>
   )
 }

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
@@ -7,6 +6,7 @@ import { Alert, AlertDescription } from '../components/ui/alert'
 import { Loader2, RefreshCw, Unlink, ExternalLink, FolderOpen, CheckCircle, AlertCircle, FileText, ChevronRight } from 'lucide-react'
 
 import { api } from '../services/api'
+import { AdminLayout } from '../components/admin/AdminLayout'
 
 interface SyncFile {
   filename: string
@@ -42,7 +42,6 @@ interface FolderItem {
 }
 
 export default function GoogleDriveSettings() {
-  const navigate = useNavigate()
   const [status, setStatus] = useState<DriveStatus | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -191,19 +190,8 @@ export default function GoogleDriveSettings() {
   const hasRootFolder = !!status?.root_folder_id
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/admin/dashboard')}>
-              ← Back
-            </Button>
-            <div>
-              <h1 className="text-3xl font-bold">Knowledge Sources</h1>
-              <p className="text-muted-foreground">Connect Google Drive to index documents</p>
-            </div>
-          </div>
-        </div>
+    <AdminLayout title="Knowledge Sources">
+      <p className="text-muted-foreground mb-6">Connect Google Drive to index documents</p>
 
         {error && (
           <Alert className="mb-6 border-red-200 bg-red-50">
@@ -481,7 +469,6 @@ export default function GoogleDriveSettings() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </div>
+    </AdminLayout>
   )
 }

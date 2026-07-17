@@ -46,9 +46,12 @@ SMTP_TIMEOUT_SECONDS = 15
 DEFAULT_PACE_SECONDS = 1.5
 WORKER_IDLE_SECONDS = 2.0
 
-_EMAIL_SHAPE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Exclude whitespace and wrapper punctuation so contact-style cells like
+# "Ada (ada@x.com)" never yield "(ada@x.com)" as a "valid" address.
+_EMAIL_SHAPE = re.compile(r"^[^@\s()<>]+@[^@\s()<>]+\.[^@\s()<>]+$")
 _ANGLE_EMAIL = re.compile(r"<([^<>@\s]+@[^<>@\s]+\.[^<>@\s]+)>")
-_BARE_EMAIL = re.compile(r"[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+")
+_PAREN_EMAIL = re.compile(r"\(([^()@\s]+@[^()@\s]+\.[^()@\s]+)\)")
+_BARE_EMAIL = re.compile(r"[^@\s()<>]+@[^@\s()<>]+\.[^@\s()<>]+")
 
 TERMINAL_RECIPIENT_STATES = frozenset(
     {
@@ -115,19 +118,30 @@ class PreviewResult:
 
 
 def extract_email(cell: str) -> Optional[str]:
-    """Strip Name <email> wrappers and return a bare address, or None."""
+    """Strip Name <email> / Name (email) wrappers and return a bare address, or None."""
     text = (cell or "").strip().strip('"').strip("'")
     if not text:
         return None
-    angled = _ANGLE_EMAIL.search(text)
-    if angled:
-        return angled.group(1).strip()
+    for pattern in (_ANGLE_EMAIL, _PAREN_EMAIL):
+        wrapped = pattern.search(text)
+        if wrapped:
+            candidate = wrapped.group(1).strip()
+            if _EMAIL_SHAPE.match(candidate):
+                return candidate
+            break
     if _EMAIL_SHAPE.match(text):
         return text
     bare = _BARE_EMAIL.search(text)
     if bare and _EMAIL_SHAPE.match(bare.group(0)):
         return bare.group(0)
     return None
+
+
+def _usable_smtp_to(address: str) -> bool:
+    """True when EmailMessage retains the address as a To header."""
+    message = EmailMessage()
+    message["To"] = address
+    return bool(message["To"])
 
 
 def _row_looks_like_header(cells: list[str]) -> bool:
@@ -198,6 +212,15 @@ def parse_csv_bytes(content: bytes) -> list[ParsedRow]:
             )
             continue
         if not _EMAIL_SHAPE.match(email):
+            parsed.append(
+                ParsedRow(
+                    line_number=line_number,
+                    raw=raw,
+                    invalid_reason="malformed email",
+                )
+            )
+            continue
+        if not _usable_smtp_to(email):
             parsed.append(
                 ParsedRow(
                     line_number=line_number,

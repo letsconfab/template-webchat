@@ -56,6 +56,59 @@ class CsvParseUnitTests(unittest.TestCase):
     def test_extract_angle_address(self) -> None:
         self.assertEqual(extract_email("Bob <bob@x.com>"), "bob@x.com")
 
+    def test_extract_paren_address(self) -> None:
+        self.assertEqual(extract_email("Ada (ada@example.com)"), "ada@example.com")
+
+    def test_extract_paren_address_missing_closing(self) -> None:
+        self.assertEqual(
+            extract_email("Dongxuan Hou (houdongxuan3@gmail.com"),
+            "houdongxuan3@gmail.com",
+        )
+
+    def test_extract_bare_address_unchanged(self) -> None:
+        self.assertEqual(extract_email("kpayal691@gmail.com"), "kpayal691@gmail.com")
+
+    def test_parse_contact_style_mixed_columns(self) -> None:
+        rows = parse_csv_bytes(
+            _csv(
+                "name,email",
+                "Ada Lovelace,Ada Lovelace (ada@example.com)",
+                "Bob,bob@example.com",
+            )
+        )
+        self.assertEqual(
+            [row.email_canonical for row in rows],
+            ["ada@example.com", "bob@example.com"],
+        )
+
+    def test_parse_unrecoverable_row_stays_invalid(self) -> None:
+        rows = parse_csv_bytes(_csv("email", "not-an-email", "okay@example.com"))
+        self.assertEqual(rows[0].line_number, 2)
+        self.assertIsNone(rows[0].email)
+        self.assertEqual(rows[0].invalid_reason, "no email address found")
+        self.assertEqual(rows[1].email_canonical, "okay@example.com")
+
+    def test_parse_contact_style_email_column(self) -> None:
+        rows = parse_csv_bytes(
+            _csv(
+                "email",
+                "Kavya Rajaputhra (kavyaraj@umich.edu)",
+                "kpayal691@gmail.com",
+                "Dongxuan Hou (houdongxuan3@gmail.com",
+            )
+        )
+        self.assertEqual(
+            [row.email for row in rows],
+            [
+                "kavyaraj@umich.edu",
+                "kpayal691@gmail.com",
+                "houdongxuan3@gmail.com",
+            ],
+        )
+        self.assertTrue(all("(" not in (row.email or "") for row in rows))
+        self.assertTrue(all(")" not in (row.email or "") for row in rows))
+        self.assertTrue(all(row.invalid_reason is None for row in rows))
+
     def test_header_and_email_column(self) -> None:
         rows = parse_csv_bytes(_csv("name,email", "Ada,ada@example.com"))
         self.assertEqual(len(rows), 1)

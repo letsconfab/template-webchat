@@ -49,6 +49,7 @@ async def init_db():
         diagnostics,
         feedback_case,
         invite,
+        journey,
         settings,
         user,
         wiki,

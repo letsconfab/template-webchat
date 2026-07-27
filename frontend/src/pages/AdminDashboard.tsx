@@ -306,6 +306,29 @@ const AdminDashboard: React.FC = () => {
                 </Link>
               </CardContent>
             </Card>
+
+          <Card className="group hover:shadow-xl transition-all duration-300 border-0 bg-gradient-to-br from-white to-teal-50/30">
+              <CardHeader className="pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="p-2 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-lg">
+                    <MessageSquare className="h-5 w-5 text-white" />
+                  </div>
+                  <div className="text-xs text-teal-600 font-medium bg-teal-50 px-2 py-1 rounded-full">Guidance</div>
+                </div>
+                <CardTitle className="text-lg font-bold text-gray-900 mt-3">Starter Journeys</CardTitle>
+                <CardDescription className="text-gray-600">
+                  Curate ALO journeys and starter prompts for the chat empty state
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Link to="/admin/journeys">
+                  <Button variant="outline" className="w-full bg-white/80 hover:bg-white border-teal-200 hover:border-teal-300 text-teal-700 hover:text-teal-800 shadow-sm hover:shadow-md transition-all duration-200">
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    Manage Journeys
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
         </div>
 
         <AnalyticsOverviewSection />

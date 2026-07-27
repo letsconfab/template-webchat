@@ -28,11 +28,13 @@ from backend.routers import (
     admin_feedback_cases,
     bulk_invites,
     case_notifications,
+    chat_sessions,
     drive,
     feedback,
     feedback_cases,
     insights,
     invites,
+    journeys,
     settings,
     users,
     wiki,
@@ -51,6 +53,11 @@ from backend.dependencies.auth import get_current_active_user
 from backend.services.auth import verify_token
 from backend.services.execution_traces import persist_trace
 from backend.services.redaction import project_text, redactor
+from backend.services.chat_generation import (
+    build_agent_messages,
+    build_system_prompt,
+    extract_followups,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -177,6 +184,9 @@ app.include_router(case_notifications.router)
 app.include_router(insights.router)
 app.include_router(wiki.router)
 app.include_router(drive.router)
+app.include_router(chat_sessions.router)
+app.include_router(journeys.public_router)
+app.include_router(journeys.admin_router)
 
 
 @app.get("/health")
@@ -315,6 +325,18 @@ async def _persist_chat_message(
                 msg_metadata=metadata,
             )
             db.add(row)
+            # Keep list ordering fresh and auto-title from the first user turn.
+            result = await db.execute(
+                select(ChatSession).where(ChatSession.id == chat_session.id)
+            )
+            session_row = result.scalar_one_or_none()
+            if session_row is not None:
+                session_row.updated_at = datetime.utcnow()
+                if (
+                    role == "user"
+                    and (not session_row.title or session_row.title == "New chat")
+                ):
+                    session_row.title = (content.strip()[:80] or "New chat")
             await db.flush()
             await project_text(
                 db,
@@ -400,18 +422,10 @@ async def _load_session_history(chat_session_id: int) -> List[ChatMessage]:
         return []
 
 
-def _build_system_prompt(has_kb: bool, provider: str, model: str) -> str:
-    kb_note = (
-        "\n\nYou have access to a knowledge base. "
-        "Call the `retrieve_knowledge` tool once (at most twice) to look up relevant "
-        "information, then write a single complete answer grounded in what it returns. "
-        "If the knowledge base returns empty results, answer from your own knowledge. "
-        "Do not make a plan, do not repeat yourself, and do not call the tool in a loop."
-        if has_kb
-        else ""
-    )
-    return f"""You are an AI assistant helping users with their questions.
-Be concise, accurate, and helpful.{kb_note}"""
+def _build_system_prompt(has_kb: bool, provider: str = "unknown", model: str = "unknown") -> str:
+    # provider/model retained for call-site compatibility; contract is shared.
+    _ = (provider, model)
+    return build_system_prompt(has_kb=has_kb)
 
 
 async def _settings_status_message(settings) -> str:
@@ -475,7 +489,7 @@ async def _query_with_knowledge(
             ),
         )
 
-        messages = [HumanMessage(content=user_message)]
+        messages = build_agent_messages(history, latest_user_message=user_message)
 
         await websocket.send_json({"type": "start"})
         think_buf = ""
@@ -597,7 +611,9 @@ async def _query_with_knowledge(
             pass
 
     message_id: Optional[int] = None
+    followups: list[str] = []
     if full_response:
+        full_response, followups = extract_followups(full_response)
         duration_ms = int((time.monotonic() - start_time) * 1000)
         message_id = await _persist_chat_message(
             chat_session=chat_session,
@@ -609,6 +625,7 @@ async def _query_with_knowledge(
                 "thought_count": thought_count,
                 "duration_ms": duration_ms,
                 "error": had_error,
+                "followups": followups or None,
             },
         )
         history.append(
@@ -617,7 +634,12 @@ async def _query_with_knowledge(
         if message_id is not None:
             await _persist_execution_trace(message_id, trace_events)
     try:
-        await websocket.send_json({"type": "end", "message_id": message_id})
+        end_payload: dict = {"type": "end", "message_id": message_id}
+        if full_response:
+            end_payload["content"] = full_response
+        if followups:
+            end_payload["followups"] = followups
+        await websocket.send_json(end_payload)
     except Exception:
         pass
 

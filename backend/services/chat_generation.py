@@ -70,11 +70,12 @@ def build_agent_messages(
     history: Sequence[Any],
     *,
     latest_user_message: str,
+    active_journey: dict[str, Any] | None = None,
 ) -> list[BaseMessage]:
     """Convert session history into LangChain messages for the agent.
 
     Uses a bounded recent window. When older turns are dropped, prepends a short
-    note that earlier conversation was summarized away (session-isolated).
+    note that earlier messages were omitted (session-isolated; not summarized).
     Does not include content from other Chat Sessions.
     """
     pairs: list[tuple[str, str]] = []
@@ -99,6 +100,23 @@ def build_agent_messages(
         prior = prior[-RECENT_MESSAGE_LIMIT:]
 
     messages: list[BaseMessage] = []
+    if active_journey:
+        title = str(active_journey.get("title") or "").strip()
+        purpose = str(active_journey.get("purpose") or "").strip()
+        sources = active_journey.get("knowledge_source_labels") or []
+        source_note = ""
+        if isinstance(sources, list) and sources:
+            source_note = " Supporting Knowledge Sources: " + ", ".join(
+                str(s) for s in sources
+            ) + "."
+        messages.append(
+            HumanMessage(
+                content=(
+                    f"[Active starter journey: {title}. Purpose: {purpose}.{source_note} "
+                    "Prefer follow-ups grounded in this journey and cited sources.]"
+                )
+            )
+        )
     if omitted:
         messages.append(
             HumanMessage(

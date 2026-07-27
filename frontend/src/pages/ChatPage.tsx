@@ -84,6 +84,7 @@ export default function ChatPage() {
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([])
   const [journeys, setJourneys] = useState<JourneySummary[]>([])
   const [followups, setFollowups] = useState<string[]>([])
+  const [activeJourneyId, setActiveJourneyId] = useState<number | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     routeSessionId ?? null,
   )
@@ -141,6 +142,7 @@ export default function ChatPage() {
     }
     setMessages([])
     setFollowups([])
+    setActiveJourneyId(null)
     setCurrentResponse('')
     currentResponseRef.current = ''
     wsRef.current?.disconnect()
@@ -326,7 +328,7 @@ export default function ChatPage() {
 
     setMessages((prev) => [...prev, { role: 'user', content: text }])
     setFollowups([])
-    wsRef.current?.sendMessage(text)
+    wsRef.current?.sendMessage(text, activeJourneyId)
     setInput('')
   }
 
@@ -377,6 +379,7 @@ export default function ChatPage() {
   }
 
   const handleJourneySelect = (journey: JourneySummary) => {
+    setActiveJourneyId(journey.id)
     setInput(journey.starter_prompt)
   }
 

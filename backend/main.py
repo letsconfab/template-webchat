@@ -455,6 +455,7 @@ async def _query_with_knowledge(
     websocket: WebSocket,
     provider: str = "unknown",
     model: str = "unknown",
+    active_journey: Optional[dict] = None,
 ):
     full_response = ""
     had_error = False
@@ -462,6 +463,11 @@ async def _query_with_knowledge(
     trace_events: list[dict] = []
     tool_started_at: dict[str, float] = {}
     start_time = time.monotonic()
+    agent_messages = build_agent_messages(
+        history,
+        latest_user_message=user_message,
+        active_journey=active_journey,
+    )
     try:
         from langgraph.prebuilt import create_react_agent
         from langchain_core.tools import tool
@@ -489,7 +495,7 @@ async def _query_with_knowledge(
             ),
         )
 
-        messages = build_agent_messages(history, latest_user_message=user_message)
+        messages = agent_messages
 
         await websocket.send_json({"type": "start"})
         think_buf = ""
@@ -592,7 +598,7 @@ async def _query_with_knowledge(
 
     except ImportError:
         logger.warning("deepagents not installed, falling back to simple LLM call")
-        result = await llm.ainvoke([HumanMessage(content=user_message)])
+        result = await llm.ainvoke(agent_messages)
         full_response = (
             result.content if hasattr(result, "content") else str(result)
         )
@@ -777,6 +783,32 @@ async def websocket_chat(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             message = data.get("message", "")
+            journey_id = data.get("journey_id")
+            active_journey = None
+            if journey_id is not None:
+                try:
+                    jid = int(journey_id)
+                except (TypeError, ValueError):
+                    jid = None
+                if jid is not None:
+                    from backend.models.journey import Journey
+
+                    async with AsyncSessionLocal() as journey_db:
+                        result = await journey_db.execute(
+                            select(Journey).where(
+                                Journey.id == jid,
+                                Journey.is_active.is_(True),
+                            )
+                        )
+                        journey = result.scalar_one_or_none()
+                        if journey is not None:
+                            active_journey = {
+                                "id": journey.id,
+                                "title": journey.title,
+                                "purpose": journey.purpose,
+                                "knowledge_source_labels": journey.knowledge_source_labels
+                                or [],
+                            }
 
             logger.info("WebSocket message: %.50s", message)
 
@@ -809,6 +841,7 @@ async def websocket_chat(websocket: WebSocket):
                 websocket=websocket,
                 provider=provider,
                 model=model,
+                active_journey=active_journey,
             )
 
     except WebSocketDisconnect:

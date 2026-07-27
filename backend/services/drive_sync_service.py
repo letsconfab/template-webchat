@@ -19,6 +19,7 @@ from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 
 from backend.config import config
+from backend.services.source_provenance import google_doc_url
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +262,7 @@ class DriveSyncService:
                 file_id = file_info.get("id")
                 web_view = file_info.get("webViewLink")
                 if not web_view and file_id:
-                    web_view = f"https://drive.google.com/file/d/{file_id}/view"
+                    web_view = google_doc_url(str(file_id))
                 meta = {
                     "id": file_id,
                     "name": file_info.get("name"),

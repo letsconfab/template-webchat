@@ -225,8 +225,11 @@ export class ChatWebSocket {
     }
   }
 
-  sendMessage(message: string): void {
-    this.ws?.send(JSON.stringify({ message }))
+  sendMessage(message: string, journeyId?: number | null): void {
+    this.ws?.send(JSON.stringify({
+      message,
+      ...(journeyId != null ? { journey_id: journeyId } : {}),
+    }))
   }
 
   onMessage(handler: (data: any) => void): void {

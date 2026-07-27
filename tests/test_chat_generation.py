@@ -71,6 +71,24 @@ class BuildAgentMessagesTests(unittest.TestCase):
         )
 
 
+    def test_includes_active_journey_context_when_provided(self) -> None:
+        messages = build_agent_messages(
+            [],
+            latest_user_message="Start",
+            active_journey={
+                "title": "Licensing basics",
+                "purpose": "Understand licensing",
+                "knowledge_source_labels": ["ALO Licensing Policy"],
+            },
+        )
+        self.assertTrue(
+            any("Active starter journey: Licensing basics" in m.content for m in messages)
+        )
+        self.assertTrue(
+            any("ALO Licensing Policy" in m.content for m in messages)
+        )
+
+
 class ExtractFollowupsTests(unittest.TestCase):
     def test_strips_followups_block_and_returns_up_to_three(self) -> None:
         raw = (

@@ -39,7 +39,10 @@ export function JourneyStarterGrid({
             onClick={() => onSelect(journey)}
             className="rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/40 disabled:opacity-50"
           >
-            <div className="text-sm font-semibold">{journey.title}</div>
+            <div className="text-sm font-semibold">
+              {journey.icon ? `${journey.icon} ` : ''}
+              {journey.title}
+            </div>
             {journey.purpose && (
               <p className="mt-1 text-xs text-muted-foreground">{journey.purpose}</p>
             )}

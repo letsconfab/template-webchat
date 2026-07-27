@@ -19,6 +19,7 @@ from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 
 from backend.config import config
+from backend.services.source_provenance import google_doc_url
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ class DriveSyncService:
             request = service.files().list(
                 q=query,
                 spaces="drive",
-                fields="nextPageToken, files(id, name, mimeType, md5Checksum, modifiedTime, size)",
+                fields="nextPageToken, files(id, name, mimeType, md5Checksum, modifiedTime, size, webViewLink)",
                 pageToken=page_token,
                 pageSize=200,
             )
@@ -258,10 +259,17 @@ class DriveSyncService:
             local_path.write_bytes(fh.getvalue())
 
             if file_info:
+                file_id = file_info.get("id")
+                web_view = file_info.get("webViewLink")
+                if not web_view and file_id:
+                    web_view = google_doc_url(str(file_id))
                 meta = {
-                    "id": file_info.get("id"),
+                    "id": file_id,
+                    "name": file_info.get("name"),
+                    "mimeType": file_info.get("mimeType"),
                     "modifiedTime": file_info.get("modifiedTime"),
                     "md5Checksum": file_info.get("md5Checksum"),
+                    "webViewLink": web_view,
                 }
                 self._meta_path(local_path).write_text(json.dumps(meta))
         except HttpError as e:

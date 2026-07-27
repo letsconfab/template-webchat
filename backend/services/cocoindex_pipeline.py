@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -19,6 +19,12 @@ from cocoindex.ops.sentence_transformers import SentenceTransformerEmbedder
 from cocoindex.ops.text import RecursiveSplitter
 
 from backend.llm_providers import LLMProvider
+from backend.services.source_provenance import (
+    display_title_from_filename,
+    google_doc_url,
+    load_drive_file_meta,
+    resolve_chunk_locator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -188,14 +194,23 @@ _ensure_qdrant_collection = ensure_qdrant_collection
 
 
 async def _push_to_qdrant(
-    qdrant_url: str, chunk_id: int, filename: str, text: str, embedding: list[float],
+    qdrant_url: str,
+    chunk_id: int,
+    filename: str,
+    text: str,
+    embedding: list[float],
+    *,
+    payload_extra: Optional[dict[str, Any]] = None,
 ) -> None:
+    point_payload: dict[str, Any] = {"filename": filename, "text": text[:5000]}
+    if payload_extra:
+        point_payload.update(payload_extra)
     async with httpx.AsyncClient() as client:
         payload = {
             "points": [{
                 "id": chunk_id,
                 "vector": embedding,
-                "payload": {"filename": filename, "text": text[:5000]},
+                "payload": point_payload,
             }]
         }
         await client.put(f"{qdrant_url}/collections/{COLLECTION_NAME}/points", json=payload)
@@ -242,6 +257,18 @@ async def process_file(
     folder = str(file_path.parent)
     synced_at = datetime.utcnow().isoformat()
 
+    drive_meta = load_drive_file_meta(file_path)
+    google_file_id = drive_meta.get("id") or ""
+    title = (
+        drive_meta.get("name")
+        or display_title_from_filename(filename)
+    )
+    mime_type = drive_meta.get("mimeType") or file_type
+    modified_time = drive_meta.get("modifiedTime")
+    web_view = drive_meta.get("webViewLink")
+    if not web_view and google_file_id:
+        web_view = google_doc_url(str(google_file_id))
+
     doc_table.declare_record(
         row=Document(
             filename=filename, folder_path=folder, file_type=file_type, synced_at=synced_at,
@@ -266,7 +293,24 @@ async def process_file(
         embedding = await embedder.embed(chunk.text)
         embedding_list = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
 
-        await _push_to_qdrant(qdrant_url, chunk_id, filename, chunk.text, embedding_list)
+        locator = resolve_chunk_locator(text, chunk.text)
+        provenance = {
+            "title": title,
+            "google_file_id": google_file_id or None,
+            "google_url": web_view,
+            "mime_type": mime_type,
+            "modified_time": modified_time,
+            "chunk_index": idx,
+            "locator": locator,
+        }
+        await _push_to_qdrant(
+            qdrant_url,
+            chunk_id,
+            filename,
+            chunk.text,
+            embedding_list,
+            payload_extra=provenance,
+        )
 
         chunk_table.declare_record(row=Chunk(id=chunk_id, text=chunk.text))
 

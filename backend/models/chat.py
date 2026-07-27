@@ -41,6 +41,7 @@ class ChatSession(Base):
         index=True,
     )
     ownership_state = Column(String(20), nullable=False, default="owned")
+    title = Column(String(200), nullable=False, default="New chat")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
         DateTime,

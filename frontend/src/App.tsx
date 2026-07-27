@@ -20,6 +20,7 @@ const InviteRedirect = () => {
   return <Navigate to={`/register?token=${token}`} replace />
 }
 import ChatPage from './pages/ChatPage'
+import AdminJourneysPage from './pages/AdminJourneysPage'
 
 function AppContent() {
   const [isLoading, setIsLoading] = useState(true)
@@ -102,13 +103,21 @@ function App() {
                     </ProtectedRoute>
                   } 
                 />
-                <Route 
-                  path="/chat" 
+                <Route
+                  path="/chat"
                   element={
                     <ProtectedRoute>
                       <ChatPage />
                     </ProtectedRoute>
-                  } 
+                  }
+                />
+                <Route
+                  path="/chat/:sessionId"
+                  element={
+                    <ProtectedRoute>
+                      <ChatPage />
+                    </ProtectedRoute>
+                  }
                 />
                 <Route
                   path="/feedback"
@@ -126,23 +135,23 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
-                
+
                 {/* Admin Routes */}
-                <Route 
-                  path="/admin/dashboard" 
+                <Route
+                  path="/admin/dashboard"
                   element={
                     <ProtectedRoute requireAdmin>
                       <AdminDashboard />
                     </ProtectedRoute>
-                  } 
+                  }
                 />
-                <Route 
-                  path="/admin/settings" 
+                <Route
+                  path="/admin/settings"
                   element={
                     <ProtectedRoute requireAdmin>
                       <AdminSettings />
                     </ProtectedRoute>
-                  } 
+                  }
                 />
                 <Route
                   path="/admin/users"
@@ -152,13 +161,13 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
-                <Route 
-                  path="/admin/feedback" 
+                <Route
+                  path="/admin/feedback"
                   element={
                     <ProtectedRoute requireAdmin requiredFeature="admin_replay_enabled">
                       <AdminFeedbackCasesPage />
                     </ProtectedRoute>
-                  } 
+                  }
                 />
                 <Route
                   path="/admin/feedback/:caseId"
@@ -168,21 +177,29 @@ function App() {
                     </ProtectedRoute>
                   }
                 />
-                <Route 
-                  path="/admin/insights" 
+                <Route
+                  path="/admin/insights"
                   element={
                     <ProtectedRoute requireAdmin>
                       <InsightsReview />
                     </ProtectedRoute>
-                  } 
+                  }
                 />
-                <Route 
-                  path="/admin/knowledge" 
+                <Route
+                  path="/admin/knowledge"
                   element={
                     <ProtectedRoute requireAdmin>
                       <GoogleDriveSettings />
                     </ProtectedRoute>
-                  } 
+                  }
+                />
+                <Route
+                  path="/admin/journeys"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <AdminJourneysPage />
+                    </ProtectedRoute>
+                  }
                 />
                 
                 {/* Default Landing Page */}

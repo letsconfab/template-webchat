@@ -37,3 +37,18 @@ A bounded, sanitized record of operational events produced while generating an
 assistant answer. It supports diagnosis without retaining model reasoning,
 secrets, raw tool payloads, or retrieved passages.
 
+### Knowledge Source
+
+An administrator-controlled document in the indexed ALO corpus (typically a
+read-only Google Drive file). Retrieval returns passage text with provenance:
+document title, canonical Google URL, revision metadata, and the finest honest
+locator available (for example a Markdown heading or chunk index).
+
+### Journey
+
+An administrator-curated starter path on the chat start screen. A Journey has a
+short title, plain-language purpose, one vetted starter prompt, optional icon,
+display order, active/inactive state, and an explicit connection to the
+Knowledge Sources that support it. Knowledge Sources do not automatically
+create or publish Journeys.
+

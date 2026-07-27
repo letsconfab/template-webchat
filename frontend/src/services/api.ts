@@ -87,6 +87,62 @@ export function getSessionId(): string {
   return sessionId;
 }
 
+export function setSessionId(sessionId: string): void {
+  sessionStorage.setItem('copilot-session-id', sessionId);
+}
+
+export function clearSessionId(): void {
+  sessionStorage.removeItem('copilot-session-id');
+}
+
+export interface ChatSessionSummary {
+  id: number
+  client_uuid: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface JourneySummary {
+  id: number
+  title: string
+  purpose: string
+  starter_prompt: string
+  icon: string | null
+  display_order: number
+  is_active: boolean
+  knowledge_source_labels: string[]
+}
+
+export async function listChatSessions(): Promise<ChatSessionSummary[]> {
+  const response = await api.get<ChatSessionSummary[]>('/chat-sessions')
+  return response.data
+}
+
+export async function createChatSession(): Promise<ChatSessionSummary> {
+  const response = await api.post<ChatSessionSummary>('/chat-sessions')
+  return response.data
+}
+
+export async function renameChatSession(
+  clientUuid: string,
+  title: string,
+): Promise<ChatSessionSummary> {
+  const response = await api.patch<ChatSessionSummary>(`/chat-sessions/${clientUuid}`, {
+    title,
+  })
+  return response.data
+}
+
+export async function deleteChatSession(clientUuid: string): Promise<void> {
+  await api.delete(`/chat-sessions/${clientUuid}`)
+}
+
+export async function listActiveJourneys(): Promise<JourneySummary[]> {
+  const response = await api.get<JourneySummary[]>('/journeys')
+  return response.data
+}
+
 export interface Provider {
   id: string
   name: string
@@ -139,7 +195,7 @@ export class ChatWebSocket {
   private errorHandler: ((error: any) => void) | null = null
   private connectionHandler: ((connected: boolean) => void) | null = null
 
-  connect(settings: Settings): void {
+  connect(settings: Settings, sessionId?: string): void {
     this.ws = new WebSocket(WS_BASE)
     
     this.ws.onopen = () => {
@@ -147,7 +203,7 @@ export class ChatWebSocket {
       this.ws?.send(JSON.stringify({
         type: 'auth',
         token: window.localStorage.getItem('token'),
-        session_id: getSessionId(),
+        session_id: sessionId || getSessionId(),
         provider: settings.provider,
         model: settings.model,
       }))
@@ -169,8 +225,11 @@ export class ChatWebSocket {
     }
   }
 
-  sendMessage(message: string): void {
-    this.ws?.send(JSON.stringify({ message }))
+  sendMessage(message: string, journeyId?: number | null): void {
+    this.ws?.send(JSON.stringify({
+      message,
+      ...(journeyId != null ? { journey_id: journeyId } : {}),
+    }))
   }
 
   onMessage(handler: (data: any) => void): void {

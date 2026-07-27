@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATE = ROOT / "scripts" / "migrate.py"
-EXPECTED_HEAD = "0010_invite_batches"
+EXPECTED_HEAD = "0011_sessions_journeys"
 
 
 class MigrationCommandTests(unittest.TestCase):

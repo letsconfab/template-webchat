@@ -12,6 +12,11 @@ import httpx
 from neo4j import AsyncGraphDatabase, AsyncSession as Neo4jSession
 
 from backend.config import config
+from backend.services.source_provenance import (
+    display_title_from_filename,
+    format_retrieval_source,
+    google_doc_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -205,15 +210,30 @@ class GraphRAGService:
             text = (payload.get("text") or "").strip()
             if not text:
                 continue
-            source = payload.get("filename", "unknown")
-            # Strip the Drive-id prefix from the filename for readability.
-            if "_Copy of " in source:
-                source = source.split("_Copy of ", 1)[1]
-            elif "_" in source:
-                source = source.split("_", 1)[1]
+            title = payload.get("title") or display_title_from_filename(
+                payload.get("filename", "unknown")
+            )
+            google_file_id = payload.get("google_file_id")
+            google_url = payload.get("google_url")
+            if not google_url and google_file_id:
+                google_url = google_doc_url(str(google_file_id))
+            locator = payload.get("locator")
+            modified_time = payload.get("modified_time")
+            chunk_index = payload.get("chunk_index")
+            if not isinstance(chunk_index, int):
+                chunk_index = 0
             score = hit.get("score")
-            score_str = f" (relevance {score:.2f})" if isinstance(score, (int, float)) else ""
-            parts.append(f"[Source: {source}{score_str}]\n{text[:1500]}")
+            parts.append(
+                format_retrieval_source(
+                    title=str(title),
+                    passage=text[:1500],
+                    google_url=google_url,
+                    locator=locator if isinstance(locator, str) else None,
+                    modified_time=modified_time if isinstance(modified_time, str) else None,
+                    chunk_index=chunk_index,
+                    relevance=score if isinstance(score, (int, float)) else None,
+                )
+            )
 
         return "\n\n---\n\n".join(parts)
 

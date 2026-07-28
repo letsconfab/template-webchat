@@ -4,6 +4,10 @@ These tests pin the answer-quality / trust contracts from
 docs/evolution/2026-07-27-negative-feedback-evolution.md. They do not call a
 live LLM; they verify that generation helpers encode the behaviors required to
 address each critical theme.
+
+NF-DIAGRAM is an additive prompt-contract pin from
+docs/field-debug/2026-07-28-missing-mermaid-diagrams.md (not one of the
+original eleven NF cases).
 """
 
 from __future__ import annotations
@@ -66,6 +70,16 @@ CRITICAL_CASES = [
         "theme": "suggested_followups",
         "must_include": [":::followups", "up to three follow-up"],
     },
+    # Visual structure (diagram contract; field-debug 2026-07-28)
+    {
+        "id": "NF-DIAGRAM",
+        "theme": "mermaid_structure_diagram",
+        "must_include": [
+            "```mermaid",
+            "Do not replace the concise textual explanation with a diagram",
+            "Simple factual answers should not acquire a diagram by default",
+        ],
+    },
 ]
 
 
@@ -100,6 +114,18 @@ class NegativeFeedbackRegressionTests(unittest.TestCase):
     def test_nf06_file_upload_remains_deferred(self) -> None:
         prompt = build_system_prompt(has_kb=True)
         self.assertNotIn("upload", prompt.lower())
+
+    def test_mermaid_structure_trigger_is_stronger_than_substring(self) -> None:
+        """Diagram contract must name structure triggers (beyond fence syntax).
+
+        Live LLM rehearsal of an INTEGRATE-style question remains a non-prod
+        eval step; this pins the prompt language that rehearsal should exercise.
+        """
+        prompt = build_system_prompt(has_kb=True)
+        self.assertIn("```mermaid", prompt)
+        self.assertIn("multi-part framework", prompt)
+        self.assertIn("process/sequence", prompt)
+        self.assertIn("system relationship", prompt)
 
     def test_citation_contract_produces_google_knowledge_source_link(self) -> None:
         url = google_doc_url("fileABC")

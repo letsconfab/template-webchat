@@ -5,9 +5,9 @@ Current level: `developing` (`51/100`)
 This dashboard is generated from Cognitive Reload progress. It summarizes verified
 human understanding of this repository; it is not a code-quality score.
 
-Repository target: `bugfix/strengthen-mermaid-diagrams-prompt` at `c3f09c90d4014ddbeb37127b9851e4ce6da8c1b8`
+Repository target: `feature/feedback-summaries-display` at `8f063d028f2fcf4cfd6d4a6d14f26a79786dfbb6`
 
-Last reload: `2026-07-28T15:25:07.700091+00:00`
+Last reload: `2026-07-28T17:47:21.606003+00:00`
 
 Freshness: `today`
 
@@ -25,6 +25,7 @@ Freshness: `today`
 | Chat Journey | `explored` | n/a | no |
 | Configuration And Auth Boundaries | `explored` | n/a | no |
 | Feedback And Insights | `unseen` | n/a | no |
+| Feedback Summaries Static Display | `introduced` | n/a | no |
 | Graphrag Retrieval Inside Chat | `unseen` | n/a | no |
 | Knowledge Source Sync And Cocoindex Indexing | `unseen` | n/a | no |
 | Mermaid Diagram Prompt Contract | `explored` | n/a | no |

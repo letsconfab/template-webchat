@@ -10,6 +10,7 @@ import AdminDashboard from './pages/AdminDashboard'
 import ConfigurationWizard from './pages/ConfigurationWizard'
 import AdminSettings from './pages/AdminSettings'
 import AdminFeedbackCasesPage from './pages/AdminFeedbackCasesPage'
+import AdminFeedbackSummaryPage from './pages/AdminFeedbackSummaryPage'
 import InsightsReview from './pages/InsightsReview'
 import GoogleDriveSettings from './pages/GoogleDriveSettings'
 import FeedbackCasesPage from './pages/FeedbackCasesPage'
@@ -166,6 +167,14 @@ function App() {
                   element={
                     <ProtectedRoute requireAdmin requiredFeature="admin_replay_enabled">
                       <AdminFeedbackCasesPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/admin/feedback/summaries/:artifactId"
+                  element={
+                    <ProtectedRoute requireAdmin requiredFeature="admin_replay_enabled">
+                      <AdminFeedbackSummaryPage />
                     </ProtectedRoute>
                   }
                 />

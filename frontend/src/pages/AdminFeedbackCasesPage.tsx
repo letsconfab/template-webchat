@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Markdown } from '../components/Markdown'
 import { api } from '../services/api'
 import { AdminLayout } from '../components/admin/AdminLayout'
+import { FeedbackSummaryLibrary } from '../components/admin/FeedbackSummaryLibrary'
 
 interface AdminCase {
   case_id: string
@@ -308,6 +309,7 @@ export default function AdminFeedbackCasesPage() {
           </>
         ) : (
           <>
+            <FeedbackSummaryLibrary />
             <div className="mb-4 flex flex-wrap gap-2">
               <select
                 value={statusFilter}

@@ -114,6 +114,8 @@ make run-fe
 | `/dashboard` | Authenticated | User dashboard |
 | `/chat` | Authenticated | Chat interface |
 | `/admin/dashboard` | Admin | Admin dashboard |
+| `/admin/feedback` | Admin | Feedback Case list (`admin_replay_enabled`) |
+| `/admin/feedback/summaries/:artifactId` | Admin | Feedback Summary detail |
 | `/admin/settings` | Admin | System settings |
 
 ## Ports

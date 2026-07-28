@@ -49,9 +49,12 @@ ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
      --active .venv --release .venv.release-\$RELEASE_SHA \
      --rollback .venv.rollback-\$PREVIOUS_SHA"
 
-# 4. ship the built frontend (index.html + hashed assets)
+# 4. ship the built frontend (index.html + hashed assets + feedback-summary static files)
 scp -i $SSH_KEY frontend/dist/index.html $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/index.html
 scp -i $SSH_KEY frontend/dist/assets/*  $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/assets/
+ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST "mkdir -p $DEPLOY_DIR/frontend/dist/static"
+scp -i $SSH_KEY -r frontend/dist/static/feedback-summaries \
+  $DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DIR/frontend/dist/static/
 
 # 5. migrate, restart the backend service, then verify
 ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
@@ -123,9 +126,12 @@ Consequences you must account for on every frontend change:
 2. But the hashed asset files themselves are **not in git** and **cannot be built
    on the host**. So after a pull, `index.html` points at a bundle that isn't
    there → blank/broken UI.
-3. **You must `scp` the locally-built `dist/index.html` + `dist/assets/*`** to the
-   host so the referenced bundle exists. Hashed filenames make this safe and
-   additive (old bundles simply become unreferenced).
+3. **You must `scp` the locally-built `dist/index.html` + `dist/assets/*` +
+   `dist/static/feedback-summaries/`** to the host so the referenced bundle and
+   packaged feedback summaries exist. Hashed filenames make asset copies safe
+   and additive (old bundles simply become unreferenced). Replace the
+   `feedback-summaries` subtree on each frontend ship so stale packaged
+   reports are not left behind.
 4. The host also keeps a **locally-built `dist/index.html`** that differs from the
    committed one, which **blocks `git pull`** with a "local changes would be
    overwritten" error. Run `git checkout -- frontend/dist/index.html` first
@@ -149,7 +155,8 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
 1. **Land code on `main`.** Production tracks `main`. Merge your branch
    (usually a clean fast-forward) and `git push origin main`.
 2. **Build the frontend locally:** `cd frontend && npm run build`. Note the bundle
-   hash in `dist/index.html` matches `dist/assets/`.
+   hash in `dist/index.html` matches `dist/assets/`, and confirm
+   `dist/static/feedback-summaries/index.json` exists when summaries are shipped.
 3. **Pull backend code and run the dependency/disk preflight on the host:**
 
    ```bash
@@ -242,8 +249,9 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    Do not render the unit with remote `sed`; SSH does not preserve remote argv
    boundaries and shell metacharacters may be reinterpreted.
 
-7. **Ship the frontend** (only if the frontend changed): scp `dist/index.html` and
-   `dist/assets/*` into `$DEPLOY_DIR/frontend/dist/`.
+7. **Ship the frontend** (only if the frontend changed): scp `dist/index.html`,
+   `dist/assets/*`, and `dist/static/feedback-summaries/` into
+   `$DEPLOY_DIR/frontend/dist/`.
 8. **Restart the backend:** `sudo systemctl restart webchat`, then confirm health
    (see [Verification](#verification)).
    The systemd `ExecStartPre` repeats the idempotent migration preflight and
@@ -258,6 +266,10 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
 curl -s $PUBLIC_URL/health                                   # {"status":"healthy"}
 BUNDLE=$(curl -s $PUBLIC_URL/ | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js')
 curl -s -o /dev/null -w "%{http_code}\n" $PUBLIC_URL$BUNDLE  # 200
+
+# packaged feedback summaries (after a frontend ship that includes them)
+curl -s -o /dev/null -w "%{http_code}\n" \
+  $PUBLIC_URL/static/feedback-summaries/index.json            # 200
 
 # confirm an auth-gated API still enforces auth
 curl -s -o /dev/null -w "%{http_code}\n" $PUBLIC_URL/api/feedback/admin  # 401

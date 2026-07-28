@@ -11,10 +11,11 @@ COPY frontend/package*.json ./
 # Install dependencies
 RUN npm ci
 
-# Copy frontend source
+# Copy frontend source and canonical feedback-summary artifacts (packaged at build time)
 COPY frontend/ ./
+COPY docs/feedback-summaries/ /app/docs/feedback-summaries/
 
-# Build frontend
+# Build frontend (prebuild packages docs/feedback-summaries into public/static)
 RUN npm run build
 
 

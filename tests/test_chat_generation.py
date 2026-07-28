@@ -20,6 +20,28 @@ class BuildSystemPromptTests(unittest.TestCase):
         self.assertIn("clarifying question", prompt)
         self.assertIn("Mermaid", prompt)
 
+    def test_prompt_requires_mermaid_fence_for_structure_answers(self) -> None:
+        """Structure/framework answers must include a Mermaid fence example + trigger.
+
+        Field debug 2026-07-28: optional one-liner + no fence example yielded zero
+        mermaid emissions; contract must require one diagram for multi-part
+        framework / sequence / relationship answers while remaining text-first.
+        """
+        prompt = build_system_prompt(has_kb=True)
+        self.assertIn("```mermaid", prompt)
+        self.assertIn("flowchart", prompt.lower())
+        self.assertRegex(
+            prompt,
+            r"(?i)multi-?part framework|process/?sequence|system relationship",
+        )
+        self.assertIn("one small", prompt.lower())
+        self.assertIn("Do not replace the concise textual explanation with a diagram", prompt)
+        self.assertIn("Simple factual answers should not acquire a diagram by default", prompt)
+        # Compact diagram is allowed for framework overviews even when large tables are not.
+        self.assertIn("compact Mermaid diagram", prompt)
+        self.assertIn("framework overview", prompt.lower())
+        self.assertIn("allowed and expected", prompt.lower())
+
     def test_prompt_requires_alo_evidence_and_forbids_silent_fallback(self) -> None:
         prompt = build_system_prompt(has_kb=True)
         self.assertIn("ALO evidence required", prompt)
@@ -31,6 +53,7 @@ class BuildSystemPromptTests(unittest.TestCase):
         prompt = build_system_prompt(has_kb=False)
         self.assertIn("120–180 words", prompt)
         self.assertNotIn("retrieve_knowledge", prompt)
+        self.assertIn("```mermaid", prompt)
 
 
 class BuildAgentMessagesTests(unittest.TestCase):

@@ -1,3 +1,12 @@
+<!-- hitl-cognition:start -->
+![HITL cognition](hitl-cognition/badges/hitl-cognition.svg)
+![HITL topics](hitl-cognition/badges/hitl-topics.svg)
+![HITL assessed](hitl-cognition/badges/hitl-assessed.svg)
+![HITL freshness](hitl-cognition/badges/hitl-freshness.svg)
+
+See [`hitl-cognition/`](hitl-cognition/) for the current human-in-the-loop cognition map.
+<!-- hitl-cognition:end -->
+
 # Template Webchat
 
 AI chat application with authentication, admin tooling, and a knowledge-book pipeline powered by a separate RAG-Anything container.

@@ -1,0 +1,196 @@
+{
+  "schema_version": "0.6.0",
+  "generated_at": "2026-07-28T15:26:14.829703+00:00",
+  "privacy": "public",
+  "repository": {
+    "host": "github.com",
+    "owner": "letsconfab",
+    "name": "template-webchat",
+    "target_ref": "bugfix/strengthen-mermaid-diagrams-prompt",
+    "target_commit": "c3f09c90d4014ddbeb37127b9851e4ce6da8c1b8"
+  },
+  "hitl_cognition": {
+    "index": 51,
+    "level": "developing",
+    "color": "yellow",
+    "orientation": "explored",
+    "topic_count": 8,
+    "introduced_topics": 4,
+    "explored_topics": 4,
+    "assessed_topics": 0,
+    "agent_ready_topics": 0,
+    "verified_average": null,
+    "freshness_days": 0,
+    "last_reload_at": "2026-07-28T15:25:07.700091+00:00"
+  },
+  "topics": [
+    {
+      "id": "chat_journey",
+      "name": "Chat Journey",
+      "state": "explored",
+      "verified_score": null,
+      "agent_ready": false,
+      "concepts_seen": [
+        "browser chat",
+        "WebSocket session",
+        "backend agent",
+        "retrieval tool",
+        "LLM streaming",
+        "frontend WebSocket event protocol",
+        "backend /ws/chat handler lifecycle",
+        "handshake vs message loop phases",
+        "provider/model sentinel precedence (client vs server settings)",
+        "dual history store (in-memory dict + persisted load)",
+        "defensive error frame on socket teardown",
+        "GraphRAG hybrid retrieval (Qdrant primary, Neo4j secondary)",
+        "GraphRAG context concatenation (vector passages then graph relationships)",
+        "LangGraph ReAct factory and compiled message-state loop",
+        "Deep Agents fit boundary (future deep research mode, not default chat)",
+        "LangChain v1 create_agent migration decision",
+        "LangGraph event-to-WebSocket protocol adapter",
+        "model reasoning versus answer-content channels",
+        "tool lifecycle think frames",
+        "direct-LLM and error fallbacks",
+        "assistant response persistence and end-frame lifecycle",
+        "end-to-end WebSocket consumer state machine",
+        "think frames are transient and not available to feedback review"
+      ],
+      "code_anchors": [
+        "frontend/src/pages/ChatPage.tsx:153",
+        "backend/main.py:440",
+        "backend/main.py:455",
+        "backend/main.py:482",
+        "backend/main.py:519",
+        "backend/main.py:304",
+        "backend/services/graphrag_service.py:23",
+        "backend/services/graphrag_service.py:108",
+        "backend/services/graphrag_service.py:222",
+        "backend/main.py:334",
+        "backend/main.py:356",
+        "backend/main.py:380",
+        "backend/main.py:396",
+        "backend/main.py:416",
+        "test_ws.py:49",
+        "backend/models/wiki.py:91",
+        "backend/models/wiki.py:110"
+      ],
+      "assessment_attempt_count": 0
+    },
+    {
+      "id": "configuration_and_auth_boundaries",
+      "name": "Configuration And Auth Boundaries",
+      "state": "explored",
+      "verified_score": null,
+      "agent_ready": false,
+      "concepts_seen": [
+        "configuration bootstrap boundary",
+        "authenticated active-user boundary",
+        "admin role boundary",
+        "public configuration-status endpoint",
+        "fresh-install detection requires no settings and no admin",
+        "configuration status guides navigation but does not authorize writes"
+      ],
+      "code_anchors": [
+        "backend/routers/settings.py:25"
+      ],
+      "assessment_attempt_count": 0
+    },
+    {
+      "id": "feedback_and_insights",
+      "name": "Feedback And Insights",
+      "state": "unseen",
+      "verified_score": null,
+      "agent_ready": false,
+      "concepts_seen": [],
+      "code_anchors": [],
+      "assessment_attempt_count": 0
+    },
+    {
+      "id": "graphrag_retrieval_inside_chat",
+      "name": "Graphrag Retrieval Inside Chat",
+      "state": "unseen",
+      "verified_score": null,
+      "agent_ready": false,
+      "concepts_seen": [],
+      "code_anchors": [],
+      "assessment_attempt_count": 0
+    },
+    {
+      "id": "knowledge_source_sync_and_cocoindex_indexing",
+      "name": "Knowledge Source Sync And Cocoindex Indexing",
+      "state": "unseen",
+      "verified_score": null,
+      "agent_ready": false,
+      "concepts_seen": [],
+      "code_anchors": [],
+      "assessment_attempt_count": 0
+    },
+    {
+      "id": "mermaid_diagram_prompt_contract",
+      "name": "Mermaid Diagram Prompt Contract",
+      "state": "explored",
+      "verified_score": null,
+      "agent_ready": false,
+      "concepts_seen": [
+        "change reload of bugfix/strengthen-mermaid-diagrams-prompt",
+        "FE Mermaid renderer already live; model emission was the gap",
+        "structure-trigger rule for framework/sequence/relationship answers",
+        "text-first one-diagram cap",
+        "compact Mermaid vs forbidden large framework dump",
+        "fence example required in system prompt",
+        "prompt-contract tests do not prove live LLM compliance"
+      ],
+      "code_anchors": [
+        "backend/services/chat_generation.py:20",
+        "backend/services/chat_generation.py:27",
+        "tests/test_chat_generation.py:23",
+        "tests/test_negative_feedback_regression.py:74"
+      ],
+      "assessment_attempt_count": 0
+    },
+    {
+      "id": "operations_and_deployment",
+      "name": "Operations And Deployment",
+      "state": "unseen",
+      "verified_score": null,
+      "agent_ready": false,
+      "concepts_seen": [],
+      "code_anchors": [],
+      "assessment_attempt_count": 0
+    },
+    {
+      "id": "product_purpose_and_vocabulary",
+      "name": "Product Purpose And Vocabulary",
+      "state": "explored",
+      "verified_score": null,
+      "agent_ready": false,
+      "concepts_seen": [
+        "Template Webchat purpose",
+        "runtime containers",
+        "first-time setup",
+        "route and access vocabulary",
+        "chat config trust boundary"
+      ],
+      "code_anchors": [
+        "frontend/src/App.tsx:80",
+        "frontend/src/App.tsx:143",
+        "backend/routers/settings.py:25",
+        "frontend/src/pages/ChatPage.tsx:122",
+        "backend/routers/settings.py:224"
+      ],
+      "assessment_attempt_count": 0
+    }
+  ],
+  "counts": {
+    "learner_questions": 6,
+    "unresolved_questions": 1
+  },
+  "resume": {
+    "summary": "Change-reloaded bugfix/strengthen-mermaid-diagrams-prompt: mapped the production Mermaid emission gap, the structure-trigger prompt contract, build_system_prompt fence example, and the unit/NF-DIAGRAM regression pins. Prior long-running path remains parked at configuration/auth after the public config-status endpoint.",
+    "topic": "mermaid_diagram_prompt_contract",
+    "rung": "tests",
+    "current_anchor": "tests/test_chat_generation.py:23",
+    "next_anchor": "docs/field-debug/2026-07-28-missing-mermaid-diagrams.md cause summary",
+    "next_step": "Show the field-debug cause summary explaining why production stored zero Mermaid fences despite a live frontend renderer."
+  }
+}

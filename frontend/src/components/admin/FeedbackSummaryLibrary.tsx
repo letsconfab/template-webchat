@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
 import {
+  formatEvidenceWindow,
   formatSummaryDate,
   loadFeedbackSummariesIndex,
   type FeedbackSummariesIndexState,
@@ -53,8 +54,10 @@ export function FeedbackSummaryLibrary() {
                   <p className="font-medium text-foreground">{summary.title}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Evidence window:{' '}
-                    {formatSummaryDate(summary.window_start)} –{' '}
-                    {formatSummaryDate(summary.window_end)}
+                    {formatEvidenceWindow(
+                      summary.window_start,
+                      summary.window_end,
+                    )}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     Generated {formatSummaryDate(summary.generated_at)}

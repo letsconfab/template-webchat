@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react'
 import { AdminLayout } from '../components/admin/AdminLayout'
 import { Markdown } from '../components/Markdown'
 import {
+  formatEvidenceWindow,
   formatSummaryDate,
   loadFeedbackSummary,
   type FeedbackSummaryContentState,
@@ -78,8 +79,10 @@ export default function AdminFeedbackSummaryPage() {
               </h1>
               <p className="text-sm text-muted-foreground">
                 Evidence window:{' '}
-                {formatSummaryDate(state.entry.window_start)} –{' '}
-                {formatSummaryDate(state.entry.window_end)}
+                {formatEvidenceWindow(
+                  state.entry.window_start,
+                  state.entry.window_end,
+                )}
               </p>
               <p className="text-sm text-muted-foreground">
                 Generated {formatSummaryDate(state.entry.generated_at)}

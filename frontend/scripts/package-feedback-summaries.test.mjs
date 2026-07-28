@@ -327,3 +327,21 @@ describe('privacy and SVG helpers', () => {
     ).toEqual([expect.objectContaining({ rule: 'svg_event' })])
   })
 })
+
+describe('ordinary link validation', () => {
+  it('allows HTTPS and anchors and rejects filesystem or http links', async () => {
+    const { checkOrdinaryLinks } = await import('./package-feedback-summaries.mjs')
+    expect(
+      checkOrdinaryLinks(
+        'See [ok](https://example.com/doc) and [here](#limitations).',
+        'a.md',
+      ),
+    ).toEqual([])
+    expect(
+      checkOrdinaryLinks('See [bad](docs/local.md)', 'a.md'),
+    ).toEqual([expect.objectContaining({ rule: 'link' })])
+    expect(
+      checkOrdinaryLinks('See [bad](http://example.com/doc)', 'a.md'),
+    ).toEqual([expect.objectContaining({ rule: 'link' })])
+  })
+})

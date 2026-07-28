@@ -104,6 +104,15 @@ export function formatSummaryDate(iso: string): string {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     timeZone: 'UTC',
+    timeZoneName: 'short',
   }).format(date)
+}
+
+/** Exact evidence-window label using the packaged ISO-8601 UTC timestamps. */
+export function formatEvidenceWindow(windowStart: string, windowEnd: string): string {
+  return `${windowStart} – ${windowEnd}`
 }

@@ -61,9 +61,11 @@ const indexPayload = {
   ],
 }
 
-const summaryMarkdown = `## Executive summary
+const summaryMarkdown = `# Newer Summary
 
-Themes only.
+## Executive summary
+
+Themes only. See [evolution brief](https://github.com/letsconfab/template-webchat/blob/main/docs/evolution/example.md).
 
 ## Evidence snapshot
 
@@ -270,13 +272,26 @@ describe('AdminFeedbackSummaryPage', () => {
       </MemoryRouter>,
     )
 
+    const titles = await screen.findAllByRole('heading', {
+      level: 1,
+      name: 'Newer Summary',
+    })
+    expect(titles.length).toBeGreaterThanOrEqual(1)
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Newer Summary' }),
+      screen.getByText(
+        'Evidence window: 2026-06-27T00:00:00Z – 2026-07-27T00:00:00Z',
+      ),
     ).toBeInTheDocument()
-    expect(screen.getByText(/Evidence window:/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Feedback cases' })).toHaveAttribute(
       'href',
       '/admin/feedback',
+    )
+    expect(screen.getByRole('columnheader', { name: 'Measure' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'evolution brief' }),
+    ).toHaveAttribute(
+      'href',
+      'https://github.com/letsconfab/template-webchat/blob/main/docs/evolution/example.md',
     )
     await waitFor(() => {
       const img = screen.getByRole('img', { name: 'Chart' })
@@ -284,6 +299,9 @@ describe('AdminFeedbackSummaryPage', () => {
         'src',
         '/static/feedback-summaries/artifacts/newer-summary/abc/assets/chart.svg',
       )
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument()
     })
     expect(screen.getByRole('heading', { name: 'Executive summary' })).toBeInTheDocument()
   })
@@ -324,8 +342,8 @@ describe('AdminFeedbackSummaryPage', () => {
 
     await user.click(await screen.findByRole('link', { name: /Newer Summary/i }))
     expect(
-      await screen.findByRole('heading', { level: 1, name: 'Newer Summary' }),
-    ).toBeInTheDocument()
+      await screen.findAllByRole('heading', { level: 1, name: 'Newer Summary' }),
+    ).not.toHaveLength(0)
   })
 })
 

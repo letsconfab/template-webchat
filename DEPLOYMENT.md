@@ -270,6 +270,11 @@ curl -s -o /dev/null -w "%{http_code}\n" $PUBLIC_URL$BUNDLE  # 200
 # packaged feedback summaries (after a frontend ship that includes them)
 curl -s -o /dev/null -w "%{http_code}\n" \
   $PUBLIC_URL/static/feedback-summaries/index.json            # 200
+CONTENT_URL=$(curl -s $PUBLIC_URL/static/feedback-summaries/index.json \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["summaries"][0]["content_url"] if d.get("summaries") else "")')
+if [ -n "$CONTENT_URL" ]; then
+  curl -s -o /dev/null -w "%{http_code}\n" "$PUBLIC_URL$CONTENT_URL"  # 200
+fi
 
 # confirm an auth-gated API still enforces auth
 curl -s -o /dev/null -w "%{http_code}\n" $PUBLIC_URL/api/feedback/admin  # 401

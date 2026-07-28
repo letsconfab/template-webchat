@@ -273,23 +273,34 @@ function escapeRegExp(value) {
 }
 
 /**
- * Drop a leading ATX H1 that repeats the front-matter title so the admin detail
- * page can own the document title without a duplicate heading.
+ * Ordinary Markdown links may be HTTPS or in-document anchors. Reject local
+ * filesystem paths and non-HTTPS remote schemes used for repository docs.
  * @param {string} body
- * @param {string | undefined} title
+ * @param {string} file
+ * @returns {ValidationError[]}
  */
-export function stripLeadingTitleHeading(body, title) {
-  if (!title) return body
+export function checkOrdinaryLinks(body, file) {
+  /** @type {ValidationError[]} */
+  const errors = []
   const lines = body.split('\n')
-  let index = 0
-  while (index < lines.length && lines[index].trim() === '') index += 1
-  if (index >= lines.length) return body
-  const heading = lines[index].match(/^#\s+(.+)$/)
-  if (!heading) return body
-  if (heading[1].trim() !== title.trim()) return body
-  lines.splice(index, 1)
-  if (lines[index]?.trim() === '') lines.splice(index, 1)
-  return lines.join('\n')
+  const linkRe = /(?<!!)\[([^\]]*)\]\(([^)]+)\)/g
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    let match
+    linkRe.lastIndex = 0
+    while ((match = linkRe.exec(line)) !== null) {
+      const target = match[2].trim()
+      if (target.startsWith('#')) continue
+      if (/^https:\/\//i.test(target)) continue
+      errors.push({
+        file,
+        rule: 'link',
+        line: i + 1,
+        message: `ordinary links must be HTTPS or in-document anchors: ${target}`,
+      })
+    }
+  }
+  return errors
 }
 
 /**
@@ -420,19 +431,17 @@ export async function packageFeedbackSummaries(options = {}) {
       }
     }
 
-    const body = stripLeadingTitleHeading(
-      parsed.content.replace(/^\n+/, ''),
-      typeof data.title === 'string' ? data.title : undefined,
-    )
-    errors.push(...checkRequiredHeadings(body, fileName))
-    errors.push(...checkRawHtml(body, fileName))
+    const authoredBody = parsed.content.replace(/^\n+/, '')
+    errors.push(...checkRequiredHeadings(authoredBody, fileName))
+    errors.push(...checkRawHtml(authoredBody, fileName))
     errors.push(
-      ...checkPrivacy(`${JSON.stringify(parsed.data)}\n${body}`, fileName),
+      ...checkPrivacy(`${JSON.stringify(parsed.data)}\n${authoredBody}`, fileName),
     )
+    errors.push(...checkOrdinaryLinks(authoredBody, fileName))
 
     /** @type {Array<{ relativePath: string, absolutePath: string }>} */
     const assets = []
-    const imagePaths = extractRelativeImagePaths(body)
+    const imagePaths = extractRelativeImagePaths(authoredBody)
     for (const imagePath of imagePaths) {
       if (/^(https?:|file:|\/\/|\/)/i.test(imagePath) || path.isAbsolute(imagePath)) {
         errors.push({
@@ -498,6 +507,7 @@ export async function packageFeedbackSummaries(options = {}) {
     }
 
     const meta = fmResult.data
+    const body = authoredBody
     const hash = createHash('sha256')
     hash.update(body)
     for (const asset of assets.sort((a, b) =>

@@ -1,27 +1,27 @@
 {
   "schema_version": "0.6.0",
-  "generated_at": "2026-07-28T15:26:14.829703+00:00",
+  "generated_at": "2026-07-28T17:47:27.362900+00:00",
   "privacy": "public",
   "repository": {
     "host": "github.com",
     "owner": "letsconfab",
     "name": "template-webchat",
-    "target_ref": "bugfix/strengthen-mermaid-diagrams-prompt",
-    "target_commit": "c3f09c90d4014ddbeb37127b9851e4ce6da8c1b8"
+    "target_ref": "feature/feedback-summaries-display",
+    "target_commit": "8f063d028f2fcf4cfd6d4a6d14f26a79786dfbb6"
   },
   "hitl_cognition": {
     "index": 51,
     "level": "developing",
     "color": "yellow",
     "orientation": "explored",
-    "topic_count": 8,
-    "introduced_topics": 4,
+    "topic_count": 9,
+    "introduced_topics": 5,
     "explored_topics": 4,
     "assessed_topics": 0,
     "agent_ready_topics": 0,
     "verified_average": null,
     "freshness_days": 0,
-    "last_reload_at": "2026-07-28T15:25:07.700091+00:00"
+    "last_reload_at": "2026-07-28T17:47:21.606003+00:00"
   },
   "topics": [
     {
@@ -106,6 +106,22 @@
       "assessment_attempt_count": 0
     },
     {
+      "id": "feedback_summaries_static_display",
+      "name": "Feedback Summaries Static Display",
+      "state": "introduced",
+      "verified_score": null,
+      "agent_ready": false,
+      "concepts_seen": [
+        "change reload of feature/feedback-summaries-display",
+        "Feedback Summary vs Feedback Case",
+        "canonical docs artifact packaged at build time",
+        "admin list library and detail route",
+        "no runtime LLM or DB for summaries"
+      ],
+      "code_anchors": [],
+      "assessment_attempt_count": 0
+    },
+    {
       "id": "graphrag_retrieval_inside_chat",
       "name": "Graphrag Retrieval Inside Chat",
       "state": "unseen",
@@ -186,11 +202,11 @@
     "unresolved_questions": 1
   },
   "resume": {
-    "summary": "Change-reloaded bugfix/strengthen-mermaid-diagrams-prompt: mapped the production Mermaid emission gap, the structure-trigger prompt contract, build_system_prompt fence example, and the unit/NF-DIAGRAM regression pins. Prior long-running path remains parked at configuration/auth after the public config-status endpoint.",
-    "topic": "mermaid_diagram_prompt_contract",
-    "rung": "tests",
-    "current_anchor": "tests/test_chat_generation.py:23",
-    "next_anchor": "docs/field-debug/2026-07-28-missing-mermaid-diagrams.md cause summary",
-    "next_step": "Show the field-debug cause summary explaining why production stored zero Mermaid fences despite a live frontend renderer."
+    "summary": "Paused after change-reload orientation of feature/feedback-summaries-display. Mapped static Feedback Summary ship path; next is the concept diagram (author outside runtime \u2192 build packager \u2192 admin UI). Prior Mermaid and config/auth paths remain parked.",
+    "topic": "feedback_summaries_static_display",
+    "rung": "journey",
+    "current_anchor": null,
+    "next_anchor": "docs/feedback-summaries/README.md authoring and privacy contract",
+    "next_step": "Teach the Feedback Summary concept diagram: author outside runtime, validate/package at build, serve static assets to admin UI without querying Feedback Cases."
   }
 }

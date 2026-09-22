@@ -54,4 +54,24 @@ describe('Markdown', () => {
     })
     expect(screen.getByText('not valid')).toBeInTheDocument()
   })
+
+  it('resolves relative images when assetBaseUrl is provided', () => {
+    render(
+      <Markdown assetBaseUrl="/static/feedback-summaries/artifacts/demo/hash/">
+        {'![Theme chart](assets/theme.svg)'}
+      </Markdown>,
+    )
+    expect(screen.getByRole('img', { name: 'Theme chart' })).toHaveAttribute(
+      'src',
+      '/static/feedback-summaries/artifacts/demo/hash/assets/theme.svg',
+    )
+  })
+
+  it('leaves relative images unchanged when assetBaseUrl is absent', () => {
+    render(<Markdown>{'![Theme chart](assets/theme.svg)'}</Markdown>)
+    expect(screen.getByRole('img', { name: 'Theme chart' })).toHaveAttribute(
+      'src',
+      'assets/theme.svg',
+    )
+  })
 })

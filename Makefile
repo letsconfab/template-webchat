@@ -22,7 +22,7 @@ COMPOSE_RUNTIME = $(shell \
 		echo "docker compose"; \
 	fi)
 
-.PHONY: help check-python check-production-deps setup install install-full install-fe db-upgrade db-current feedback-backfill user-activity-backfill audit-email-canonical run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe dev clean smoke-rag docker-build docker-login docker-push docker-publish
+.PHONY: help check-python check-production-deps setup install install-full install-fe db-upgrade db-current feedback-backfill user-activity-backfill audit-email-canonical run run-be run-be-prod run-fe run-db infra infra-down infra-logs infra-reset build build-fe prepare-feedback-summaries dev clean smoke-rag docker-build docker-login docker-push docker-publish
 
 # Default target
 help:
@@ -47,6 +47,7 @@ help:
 	@echo "  make infra-logs   - Tail logs from infrastructure containers"
 	@echo "  make infra-reset  - Stop infra and delete volumes (fresh start)"
 	@echo "  make build        - Build frontend"
+	@echo "  make prepare-feedback-summaries - Package docs/feedback-summaries for the frontend"
 	@echo "  make dev          - Run in development mode"
 	@echo "  make clean        - Clean build artifacts"
 	@echo "  make smoke-rag    - Start the RAG service and check its health"
@@ -154,12 +155,16 @@ smoke-rag:
 build:
 	cd frontend && npm run build
 
+prepare-feedback-summaries:
+	cd frontend && npm run prepare-feedback-summaries
+
 # Development (runs frontend which proxies to backend)
 dev: run-fe
 
 # Clean
 clean:
 	rm -rf frontend/dist
+	rm -rf frontend/public/static/feedback-summaries
 	rm -rf frontend/node_modules
 	rm -rf $(VENV)
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

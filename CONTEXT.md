@@ -19,6 +19,23 @@ answer. A Feedback Case stays connected to the rated exchange and its Chat
 Session, has an opaque public identifier, and records which party is expected
 to respond.
 
+### Feedback Summary
+
+A version-controlled, privacy-reviewed Markdown report of aggregate themes from
+negative feedback over a fixed evidence window (currently 30 days). Feedback
+Summaries are authored outside the deployed runtime, packaged into the frontend
+at build time, and shown to administrators above the Feedback Case list. They
+are not Feedback Cases, do not query production feedback at page load, and are
+not stored in the application database.
+
+### Feedback Summary Artifact
+
+The canonical Markdown file under `docs/feedback-summaries/` that defines one
+Feedback Summary. It carries YAML front matter (`artifact_id`, evidence window,
+authoring workflow, `privacy_reviewed`) and required body sections. The build
+packages derived static files from these artifacts; the Markdown in Git remains
+canonical.
+
 ### Case Reply
 
 An immutable, chronological message added to a Feedback Case by its tester or

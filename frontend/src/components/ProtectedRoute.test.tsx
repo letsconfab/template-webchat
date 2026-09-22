@@ -115,3 +115,91 @@ describe('ProtectedRoute feature gate', () => {
     expect(screen.getByTestId('current-path')).toHaveTextContent('/chat')
   })
 })
+
+function renderAtFeedbackSummary() {
+  return render(
+    <MemoryRouter initialEntries={['/admin/feedback/summaries/demo-artifact']}>
+      <Routes>
+        <Route path="/login" element={<LocationProbe label="Login page" />} />
+        <Route
+          path="/admin/dashboard"
+          element={<LocationProbe label="Admin dashboard" />}
+        />
+        <Route
+          path="/admin/feedback/summaries/:artifactId"
+          element={
+            <ProtectedRoute requireAdmin requiredFeature="admin_replay_enabled">
+              <LocationProbe label="Feedback summary page" />
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+describe('ProtectedRoute feedback summary admin gate', () => {
+  it('rejects unauthenticated access to the summary detail route', () => {
+    authState.current = {
+      isAuthenticated: false,
+      isAdmin: false,
+      isLoading: false,
+      featuresLoaded: true,
+      features: defaultFeatures,
+    }
+
+    renderAtFeedbackSummary()
+
+    expect(screen.getByRole('heading', { name: 'Login page' })).toBeVisible()
+  })
+
+  it('rejects non-admin authenticated users', () => {
+    authState.current = {
+      isAuthenticated: true,
+      isAdmin: false,
+      isLoading: false,
+      featuresLoaded: true,
+      features: {
+        ...defaultFeatures,
+        admin_replay_enabled: true,
+      },
+    }
+
+    renderAtFeedbackSummary()
+
+    expect(screen.getByRole('heading', { name: 'Login page' })).toBeVisible()
+  })
+
+  it('rejects admins when admin_replay_enabled is off', () => {
+    authState.current = {
+      isAuthenticated: true,
+      isAdmin: true,
+      isLoading: false,
+      featuresLoaded: true,
+      features: defaultFeatures,
+    }
+
+    renderAtFeedbackSummary()
+
+    expect(screen.getByRole('heading', { name: 'Admin dashboard' })).toBeVisible()
+  })
+
+  it('allows admins when admin_replay_enabled is on', () => {
+    authState.current = {
+      isAuthenticated: true,
+      isAdmin: true,
+      isLoading: false,
+      featuresLoaded: true,
+      features: {
+        ...defaultFeatures,
+        admin_replay_enabled: true,
+      },
+    }
+
+    renderAtFeedbackSummary()
+
+    expect(
+      screen.getByRole('heading', { name: 'Feedback summary page' }),
+    ).toBeVisible()
+  })
+})

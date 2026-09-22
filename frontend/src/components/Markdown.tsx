@@ -5,6 +5,8 @@ import remarkGfm from 'remark-gfm'
 interface MarkdownProps {
   children: string | null | undefined
   className?: string
+  /** When set, relative image sources resolve under this packaged asset base. */
+  assetBaseUrl?: string
 }
 
 /**
@@ -16,7 +18,7 @@ interface MarkdownProps {
  * Mermaid fenced blocks are rendered safely client-side with an accessible text
  * equivalent and a readable code-block fallback if rendering fails.
  */
-export function Markdown({ children, className }: MarkdownProps) {
+export function Markdown({ children, className, assetBaseUrl }: MarkdownProps) {
   return (
     <div className={className}>
       <ReactMarkdown
@@ -24,12 +26,60 @@ export function Markdown({ children, className }: MarkdownProps) {
         components={{
           code: MarkdownCode,
           a: CitationLink,
+          img: (props) => <MarkdownImage {...props} assetBaseUrl={assetBaseUrl} />,
         }}
       >
         {children ?? ''}
       </ReactMarkdown>
     </div>
   )
+}
+
+/**
+ * Resolve a Markdown image `src` against an optional packaged asset base.
+ * Absolute http(s) URLs and protocol-relative URLs are left alone. Relative
+ * paths are joined to the base when provided; otherwise they stay unchanged so
+ * chat/replay behavior is preserved.
+ */
+export function resolveMarkdownImageSrc(
+  src: string | undefined,
+  assetBaseUrl?: string,
+): string | undefined {
+  if (!src) return src
+  if (/^(https?:|data:|blob:)/i.test(src) || src.startsWith('//')) {
+    return src
+  }
+  if (!assetBaseUrl) return src
+  if (src.startsWith('/')) return src
+  if (src.includes('..')) return undefined
+
+  const base = assetBaseUrl.endsWith('/') ? assetBaseUrl : `${assetBaseUrl}/`
+  const relative = src.replace(/^\.\//, '')
+  return `${base}${relative}`
+}
+
+function MarkdownImage({
+  src,
+  alt,
+  assetBaseUrl,
+  node: _node,
+  ...props
+}: React.ImgHTMLAttributes<HTMLImageElement> & {
+  assetBaseUrl?: string
+  node?: unknown
+}) {
+  const resolved = resolveMarkdownImageSrc(
+    typeof src === 'string' ? src : undefined,
+    assetBaseUrl,
+  )
+  if (!resolved) {
+    return (
+      <span className="text-sm text-muted-foreground">
+        {alt ? `[image: ${alt}]` : '[image unavailable]'}
+      </span>
+    )
+  }
+  return <img {...props} src={resolved} alt={alt ?? ''} />
 }
 
 function CitationLink({

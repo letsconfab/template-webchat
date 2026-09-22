@@ -164,7 +164,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AI Copilot API",
     description="Multi-tenant AI copilot with GraphRAG capabilities",
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
 )
 

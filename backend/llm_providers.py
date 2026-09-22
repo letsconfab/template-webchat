@@ -136,10 +136,18 @@ class SarvamLLM(BaseChatModel):
             "stream": True,
         }
 
-        if "tools" in kwargs and kwargs["tools"]:
-            payload["tools"] = kwargs["tools"]
-        if "tool_choice" in kwargs:
-            payload["tool_choice"] = kwargs["tool_choice"]
+        assistant_answer_only = bool(kwargs.pop("assistant_answer_only", False))
+        answer_max_tokens = kwargs.pop("answer_max_tokens", None)
+        if assistant_answer_only:
+            # JSON null disables Sarvam thinking. Answer tokens are capped
+            # explicitly so a blank first pass can still produce reply text.
+            payload["reasoning_effort"] = None
+            payload["max_tokens"] = answer_max_tokens
+        else:
+            if "tools" in kwargs and kwargs["tools"]:
+                payload["tools"] = kwargs["tools"]
+            if "tool_choice" in kwargs:
+                payload["tool_choice"] = kwargs["tool_choice"]
 
         async with httpx.AsyncClient() as client:
             async with client.stream(
@@ -171,6 +179,13 @@ class SarvamLLM(BaseChatModel):
                     reasoning = delta.get("reasoning_content")
                     content = delta.get("content")
 
+                    if assistant_answer_only:
+                        if isinstance(content, str) and content:
+                            yield ChatGenerationChunk(
+                                message=AIMessageChunk(content=content)
+                            )
+                        continue
+
                     additional_kwargs = {}
                     if reasoning:
                         additional_kwargs["reasoning_content"] = reasoning
@@ -201,6 +216,26 @@ class SarvamLLM(BaseChatModel):
                                 tool_call_chunks=tool_call_chunks,
                             )
                         )
+
+    async def astream_assistant_answer(
+        self,
+        messages: list[BaseMessage],
+        *,
+        max_tokens: int,
+    ) -> AsyncIterator[str]:
+        """Stream one completion with reasoning disabled.
+
+        Yields `delta.content` only. Reasoning text is discarded here so it
+        cannot be copied into the stored answer.
+        """
+        async for chunk in self._astream(
+            messages,
+            assistant_answer_only=True,
+            answer_max_tokens=max_tokens,
+        ):
+            text = chunk.message.content
+            if isinstance(text, str) and text:
+                yield text
 
     def bind_tools(
         self,

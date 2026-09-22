@@ -39,7 +39,7 @@ from backend.routers import (
     users,
     wiki,
 )
-from backend.llm_providers import LLMProvider, validate_api_key, get_available_models
+from backend.llm_providers import LLMProvider, SarvamLLM, validate_api_key, get_available_models
 from backend.services.langfuse_service import langfuse_service
 from backend.services.cocoindex_manager import cocoindex_manager
 from backend.services.graphrag_service import graphrag_service
@@ -68,6 +68,11 @@ logging.basicConfig(
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+# Sarvam's documented completion cap. With reasoning disabled, the whole budget
+# is available for a normal retrieval answer (short prose plus one small diagram).
+_ASSISTANT_ANSWER_MAX_TOKENS = 2048
+_BLANK_ANSWER_ERROR = "The assistant didn't return an answer. Please try again."
 
 
 class SettingsRequest(BaseModel):
@@ -447,6 +452,66 @@ async def _settings_status_message(settings) -> str:
     return " | ".join(parts)
 
 
+def _message_text(message) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    return str(content or "")
+
+
+def _messages_for_assistant_answer(
+    agent_messages: list,
+    transcript: list | None,
+    tool_outputs: list[str],
+) -> list:
+    """Keep the turn's messages, including retrieval, and drop a blank answer."""
+    source = list(transcript) if transcript else list(agent_messages)
+    while (
+        source
+        and getattr(source[-1], "type", None) == "ai"
+        and not _message_text(source[-1]).strip()
+    ):
+        source.pop()
+    if not source:
+        source = list(agent_messages)
+    included_text = "\n".join(_message_text(message) for message in source)
+    question = _message_text(agent_messages[-1]) if agent_messages else ""
+    if question and question not in included_text:
+        source = list(agent_messages) + source
+        included_text = "\n".join(_message_text(message) for message in source)
+    omitted_tool_outputs = [
+        text for text in tool_outputs if text and text not in included_text
+    ]
+    if omitted_tool_outputs:
+        source.append(
+            HumanMessage(
+                content=(
+                    "Retrieved knowledge already fetched for this question:\n"
+                    + "\n\n".join(omitted_tool_outputs)
+                )
+            )
+        )
+    return source
+
+
+async def _stream_assistant_answer_followup(
+    llm,
+    messages: list,
+    websocket: WebSocket,
+) -> str:
+    """One reasoning-off completion. Returns answer text only, possibly blank."""
+    if not isinstance(llm, SarvamLLM):
+        return ""
+    parts: list[str] = []
+    async for delta in llm.astream_assistant_answer(
+        messages,
+        max_tokens=_ASSISTANT_ANSWER_MAX_TOKENS,
+    ):
+        parts.append(delta)
+        await websocket.send_json({"type": "chunk", "content": delta})
+    return "".join(parts)
+
+
 async def _query_with_knowledge(
     llm,
     user_message: str,
@@ -462,6 +527,8 @@ async def _query_with_knowledge(
     thought_count = 0
     trace_events: list[dict] = []
     tool_started_at: dict[str, float] = {}
+    tool_outputs: list[str] = []
+    transcript: list | None = None
     start_time = time.monotonic()
     agent_messages = build_agent_messages(
         history,
@@ -552,6 +619,8 @@ async def _query_with_knowledge(
 
             elif kind == "on_tool_end":
                 raw_output = str(event["data"].get("output", ""))
+                if raw_output:
+                    tool_outputs.append(raw_output)
                 output = raw_output[:200]
                 run_id = str(event.get("run_id", ""))
                 started = tool_started_at.pop(run_id, None)
@@ -596,6 +665,13 @@ async def _query_with_knowledge(
                     }
                 )
 
+            elif kind == "on_chain_end":
+                output = event.get("data", {}).get("output")
+                if isinstance(output, dict) and isinstance(output.get("messages"), list):
+                    messages_out = output["messages"]
+                    if transcript is None or len(messages_out) >= len(transcript):
+                        transcript = messages_out
+
     except ImportError:
         logger.warning("deepagents not installed, falling back to simple LLM call")
         result = await llm.ainvoke(agent_messages)
@@ -609,12 +685,39 @@ async def _query_with_knowledge(
         logger.error("Agent query error: %s", e, exc_info=True)
         had_error = True
         error_msg = f"An error occurred: {str(e)}"
-        full_response = full_response or error_msg
+        # A newline is truthy, but it is not an answer and would hide error_msg.
+        full_response = full_response if full_response.strip() else error_msg
         try:
             await websocket.send_json({"type": "start"})
             await websocket.send_json({"type": "chunk", "content": error_msg})
         except Exception:
             pass
+
+    if not had_error and not full_response.strip():
+        try:
+            followup = await _stream_assistant_answer_followup(
+                llm,
+                _messages_for_assistant_answer(
+                    agent_messages, transcript, tool_outputs
+                ),
+                websocket,
+            )
+        except Exception as error:
+            logger.error(
+                "Assistant-answer follow-up failed: %s", type(error).__name__
+            )
+            followup = ""
+        if followup.strip():
+            full_response = followup
+        else:
+            had_error = True
+            full_response = _BLANK_ANSWER_ERROR
+            try:
+                await websocket.send_json(
+                    {"type": "chunk", "content": full_response}
+                )
+            except Exception:
+                pass
 
     message_id: Optional[int] = None
     followups: list[str] = []

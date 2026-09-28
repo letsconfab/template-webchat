@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import importlib
 import os
+import re
 import sys
+import urllib.request
 from pathlib import Path
 
 
@@ -51,6 +53,23 @@ def verify_backend_import(module_name: str) -> None:
     print(f"Backend import verification passed: {module_name}.")
 
 
+def verify_frontend_entry(url: str, expected_script: str, timeout: float) -> None:
+    """Assert the served SPA entry point loads the expected hashed bundle.
+
+    Hashed assets accumulate on the host, so an asset returning 200 does not
+    prove the served ``index.html`` references it.
+    """
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        html = response.read().decode("utf-8", errors="replace")
+    scripts = re.findall(r"assets/(index-[^\"'/]+\.js)", html)
+    if expected_script not in scripts:
+        raise VerificationFailure(
+            f"Entry point references {scripts or 'no index bundle'}, "
+            f"expected {expected_script}."
+        )
+    print(f"Frontend entry verification passed: {expected_script}.")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -66,6 +85,14 @@ def parse_args() -> argparse.Namespace:
         "backend-import", help="Import the configured backend application module."
     )
     backend.add_argument("--module", default="backend.main")
+
+    entry = subparsers.add_parser(
+        "frontend-entry",
+        help="Check the served index.html references the expected JS bundle.",
+    )
+    entry.add_argument("--url", required=True)
+    entry.add_argument("--expected-script", required=True)
+    entry.add_argument("--timeout", type=float, default=15.0)
     return parser.parse_args()
 
 
@@ -76,9 +103,11 @@ def main() -> int:
             if args.expected_dimension <= 0:
                 raise VerificationFailure("Expected dimension must be positive.")
             verify_model(args.model, args.cache_dir.resolve(), args.expected_dimension)
+        elif args.command == "frontend-entry":
+            verify_frontend_entry(args.url, args.expected_script, args.timeout)
         else:
             verify_backend_import(args.module)
-    except (ImportError, VerificationFailure) as exc:
+    except (ImportError, OSError, VerificationFailure) as exc:
         print(f"Release verification failed: {exc}", file=sys.stderr)
         return 1
     return 0

@@ -94,6 +94,44 @@ class SentenceTransformer:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("verification_fixture", result.stdout)
 
+    def _run_frontend_entry(self, html: str, expected: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            index = Path(tmp) / "index.html"
+            index.write_text(html, encoding="utf-8")
+            return subprocess.run(
+                [
+                    sys.executable,
+                    str(VERIFY_RELEASE),
+                    "frontend-entry",
+                    "--url",
+                    index.resolve().as_uri(),
+                    "--expected-script",
+                    expected,
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    def test_frontend_entry_accepts_page_referencing_expected_bundle(self) -> None:
+        result = self._run_frontend_entry(
+            '<script type="module" crossorigin src="/assets/index-JNY7hdXb.js"></script>',
+            "index-JNY7hdXb.js",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("index-JNY7hdXb.js", result.stdout)
+
+    def test_frontend_entry_rejects_stale_bundle(self) -> None:
+        result = self._run_frontend_entry(
+            '<script type="module" crossorigin src="/assets/index-CuA7AIXC.js"></script>',
+            "index-JNY7hdXb.js",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("index-CuA7AIXC.js", result.stderr)
+
 
 class ServiceRendererTests(unittest.TestCase):
     def test_renders_validated_service_unit(self) -> None:

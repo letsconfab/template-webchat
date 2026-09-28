@@ -179,6 +179,8 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    git pull --ff-only origin $DEPLOY_BRANCH
    cp -a frontend/index.rollback-$PREVIOUS_SHA.html frontend/dist/index.html
    RELEASE_SHA=$(git rev-parse HEAD)
+   # each release leaves a ~2 GB .venv.rollback-*; keep only the newest one
+   python3 scripts/manage_release_environment.py prune --active $PWD/.venv --keep-rollback 1
    python3.13 scripts/check_production_dependencies.py
    ```
 

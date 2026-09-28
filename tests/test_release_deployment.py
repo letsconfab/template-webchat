@@ -94,6 +94,44 @@ class SentenceTransformer:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("verification_fixture", result.stdout)
 
+    def _run_frontend_entry(self, html: str, expected: str) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as tmp:
+            index = Path(tmp) / "index.html"
+            index.write_text(html, encoding="utf-8")
+            return subprocess.run(
+                [
+                    sys.executable,
+                    str(VERIFY_RELEASE),
+                    "frontend-entry",
+                    "--url",
+                    index.resolve().as_uri(),
+                    "--expected-script",
+                    expected,
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    def test_frontend_entry_accepts_page_referencing_expected_bundle(self) -> None:
+        result = self._run_frontend_entry(
+            '<script type="module" crossorigin src="/assets/index-JNY7hdXb.js"></script>',
+            "index-JNY7hdXb.js",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("index-JNY7hdXb.js", result.stdout)
+
+    def test_frontend_entry_rejects_stale_bundle(self) -> None:
+        result = self._run_frontend_entry(
+            '<script type="module" crossorigin src="/assets/index-CuA7AIXC.js"></script>',
+            "index-JNY7hdXb.js",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("index-CuA7AIXC.js", result.stderr)
+
 
 class ServiceRendererTests(unittest.TestCase):
     def test_renders_validated_service_unit(self) -> None:
@@ -258,6 +296,88 @@ class ReleaseEnvironmentTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(identity, "old")
         self.assertIn("nothing to restore", result.stdout)
+
+
+class PruneEnvironmentTests(unittest.TestCase):
+    def _venv(self, root: Path, name: str, created: int) -> Path:
+        path = root / name
+        path.mkdir()
+        cfg = path / "pyvenv.cfg"
+        cfg.write_text("home = /usr/bin\n", encoding="utf-8")
+        os.utime(cfg, (created, created))
+        return path
+
+    def _prune(self, root: Path, *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(MANAGE_ENVIRONMENT),
+                "prune",
+                "--active",
+                str(root / ".venv"),
+                "--keep-rollback",
+                "1",
+                *extra,
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def _layout(self, root: Path) -> None:
+        self._venv(root, ".venv", 500)
+        self._venv(root, ".venv.rollback-oldest", 100)
+        self._venv(root, ".venv.rollback-middle", 200)
+        self._venv(root, ".venv.rollback-newest", 300)
+        self._venv(root, ".venv.failed-bad", 400)
+        self._venv(root, ".venv.release-inflight", 600)
+        (root / ".venv.rollback-link").symlink_to(root / ".venv")
+
+    def test_prune_keeps_newest_rollback_and_protected_environments(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._layout(root)
+
+            result = self._prune(root)
+            remaining = sorted(p.name for p in root.iterdir())
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            remaining,
+            [
+                ".venv",
+                ".venv.release-inflight",
+                ".venv.rollback-link",
+                ".venv.rollback-newest",
+            ],
+        )
+        self.assertIn(".venv.rollback-oldest", result.stdout)
+
+    def test_prune_dry_run_deletes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._layout(root)
+            before = sorted(p.name for p in root.iterdir())
+
+            result = self._prune(root, "--dry-run")
+            after = sorted(p.name for p in root.iterdir())
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(before, after)
+        self.assertIn("would delete", result.stdout)
+        self.assertIn(".venv.failed-bad", result.stdout)
+
+    def test_prune_requires_active_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._venv(root, ".venv.rollback-only", 100)
+
+            result = self._prune(root)
+            still_there = (root / ".venv.rollback-only").is_dir()
+
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue(still_there)
 
 
 if __name__ == "__main__":

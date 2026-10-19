@@ -822,8 +822,10 @@ async def _query_with_knowledge(
 
     message_id: Optional[int] = None
     followups: list[str] = []
+    refusal = False
     if full_response:
         full_response, followups = extract_followups(full_response)
+        refusal = full_response.strip() == librarian_refusal()
         duration_ms = int((time.monotonic() - start_time) * 1000)
         message_id = await _persist_chat_message(
             chat_session=chat_session,
@@ -837,6 +839,7 @@ async def _query_with_knowledge(
                 "error": had_error,
                 "followups": followups or None,
                 "citations": list(citations.values()) or None,
+                "refusal": refusal or None,
             },
         )
         history.append(
@@ -852,6 +855,8 @@ async def _query_with_knowledge(
             end_payload["followups"] = followups
         if citations:
             end_payload["citations"] = list(citations.values())
+        if refusal:
+            end_payload["refusal"] = True
         await websocket.send_json(end_payload)
     except Exception:
         pass

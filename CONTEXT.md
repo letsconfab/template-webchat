@@ -69,6 +69,38 @@ read-only Google Drive file). Retrieval returns passage text with provenance:
 document title, canonical Google URL, revision metadata, and the finest honest
 locator available (for example a Markdown heading or chunk index).
 
+### Loving System in Practice
+
+A published case study of one organization's loving systems, written by A
+Loving Organization. Abbreviated LSP.
+_Avoid_: case study (on its own)
+
+### INTEGRATE System
+
+One of the nine systems of A Loving Organization's INTEGRATE framework:
+Inspire, Nurture, Trust, Embody, Guide, Regulate, Align, Transcend, Engage.
+ALO's own sheets are authoritative for this vocabulary.
+_Avoid_: INTEGRATE domain, domain
+
+### Spotlight
+
+An INTEGRATE System that a Loving System in Practice features in full
+narrative. Each LSP spotlights a small fixed number of Systems (currently
+three), even though its text may touch others.
+
+### Library Document
+
+A document that the Library Manifest includes and that Members can browse and
+open in the Resource Library. It appears under every INTEGRATE System it
+spotlights.
+
+### Library Manifest
+
+The curator-maintained list that defines the Resource Library: which exact
+document versions are included, their member-facing titles, and their
+Spotlights. Inclusion in the Library Manifest is what approval means; filename
+markers such as "APP" are not.
+
 ### Journey
 
 An administrator-curated starter path on the chat start screen. A Journey has a

@@ -6,23 +6,22 @@ import asyncio
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 from neo4j import AsyncGraphDatabase, AsyncSession as Neo4jSession
 
 from backend.config import config
-from backend.services.source_provenance import (
-    display_title_from_filename,
-    format_retrieval_source,
-    google_doc_url,
-)
+from backend.services import library
+from backend.services.source_provenance import format_retrieval_source
 
 logger = logging.getLogger(__name__)
 
 QDRANT_COLLECTION = "kb_chunks"
 # Must match the model used by the CocoIndex pipeline (384-dim vectors).
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+NO_LIBRARY_PASSAGES = "No relevant passages found in the library."
 
 
 class GraphRAGService:
@@ -191,80 +190,76 @@ class GraphRAGService:
             logger.error("Qdrant search error: %s", e)
         return []
 
-    async def find_similar_chunks(self, query_text: str, top_k: int = 5) -> str:
-        """Find chunks semantically similar to the query via Qdrant vector search."""
+    @staticmethod
+    def _library_source(payload: dict) -> Optional[dict]:
+        """The Library or Reference Document a passage came from, or None.
+
+        A passage maps to its source by the Drive file id in its provenance,
+        and must come from the manifest-synced copy (kb_cache/library/), not a
+        root-folder copy of the same file. Unresolvable passages are dropped.
+        """
+        file_id = payload.get("google_file_id")
+        if not file_id:
+            return None
+        doc = library.get_document(str(file_id))
+        if not doc:
+            return None
+        cache_path = doc.get("cache_path")
+        if cache_path and payload.get("filename") != Path(cache_path).name:
+            return None
+        return doc
+
+    async def retrieve_library_context(
+        self, query: str, top_k: int = 5
+    ) -> tuple[str, list[dict]]:
+        """Passages from Library and Reference Documents, plus their citations.
+
+        Knowledge-graph facts are not returned: graph entities carry no source
+        document, so they cannot be attributed to a Library Document.
+        """
         if not await self.qdrant_ready():
-            return ""
-
-        embedding = await self._embed_query(query_text)
+            return "", []
+        embedding = await self._embed_query(query)
         if not embedding:
-            return ""
+            return "", []
 
-        hits = await self._search_qdrant(embedding, top_k=top_k)
-        if not hits:
-            return ""
-
-        parts = []
+        # Oversample: passages outside the library are filtered out below.
+        hits = await self._search_qdrant(embedding, top_k=top_k * 4)
+        parts: list[str] = []
+        citations: dict[str, dict] = {}
         for hit in hits:
             payload = hit.get("payload", {}) or {}
             text = (payload.get("text") or "").strip()
-            if not text:
+            doc = self._library_source(payload) if text else None
+            if not doc:
                 continue
-            title = payload.get("title") or display_title_from_filename(
-                payload.get("filename", "unknown")
-            )
-            google_file_id = payload.get("google_file_id")
-            google_url = payload.get("google_url")
-            if not google_url and google_file_id:
-                google_url = google_doc_url(str(google_file_id))
             locator = payload.get("locator")
-            modified_time = payload.get("modified_time")
             chunk_index = payload.get("chunk_index")
-            if not isinstance(chunk_index, int):
-                chunk_index = 0
             score = hit.get("score")
             parts.append(
                 format_retrieval_source(
-                    title=str(title),
+                    title=str(doc.get("title")),
                     passage=text[:1500],
-                    google_url=google_url,
+                    google_url=library.document_file_url(str(doc["file_id"])),
                     locator=locator if isinstance(locator, str) else None,
-                    modified_time=modified_time if isinstance(modified_time, str) else None,
-                    chunk_index=chunk_index,
+                    modified_time=doc.get("modified_time"),
+                    chunk_index=chunk_index if isinstance(chunk_index, int) else 0,
                     relevance=score if isinstance(score, (int, float)) else None,
                 )
             )
+            citations.setdefault(str(doc["file_id"]), library.citation(doc))
+            if len(parts) >= top_k:
+                break
 
-        return "\n\n---\n\n".join(parts)
-
-    # ── Combined retrieval (the main tool) ───────────────────────────────
+        if not parts:
+            return "", []
+        context = "Relevant passages from the library:\n\n" + "\n\n---\n\n".join(parts)
+        return context, list(citations.values())
 
     async def retrieve_knowledge(self, query: str, top_k: int = 5) -> str:
-        """Main retrieval function: semantic chunk search (primary) + entity graph (secondary)."""
-        # Vector search over the indexed document chunks is the primary grounding
-        # signal — it returns the actual source text. The entity graph adds
-        # structured relationships on top.
-        vector_context = await self.find_similar_chunks(query, top_k=top_k)
-
-        graph_context = ""
-        if self._neo4j_ready:
-            terms = [t.strip() for t in query.split() if len(t.strip()) > 3][:10]
-            graph_context = await self.find_subgraph(terms)
-
-        sections = []
-        if vector_context:
-            sections.append(
-                "Relevant passages from the knowledge base:\n\n" + vector_context
-            )
-        if graph_context:
-            sections.append(
-                "Related concepts from the knowledge graph:\n\n" + graph_context
-            )
-
-        if not sections:
-            return "No relevant information found in the knowledge base."
-
-        return "\n\n========\n\n".join(sections)
+        """Library-scoped retrieval as text for the Librarian's tool."""
+        context, _ = await self.retrieve_library_context(query, top_k=top_k)
+        return context or NO_LIBRARY_PASSAGES
 
 
 graphrag_service = GraphRAGService()

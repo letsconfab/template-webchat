@@ -134,6 +134,8 @@ make run-fe
 | `SECRET_KEY` | - | JWT secret |
 | `KB_ASSETS_DIR` | `./kb_assets` | Knowledge base files |
 | `LIBRARY_FILES_DIR` | `./library_files` | Served Library Document PDFs + `library.json`; startup fails if inside `KB_CACHE_DIR` |
+| `LIBRARIAN_LIBRARY_NAME` | `Resource` | Librarian persona and refusal text ("the X library") |
+| `LIBRARIAN_ORGANIZATION_NAME` | `the organization` | Librarian persona ("helping Members of X") |
 
 ## Docker Compose
 

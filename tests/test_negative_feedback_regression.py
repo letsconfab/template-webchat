@@ -36,22 +36,23 @@ CRITICAL_CASES = [
         "theme": "progressive_disclosure",
         "must_include": ["go deeper", "120–180 words"],
     },
-    # Relevance / freshness / trust (NF-02, NF-07)
+    # Relevance / freshness / trust (NF-02, NF-07). The strict Librarian
+    # policy (#31) replaced the three-tier evidence policy: every claim needs
+    # a library citation, and missing evidence gets the fixed refusal.
     {
         "id": "NF-02",
         "theme": "relevance_freshness",
-        "must_include": ["ALO evidence required", "Clarify or decline"],
+        "must_include": ["Answer only from retrieved library passages", "cite each claim"],
     },
     {
         "id": "NF-07",
         "theme": "ip_evidence_boundary",
         "must_include": [
-            "licensing",
-            "IP claims",
-            "say so",
-            "Do not silently fall back",
+            "reply exactly",
+            "Never give general or uncited guidance",
+            "Do not fall back to general model knowledge",
         ],
-        "must_not_include": ["answer from your own knowledge"],
+        "must_not_include": ["answer from your own knowledge", "General guidance allowed"],
     },
     # Clarification (NF-08, NF-10)
     {

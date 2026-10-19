@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
+from backend.config import config
 from backend.services.chat_generation import (
     RECENT_MESSAGE_LIMIT,
     build_agent_messages,
     build_system_prompt,
     extract_followups,
+    librarian_refusal,
 )
 
 
@@ -42,12 +45,37 @@ class BuildSystemPromptTests(unittest.TestCase):
         self.assertIn("framework overview", prompt.lower())
         self.assertIn("allowed and expected", prompt.lower())
 
-    def test_prompt_requires_alo_evidence_and_forbids_silent_fallback(self) -> None:
-        prompt = build_system_prompt(has_kb=True)
-        self.assertIn("ALO evidence required", prompt)
-        self.assertIn("general guidance", prompt.lower())
+    def test_prompt_is_the_strict_librarian(self) -> None:
+        with patch.object(config, "LIBRARIAN_LIBRARY_NAME", "XYZ"), patch.object(
+            config, "LIBRARIAN_ORGANIZATION_NAME", "Example Collective"
+        ):
+            prompt = build_system_prompt(has_kb=True)
+            refusal = librarian_refusal()
+
+        self.assertEqual(
+            refusal,
+            "I couldn't find that in the XYZ library. You can browse the library "
+            "by INTEGRATE System, or ask me about a specific System or organization.",
+        )
+        self.assertIn(
+            "You are the XYZ Librarian, helping Members of Example Collective "
+            "find answers in the Consortium's own library.",
+            prompt,
+        )
+        self.assertIn(refusal, prompt)
+        self.assertIn("Answer only from retrieved library passages", prompt)
+        self.assertIn("cite each claim", prompt)
+        self.assertIn("at most one clarifying question", prompt)
+        self.assertNotIn("tester", prompt.lower())
+        self.assertNotIn("general guidance allowed", prompt.lower())
+        self.assertNotIn("three tiers", prompt.lower())
+        self.assertNotIn("consent", prompt.lower().replace("even with the member's consent", ""))
         self.assertNotIn("answer from your own knowledge", prompt.lower())
-        self.assertIn("say so", prompt.lower())
+
+    def test_prompt_without_kb_tells_the_librarian_to_refuse(self) -> None:
+        prompt = build_system_prompt(has_kb=False)
+        self.assertIn(librarian_refusal(), prompt)
+        self.assertNotIn("tester", prompt.lower())
 
     def test_prompt_without_kb_still_has_concise_contract(self) -> None:
         prompt = build_system_prompt(has_kb=False)

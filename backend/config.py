@@ -88,6 +88,13 @@ class Config:
     # KB_CACHE_DIR: the indexer walks that tree and would index served copies.
     LIBRARY_FILES_DIR: str = os.getenv("LIBRARY_FILES_DIR", "./library_files")
 
+    # Librarian persona. Deployment-specific names come from the environment
+    # (this repository is public); the defaults are neutral placeholders.
+    LIBRARIAN_LIBRARY_NAME: str = os.getenv("LIBRARIAN_LIBRARY_NAME", "Resource")
+    LIBRARIAN_ORGANIZATION_NAME: str = os.getenv(
+        "LIBRARIAN_ORGANIZATION_NAME", "the organization"
+    )
+
     # Google Drive OAuth
     GOOGLE_OAUTH_CLIENT_ID: str = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
     GOOGLE_OAUTH_CLIENT_SECRET: str = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")

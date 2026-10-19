@@ -187,6 +187,17 @@ def document_file_url(file_id: str) -> str:
     return f"/api/library/documents/{file_id}/file"
 
 
+def citation(doc: dict[str, Any]) -> dict[str, Any]:
+    """Citation payload for a Library or Reference Document."""
+    return {
+        "id": doc.get("file_id"),
+        "title": doc.get("title"),
+        "type": doc.get("type"),
+        "systems": [] if doc.get("type") == REFERENCE_TYPE else list(doc.get("systems") or []),
+        "url": document_file_url(str(doc.get("file_id"))),
+    }
+
+
 def _empty_library() -> dict[str, Any]:
     return {"documents": [], "issues": []}
 

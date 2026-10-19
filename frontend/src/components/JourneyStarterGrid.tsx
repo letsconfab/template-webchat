@@ -6,6 +6,7 @@ interface JourneyStarterGridProps {
   disabled?: boolean
 }
 
+/** Journeys offered as starter-question cards in the Librarian's empty state. */
 export function JourneyStarterGrid({
   journeys,
   onSelect,
@@ -13,43 +14,37 @@ export function JourneyStarterGrid({
 }: JourneyStarterGridProps) {
   if (journeys.length === 0) {
     return (
-      <div className="py-8 text-center text-muted-foreground">
-        <p className="text-base font-medium text-foreground">Start a conversation</p>
-        <p className="mt-1 text-sm">
-          Type a message below, or ask an administrator to publish starter journeys.
-        </p>
-      </div>
+      <p className="text-center text-sm text-muted-foreground">
+        Type your question below to get started.
+      </p>
     )
   }
 
   return (
-    <div className="mx-auto max-w-2xl py-6">
-      <h2 className="text-center text-lg font-semibold text-foreground">
-        Choose a starting point
+    <div>
+      <h2 className="text-center text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        Or start with a question
       </h2>
-      <p className="mt-1 text-center text-sm text-muted-foreground">
-        Administrator-curated ALO journeys grounded in Knowledge Sources.
-      </p>
-      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         {journeys.map((journey) => (
           <button
             key={journey.id}
             type="button"
             disabled={disabled}
             onClick={() => onSelect(journey)}
-            className="rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/40 disabled:opacity-50"
+            className="flex h-full flex-col rounded-lg border bg-card p-5 text-left text-card-foreground shadow-sm transition-colors hover:border-accent hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
-            <div className="text-sm font-semibold">
+            <span className="font-display text-lg font-semibold">
               {journey.icon ? `${journey.icon} ` : ''}
               {journey.title}
-            </div>
+            </span>
             {journey.purpose && (
-              <p className="mt-1 text-xs text-muted-foreground">{journey.purpose}</p>
+              <span className="mt-1 text-sm text-muted-foreground">{journey.purpose}</span>
             )}
-            {journey.knowledge_source_labels?.length > 0 && (
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Sources: {journey.knowledge_source_labels.join(', ')}
-              </p>
+            {journey.starter_prompt && (
+              <span className="mt-3 text-sm italic text-foreground">
+                “{journey.starter_prompt}”
+              </span>
             )}
           </button>
         ))}

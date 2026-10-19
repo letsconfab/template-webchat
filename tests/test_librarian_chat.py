@@ -165,6 +165,27 @@ class LibrarianChatTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(end["content"], librarian_refusal())
         self.assertNotIn("citations", end)
         self.assertNotIn("followups", end)
+        self.assertIs(end["refusal"], True)
+        self.assertIs(stored["metadata"]["refusal"], True)
+
+    async def test_a_model_written_refusal_is_flagged_as_a_refusal(self) -> None:
+        agent = _FakeAgent(librarian_refusal())
+        stored, sent, _, _ = await self._turn(
+            [_hit("LIBRARY PASSAGE", "lib_1", "lib_1_Practice One.txt")], agent
+        )
+
+        end = next(frame for frame in sent if frame["type"] == "end")
+        self.assertIs(end["refusal"], True)
+        self.assertIs(stored["metadata"]["refusal"], True)
+
+    async def test_a_grounded_answer_is_not_flagged_as_a_refusal(self) -> None:
+        stored, sent, _, _ = await self._turn(
+            [_hit("LIBRARY PASSAGE", "lib_1", "lib_1_Practice One.txt")], _FakeAgent(ANSWER)
+        )
+
+        end = next(frame for frame in sent if frame["type"] == "end")
+        self.assertNotIn("refusal", end)
+        self.assertIsNone(stored["metadata"]["refusal"])
 
     async def test_retrieval_failure_is_an_error_not_a_refusal(self) -> None:
         agent = _FakeAgent("Some uncited general advice.")

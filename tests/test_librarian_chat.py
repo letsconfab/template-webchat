@@ -35,7 +35,13 @@ def _doc(file_id: str, title: str, systems: list[str], doc_type: str = "LSP") ->
 def _hit(text: str, file_id: str, filename: str) -> dict:
     return {
         "score": 0.8,
-        "payload": {"text": text, "filename": filename, "google_file_id": file_id, "chunk_index": 0},
+        "payload": {
+            "text": text,
+            "filename": filename,
+            "source_dir": "library",
+            "google_file_id": file_id,
+            "chunk_index": 0,
+        },
     }
 
 
@@ -75,7 +81,7 @@ class LibrarianChatTurnTests(unittest.IsolatedAsyncioTestCase):
             "issues": [],
         })
 
-    async def _turn(self, hits: list[dict], agent: _FakeAgent):
+    async def _turn(self, hits, agent: _FakeAgent):
         stored: dict = {}
         sent: list[dict] = []
         traces: list = []
@@ -93,10 +99,14 @@ class LibrarianChatTurnTests(unittest.IsolatedAsyncioTestCase):
 
         create_agent = MagicMock(return_value=agent)
         with (
-            patch.object(graphrag_service, "is_ready", new=AsyncMock(return_value=True)),
+            patch.object(graphrag_service, "is_ready", new=AsyncMock(return_value=False)),
             patch.object(graphrag_service, "qdrant_ready", new=AsyncMock(return_value=True)),
             patch.object(graphrag_service, "_embed_query", new=AsyncMock(return_value=[0.1])),
-            patch.object(graphrag_service, "_search_qdrant", new=AsyncMock(return_value=hits)),
+            patch.object(
+                graphrag_service,
+                "_search_qdrant",
+                new=AsyncMock(side_effect=hits) if isinstance(hits, Exception) else AsyncMock(return_value=hits),
+            ),
             patch("langgraph.prebuilt.create_react_agent", create_agent),
             patch("backend.main._persist_chat_message", new=persist_message),
             patch("backend.main._persist_execution_trace", new=persist_trace),
@@ -155,6 +165,16 @@ class LibrarianChatTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(end["content"], librarian_refusal())
         self.assertNotIn("citations", end)
         self.assertNotIn("followups", end)
+
+    async def test_retrieval_failure_is_an_error_not_a_refusal(self) -> None:
+        agent = _FakeAgent("Some uncited general advice.")
+        stored, sent, traces, create_agent = await self._turn(RuntimeError("qdrant down"), agent)
+
+        create_agent.assert_not_called()
+        self.assertNotEqual(stored["content"], librarian_refusal())
+        self.assertIn("library", stored["content"].lower())
+        self.assertTrue(stored["metadata"]["error"])
+        self.assertIn("tool_failed", [event["event_type"] for event in traces[0]])
 
 
 if __name__ == "__main__":

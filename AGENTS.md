@@ -136,6 +136,7 @@ make run-fe
 | `LIBRARY_FILES_DIR` | `./library_files` | Served Library Document PDFs + `library.json`; startup fails if inside `KB_CACHE_DIR` |
 | `LIBRARIAN_LIBRARY_NAME` | `Resource` | Librarian persona and refusal text ("the X library") |
 | `LIBRARIAN_ORGANIZATION_NAME` | `the organization` | Librarian persona ("helping Members of X") |
+| `LIBRARIAN_LIBRARY_OWNER` | `the organization` | Librarian persona ("find answers in X's own library") |
 
 ## Docker Compose
 

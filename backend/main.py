@@ -76,6 +76,7 @@ logger = logging.getLogger(__name__)
 # is available for a normal retrieval answer (short prose plus one small diagram).
 _ASSISTANT_ANSWER_MAX_TOKENS = 2048
 _BLANK_ANSWER_ERROR = "The assistant didn't return an answer. Please try again."
+_LIBRARY_SEARCH_ERROR = "The library search failed. Please try again."
 
 
 class SettingsRequest(BaseModel):
@@ -525,8 +526,11 @@ async def _stream_assistant_answer_followup(
 
 async def _retrieve_library_for_turn(
     query: str, trace_events: list[dict]
-) -> tuple[str, list[dict]]:
-    """Library-scoped retrieval for the Member's question, traced without passage text."""
+) -> Optional[tuple[str, list[dict]]]:
+    """Library-scoped retrieval for the Member's question, traced without passage text.
+
+    Returns None when the search itself failed.
+    """
     started = time.monotonic()
     trace_events.append(
         {
@@ -550,7 +554,7 @@ async def _retrieve_library_for_turn(
                 "safe_error_category": "tool_error",
             }
         )
-        return "", []
+        return None
     sources = await _redacted_source_identifiers(context)
     trace_events.append(
         {
@@ -598,15 +602,27 @@ async def _query_with_knowledge(
 
     # The Librarian answers only from Library and Reference Documents: with no
     # corpus passages for the question, reply with the fixed refusal and never
-    # call the model.
-    kb_ready = await graphrag_service.is_ready()
-    refused = False
+    # call the model. Library passages are searched in Qdrant only.
+    kb_ready = await graphrag_service.qdrant_ready()
+    skip_model = False
     if kb_ready:
-        library_context, found = await _retrieve_library_for_turn(
-            user_message, trace_events
-        )
+        retrieved = await _retrieve_library_for_turn(user_message, trace_events)
+        library_context, found = retrieved or ("", [])
         add_citations(found)
-        if library_context:
+        if retrieved is None:
+            skip_model = True
+            had_error = True
+            full_response = _LIBRARY_SEARCH_ERROR
+        elif not library_context:
+            skip_model = True
+            full_response = librarian_refusal()
+        if skip_model:
+            try:
+                await websocket.send_json({"type": "start"})
+                await websocket.send_json({"type": "chunk", "content": full_response})
+            except Exception:
+                pass
+        else:
             agent_messages = agent_messages[:-1] + [
                 HumanMessage(
                     content=(
@@ -616,16 +632,8 @@ async def _query_with_knowledge(
                 ),
                 agent_messages[-1],
             ]
-        else:
-            refused = True
-            full_response = librarian_refusal()
-            try:
-                await websocket.send_json({"type": "start"})
-                await websocket.send_json({"type": "chunk", "content": full_response})
-            except Exception:
-                pass
 
-    if not refused:
+    if not skip_model:
         try:
             from langgraph.prebuilt import create_react_agent
             from langchain_core.tools import tool
@@ -707,7 +715,7 @@ async def _query_with_knowledge(
                     thought_count += 1
                     await websocket.send_json({
                         "type": "think",
-                        "content": f"Searching knowledge base: {str(input_data)[:120]}",
+                        "content": f"Searching the library: {str(input_data)[:120]}",
                     })
 
                 elif kind == "on_tool_end":
@@ -828,7 +836,7 @@ async def _query_with_knowledge(
                 "duration_ms": duration_ms,
                 "error": had_error,
                 "followups": followups or None,
-                "citations": list(citations.values()) if not refused and citations else None,
+                "citations": list(citations.values()) or None,
             },
         )
         history.append(
@@ -842,7 +850,7 @@ async def _query_with_knowledge(
             end_payload["content"] = full_response
         if followups:
             end_payload["followups"] = followups
-        if citations and not refused:
+        if citations:
             end_payload["citations"] = list(citations.values())
         await websocket.send_json(end_payload)
     except Exception:

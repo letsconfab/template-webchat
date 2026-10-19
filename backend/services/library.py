@@ -8,6 +8,7 @@ what is in the library.
 
 from __future__ import annotations
 
+import copy
 import csv
 import io
 import json
@@ -46,6 +47,9 @@ DOCUMENT_TYPES: dict[str, str] = {
     "reference": REFERENCE_TYPE,
 }
 
+# Directory under KB_CACHE_DIR holding indexed Library Document copies.
+LIBRARY_SOURCE_DIR = "library"
+
 _REQUIRED_COLUMNS = ("include", "title", "organization", "type", "file")
 
 
@@ -63,7 +67,9 @@ class ManifestRow:
 
 # ── Parsing ───────────────────────────────────────────────────────────────
 
-_PATH_ID_RE = re.compile(r"/(?:document|file|spreadsheets)/d/([A-Za-z0-9_-]+)")
+_PATH_ID_RE = re.compile(
+    r"/(?:document|file|spreadsheets)(?:/u/\d+)?/d/([A-Za-z0-9_-]+)"
+)
 _BARE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,}$")
 
 
@@ -124,15 +130,15 @@ def parse_manifest_csv(text: str) -> tuple[list[ManifestRow], list[dict[str, Any
             continue
         file_id = extract_drive_file_id(cell(values, "file"))
         if not file_id:
-            issues.append(_issue(row_number, None, "bad_link", "File link is not a Google Doc or Drive file link"))
+            issues.append(manifest_issue(row_number, None, "bad_link", "File link is not a Google Doc or Drive file link"))
             continue
         title = cell(values, "title")
         if not title:
-            issues.append(_issue(row_number, file_id, "missing_title", "Title is empty"))
+            issues.append(manifest_issue(row_number, file_id, "missing_title", "Title is empty"))
             continue
         doc_type = DOCUMENT_TYPES.get(cell(values, "type").lower())
         if not doc_type:
-            issues.append(_issue(row_number, file_id, "bad_type", "Type is not LSP, Field Guide, or Reference"))
+            issues.append(manifest_issue(row_number, file_id, "bad_type", "Type is not LSP, Field Guide, or Reference"))
             continue
         systems = (
             []
@@ -140,10 +146,10 @@ def parse_manifest_csv(text: str) -> tuple[list[ManifestRow], list[dict[str, Any
             else [slug for slug, _ in SYSTEMS if _checked(cell(values, slug))]
         )
         if doc_type != REFERENCE_TYPE and not systems:
-            issues.append(_issue(row_number, file_id, "no_system", "No INTEGRATE System is ticked"))
+            issues.append(manifest_issue(row_number, file_id, "no_system", "No INTEGRATE System is ticked"))
             continue
         if file_id in seen:
-            issues.append(_issue(row_number, file_id, "duplicate_file", "File is already listed on another row"))
+            issues.append(manifest_issue(row_number, file_id, "duplicate_file", "File is already listed on another row"))
             continue
         seen.add(file_id)
         rows.append(
@@ -159,7 +165,7 @@ def parse_manifest_csv(text: str) -> tuple[list[ManifestRow], list[dict[str, Any
     return rows, issues
 
 
-def _issue(row: Optional[int], file_id: Optional[str], code: str, detail: str) -> dict[str, Any]:
+def manifest_issue(row: Optional[int], file_id: Optional[str], code: str, detail: str) -> dict[str, Any]:
     issue: dict[str, Any] = {"row": row, "code": code, "detail": detail}
     if file_id:
         issue["file_id"] = file_id
@@ -175,7 +181,7 @@ def library_files_dir() -> Path:
 
 def library_cache_dir() -> Path:
     """Where indexed copies of Library Documents live (under KB_CACHE_DIR)."""
-    return Path(config.KB_CACHE_DIR) / "library"
+    return Path(config.KB_CACHE_DIR) / LIBRARY_SOURCE_DIR
 
 
 def library_json_path() -> Path:
@@ -214,7 +220,7 @@ def load_library() -> dict[str, Any]:
         return _empty_library()
     key = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
     if _cache["key"] == key:
-        return _cache["data"]
+        return copy.deepcopy(_cache["data"])
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -224,7 +230,7 @@ def load_library() -> dict[str, Any]:
         return _empty_library()
     data.setdefault("issues", [])
     _cache.update(key=key, data=data)
-    return data
+    return copy.deepcopy(data)
 
 
 def write_library(data: dict[str, Any], files_dir: Optional[Path] = None) -> None:

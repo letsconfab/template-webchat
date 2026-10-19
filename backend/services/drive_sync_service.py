@@ -391,8 +391,8 @@ def sync_library_manifest(
     (served, under ``files_dir``); PDFs are downloaded once and written to
     both. ``library.json`` in ``files_dir`` records documents and issues.
     """
-    cache_dir = cache_dir or library.library_cache_dir()
-    files_dir = files_dir or library.library_files_dir()
+    cache_dir = (cache_dir or library.library_cache_dir()).absolute()
+    files_dir = (files_dir or library.library_files_dir()).absolute()
     cache_dir.mkdir(parents=True, exist_ok=True)
     files_dir.mkdir(parents=True, exist_ok=True)
     previous = library.load_library()
@@ -409,11 +409,13 @@ def sync_library_manifest(
             {
                 **previous,
                 "manifest_file_id": manifest_file_id,
-                "issues": [{
-                    "row": None,
-                    "code": "manifest_unreachable",
-                    "detail": _error_detail(error),
-                }],
+                "issues": [
+                    library.manifest_issue(None, None, "manifest_unreachable", _error_detail(error)),
+                    *[
+                        issue for issue in previous.get("issues", [])
+                        if issue.get("code") != "manifest_unreachable"
+                    ],
+                ],
                 "synced_at": synced_at,
             },
             files_dir,
@@ -429,7 +431,7 @@ def sync_library_manifest(
             ).execute()
             mime = meta.get("mimeType")
             if mime not in (GOOGLE_DOC_MIME, PDF_MIME):
-                issues.append(library._issue(
+                issues.append(library.manifest_issue(
                     row.row, row.file_id, "unsupported_type",
                     "File must be a Google Doc or a PDF",
                 ))
@@ -440,10 +442,11 @@ def sync_library_manifest(
             if _needs_download(prev, meta, cache_path, pdf_path):
                 _download_library_file(service, row.file_id, mime, cache_path, pdf_path)
                 logger.info("Library Document downloaded: %s", row.file_id)
-        except HttpError as error:
-            issues.append(library._issue(row.row, row.file_id, "unreachable", _error_detail(error)))
+        except (HttpError, OSError) as error:
+            code = "unreachable" if isinstance(error, HttpError) else "download_failed"
+            issues.append(library.manifest_issue(row.row, row.file_id, code, _error_detail(error)))
             if prev:
-                documents.append({**prev, "status": "unreachable"})
+                documents.append({**prev, "status": code})
             continue
 
         _write_library_sidecar(cache_path, row.title, meta)
@@ -479,7 +482,7 @@ def sync_library_manifest(
 def _error_detail(error: Exception) -> str:
     if isinstance(error, HttpError):
         return f"Google Drive returned HTTP {error.resp.status}"
-    if isinstance(error, ValueError):
+    if isinstance(error, (ValueError, OSError)):
         return str(error)[:300]
     return type(error).__name__
 

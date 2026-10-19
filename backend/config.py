@@ -94,6 +94,10 @@ class Config:
     LIBRARIAN_ORGANIZATION_NAME: str = os.getenv(
         "LIBRARIAN_ORGANIZATION_NAME", "the organization"
     )
+    # Whose library it is, as in "find answers in <owner>'s own library".
+    LIBRARIAN_LIBRARY_OWNER: str = os.getenv(
+        "LIBRARIAN_LIBRARY_OWNER", "the organization"
+    )
 
     # Google Drive OAuth
     GOOGLE_OAUTH_CLIENT_ID: str = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")

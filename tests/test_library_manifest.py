@@ -40,6 +40,7 @@ class ExtractDriveFileIdTests(unittest.TestCase):
             "https://docs.google.com/document/d/doc_aaaaaaaaaa/edit?usp=sharing": "doc_aaaaaaaaaa",
             "https://drive.google.com/file/d/pdf-bbbbbbbbbb/view": "pdf-bbbbbbbbbb",
             "https://drive.google.com/open?id=opn_cccccccccc": "opn_cccccccccc",
+            "https://docs.google.com/document/u/0/d/doc_uuuuuuuuuu/edit": "doc_uuuuuuuuuu",
         }
         for link, expected in cases.items():
             with self.subTest(link=link):

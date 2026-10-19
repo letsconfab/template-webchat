@@ -26,8 +26,16 @@ def _doc(file_id: str, title: str, systems: list[str], doc_type: str = "LSP") ->
     }
 
 
-def _hit(text: str, file_id: str | None, filename: str, score: float = 0.9) -> dict:
-    payload = {"text": text, "filename": filename, "chunk_index": 0, "title": "drive name"}
+def _hit(
+    text: str, file_id: str | None, filename: str, score: float = 0.9, source_dir: str = "library"
+) -> dict:
+    payload = {
+        "text": text,
+        "filename": filename,
+        "source_dir": source_dir,
+        "chunk_index": 0,
+        "title": "drive name",
+    }
     if file_id:
         payload["google_file_id"] = file_id
     return {"score": score, "payload": payload}
@@ -63,7 +71,8 @@ class LibrarianRetrievalTests(unittest.IsolatedAsyncioTestCase):
             _hit("REFERENCE PASSAGE", "ref_1", "ref_1_Charter.txt"),
             _hit("UNKNOWN PASSAGE", "other_9", "other_9_Elsewhere.txt"),
             _hit("NO PROVENANCE PASSAGE", None, "loose.txt"),
-            _hit("ROOT FOLDER COPY", "lib_1", "lib_1_drive name.txt"),
+            _hit("ROOT FOLDER COPY", "lib_1", "lib_1_drive name.txt", source_dir="drive"),
+            _hit("SAME NAME ROOT COPY", "lib_1", "lib_1_Practice One.txt", source_dir="drive"),
         ])
 
         self.assertIn("LIBRARY PASSAGE", text)
@@ -71,6 +80,7 @@ class LibrarianRetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("UNKNOWN PASSAGE", text)
         self.assertNotIn("NO PROVENANCE PASSAGE", text)
         self.assertNotIn("ROOT FOLDER COPY", text)
+        self.assertNotIn("SAME NAME ROOT COPY", text)
         self.assertIn("[Source: Practice One", text)
         self.assertIn("/api/library/documents/lib_1/file", text)
         self.assertEqual([c["id"] for c in citations], ["lib_1", "ref_1"])

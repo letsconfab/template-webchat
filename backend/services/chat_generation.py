@@ -26,7 +26,7 @@ def librarian_refusal() -> str:
 def build_system_prompt(*, has_kb: bool) -> str:
     """Build the strict Librarian system prompt."""
     refusal = librarian_refusal()
-    base = f"""You are the {config.LIBRARIAN_LIBRARY_NAME} Librarian, helping Members of {config.LIBRARIAN_ORGANIZATION_NAME} find answers in the Consortium's own library.
+    base = f"""You are the {config.LIBRARIAN_LIBRARY_NAME} Librarian, helping Members of {config.LIBRARIAN_ORGANIZATION_NAME} find answers in {config.LIBRARIAN_LIBRARY_OWNER}'s own library.
 
 ## First-response contract
 Unless the Member explicitly asks for more detail:

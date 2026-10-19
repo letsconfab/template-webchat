@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -19,6 +20,7 @@ from cocoindex.ops.sentence_transformers import SentenceTransformerEmbedder
 from cocoindex.ops.text import RecursiveSplitter
 
 from backend.llm_providers import LLMProvider
+from backend.services import library
 from backend.services.source_provenance import (
     display_title_from_filename,
     google_doc_url,
@@ -192,6 +194,29 @@ async def ensure_qdrant_collection(qdrant_url: str) -> None:
 
 _ensure_qdrant_collection = ensure_qdrant_collection
 
+# Manifest-synced Library Documents live in KB_CACHE_DIR/library. A Drive file
+# can also sit in the root folder (KB_CACHE_DIR/drive) under the same file
+# name, so library points carry source_dir and their own ids.
+LIBRARY_SOURCE_DIR = library.LIBRARY_SOURCE_DIR
+
+
+def qdrant_point_id(filename: str, source_dir: str, chunk_index: int) -> int:
+    """Deterministic point id; library copies never collide with other copies."""
+    key = f"{filename}:{chunk_index}"
+    if source_dir == LIBRARY_SOURCE_DIR:
+        key = f"{LIBRARY_SOURCE_DIR}/{key}"
+    digest = hashlib.blake2b(key.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % (2**63)
+
+
+def qdrant_delete_filter(filename: str, source_dir: str) -> dict[str, Any]:
+    """Points to drop before re-indexing one cached file."""
+    by_name = {"key": "filename", "match": {"value": filename}}
+    library = {"key": "source_dir", "match": {"value": LIBRARY_SOURCE_DIR}}
+    if source_dir == LIBRARY_SOURCE_DIR:
+        return {"must": [by_name, library]}
+    return {"must": [by_name], "must_not": [library]}
+
 
 async def _push_to_qdrant(
     qdrant_url: str,
@@ -216,11 +241,9 @@ async def _push_to_qdrant(
         await client.put(f"{qdrant_url}/collections/{COLLECTION_NAME}/points", json=payload)
 
 
-async def _remove_from_qdrant(qdrant_url: str, filename: str) -> None:
+async def _remove_from_qdrant(qdrant_url: str, filename: str, source_dir: str) -> None:
     async with httpx.AsyncClient() as client:
-        filter_payload = {
-            "filter": {"must": [{"key": "filename", "match": {"value": filename}}]}
-        }
+        filter_payload = {"filter": qdrant_delete_filter(filename, source_dir)}
         await client.post(
             f"{qdrant_url}/collections/{COLLECTION_NAME}/points/delete", json=filter_payload,
         )
@@ -285,10 +308,11 @@ async def process_file(
     llm_api_key: str = _pipeline_cfg["llm_api_key"]
 
     await _ensure_qdrant_collection(qdrant_url)
-    await _remove_from_qdrant(qdrant_url, filename)
+    source_dir = file_path.parent.name
+    await _remove_from_qdrant(qdrant_url, filename, source_dir)
 
     for idx, chunk in enumerate(chunks):
-        chunk_id = hash(f"{filename}:{idx}") % (2**31)
+        chunk_id = qdrant_point_id(filename, source_dir, idx)
 
         embedding = await embedder.embed(chunk.text)
         embedding_list = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
@@ -296,6 +320,7 @@ async def process_file(
         locator = resolve_chunk_locator(text, chunk.text)
         provenance = {
             "title": title,
+            "source_dir": source_dir,
             "google_file_id": google_file_id or None,
             "google_url": web_view,
             "mime_type": mime_type,

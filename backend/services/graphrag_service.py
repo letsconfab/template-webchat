@@ -204,6 +204,8 @@ class GraphRAGService:
         doc = library.get_document(str(file_id))
         if not doc:
             return None
+        if payload.get("source_dir") != library.LIBRARY_SOURCE_DIR:
+            return None
         cache_path = doc.get("cache_path")
         if cache_path and payload.get("filename") != Path(cache_path).name:
             return None

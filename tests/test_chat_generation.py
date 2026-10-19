@@ -48,7 +48,7 @@ class BuildSystemPromptTests(unittest.TestCase):
     def test_prompt_is_the_strict_librarian(self) -> None:
         with patch.object(config, "LIBRARIAN_LIBRARY_NAME", "XYZ"), patch.object(
             config, "LIBRARIAN_ORGANIZATION_NAME", "Example Collective"
-        ):
+        ), patch.object(config, "LIBRARIAN_LIBRARY_OWNER", "the Network"):
             prompt = build_system_prompt(has_kb=True)
             refusal = librarian_refusal()
 
@@ -59,7 +59,7 @@ class BuildSystemPromptTests(unittest.TestCase):
         )
         self.assertIn(
             "You are the XYZ Librarian, helping Members of Example Collective "
-            "find answers in the Consortium's own library.",
+            "find answers in the Network's own library.",
             prompt,
         )
         self.assertIn(refusal, prompt)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,7 @@ from googleapiclient.errors import HttpError
 
 from backend.config import config
 from backend.services import library
+from backend.services import drive_sync_service as drive_sync
 from backend.services.drive_sync_service import sync_library_manifest
 
 MANIFEST_ID = "sheet_manifest_01"
@@ -265,9 +267,40 @@ class LibrarySyncTests(unittest.TestCase):
         self.assertEqual(codes, ["missing_title", "no_system", "bad_link", "duplicate_file"])
         self.assertEqual([d["title"] for d in library.load_library()["documents"]], ["Kept"])
 
+    def test_local_write_failure_keeps_last_good_copy_and_other_rows(self) -> None:
+        self.drive.add("doc_aaaaaaaaaa", GDOC)
+        self.drive.add("pdf_bbbbbbbbbb", PDF, md5="m1")
+        self.drive.set_rows(
+            manifest_row("doc_aaaaaaaaaa", "Sample Practice"),
+            manifest_row("pdf_bbbbbbbbbb", "Field Notes"),
+        )
+        self.sync()
+        self.drive.add("doc_aaaaaaaaaa", GDOC, modified="2026-10-02T00:00:00Z")
+        self.drive.add("pdf_bbbbbbbbbb", PDF, md5="m2")
+
+        real_write = drive_sync._write_atomic
+
+        def failing_write(path, data):
+            if "doc_aaaaaaaaaa" in path.name:
+                raise OSError("disk full")
+            real_write(path, data)
+
+        with patch.object(drive_sync, "_write_atomic", side_effect=failing_write):
+            self.sync()
+
+        doc = library.get_document("doc_aaaaaaaaaa")
+        self.assertEqual(doc["modified_time"], "2026-10-01T00:00:00Z")
+        self.assertTrue(Path(doc["pdf_path"]).exists())
+        self.assertEqual(library.get_document("pdf_bbbbbbbbbb")["md5_checksum"], "m2")
+        issues = self.library_json()["issues"]
+        self.assertEqual([(i["code"], i["file_id"]) for i in issues], [("download_failed", "doc_aaaaaaaaaa")])
+
     def test_unreadable_manifest_changes_nothing(self) -> None:
         self.drive.add("doc_aaaaaaaaaa", GDOC)
-        self.drive.set_rows(manifest_row("doc_aaaaaaaaaa", "Sample Practice"))
+        self.drive.set_rows(
+            manifest_row("doc_aaaaaaaaaa", "Sample Practice"),
+            manifest_row("doc_aaaaaaaaaa", ""),
+        )
         self.sync()
         before = self.library_json()["documents"]
 
@@ -276,7 +309,10 @@ class LibrarySyncTests(unittest.TestCase):
 
         data = self.library_json()
         self.assertEqual(data["documents"], before)
-        self.assertEqual([(i["code"], i["row"]) for i in data["issues"]], [("manifest_unreachable", None)])
+        self.assertEqual(
+            [(i["code"], i["row"]) for i in data["issues"]],
+            [("manifest_unreachable", None), ("missing_title", 3)],
+        )
         self.assertTrue((self.files_dir / "doc_aaaaaaaaaa.pdf").exists())
 
     def test_manifest_without_required_columns_changes_nothing(self) -> None:
@@ -319,6 +355,31 @@ class LoadLibraryTests(unittest.TestCase):
                 Path(tmp, "library.json").write_text("{not json")
                 self.assertEqual(library.load_library()["documents"], [])
                 self.assertFalse(library.is_library_document("anything"))
+
+    def test_callers_cannot_corrupt_the_loaded_library(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(config, "LIBRARY_FILES_DIR", tmp):
+                library.write_library({"documents": [{"file_id": "a", "title": "T", "type": "LSP", "systems": ["trust"]}], "issues": []})
+                library.load_library()["documents"].clear()
+                library.get_document("a")["systems"].append("engage")
+
+                self.assertEqual(library.get_document("a")["systems"], ["trust"])
+
+    def test_stored_paths_are_absolute(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            drive = FakeDrive()
+            drive.add("doc_aaaaaaaaaa", GDOC)
+            drive.set_rows(manifest_row("doc_aaaaaaaaaa", "Sample Practice"))
+            cwd = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with patch.object(config, "LIBRARY_FILES_DIR", "relative_files"):
+                    sync_library_manifest(drive, MANIFEST_ID, cache_dir=Path("kb/library"), files_dir=Path("relative_files"))
+                    doc = library.get_document("doc_aaaaaaaaaa")
+            finally:
+                os.chdir(cwd)
+            self.assertTrue(Path(doc["pdf_path"]).is_absolute())
+            self.assertTrue(Path(doc["cache_path"]).is_absolute())
 
 
 if __name__ == "__main__":

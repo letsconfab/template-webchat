@@ -36,6 +36,7 @@ from backend.routers import (
     insights,
     invites,
     journeys,
+    library,
     settings,
     users,
     wiki,
@@ -197,6 +198,7 @@ app.include_router(case_notifications.router)
 app.include_router(insights.router)
 app.include_router(wiki.router)
 app.include_router(drive.router)
+app.include_router(library.router)
 app.include_router(chat_sessions.router)
 app.include_router(journeys.public_router)
 app.include_router(journeys.admin_router)

@@ -33,12 +33,13 @@ export function ChatSessionSidebar({
   onDelete,
 }: ChatSessionSidebarProps) {
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-card">
+    <aside aria-label="Conversations"
+      className="flex h-full w-full shrink-0 flex-col bg-card md:w-64 md:border-r">
       <div className="border-b border-border p-3">
         <button
           type="button"
           onClick={onNew}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Plus className="h-4 w-4" />
           New chat
@@ -75,7 +76,8 @@ export function ChatSessionSidebar({
                   <button
                     type="button"
                     title="Rename"
-                    className="rounded p-1 opacity-0 hover:bg-background group-hover:opacity-100"
+                    aria-label="Rename"
+                    className="rounded p-1 hover:bg-background md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
                     onClick={() => {
                       const next = window.prompt(
                         'Rename conversation',
@@ -91,7 +93,8 @@ export function ChatSessionSidebar({
                   <button
                     type="button"
                     title="Delete"
-                    className="rounded p-1 opacity-0 hover:bg-background group-hover:opacity-100"
+                    aria-label="Delete"
+                    className="rounded p-1 hover:bg-background md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
                     onClick={() => {
                       if (
                         window.confirm(

@@ -34,7 +34,11 @@ PREVIOUS_SHA=$(ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
   git -C $DEPLOY_DIR rev-parse HEAD)
 ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
   "cd $DEPLOY_DIR && PREVIOUS_SHA=\$(git rev-parse HEAD) && \
-   git checkout -- frontend/dist/index.html && git pull --ff-only origin $DEPLOY_BRANCH && \
+   cp -a frontend/dist/index.html frontend/index.rollback-\$PREVIOUS_SHA.html && \
+   { git ls-files --error-unmatch frontend/dist/index.html >/dev/null 2>&1 && \
+     git checkout -- frontend/dist/index.html; true; } && \
+   git pull --ff-only origin $DEPLOY_BRANCH && \
+   cp -a frontend/index.rollback-\$PREVIOUS_SHA.html frontend/dist/index.html && \
    RELEASE_SHA=\$(git rev-parse HEAD) && python3.13 scripts/check_production_dependencies.py && \
    python3.13 -m venv .venv.release-\$RELEASE_SHA && \
    .venv.release-\$RELEASE_SHA/bin/pip install -r requirements-production.txt"
@@ -121,21 +125,28 @@ Key properties:
 
 Consequences you must account for on every frontend change:
 
-1. `git pull` on the host updates the tracked `frontend/dist/index.html`, which
-   references a **content-hashed** bundle (e.g. `index-ABC123.js`).
-2. But the hashed asset files themselves are **not in git** and **cannot be built
-   on the host**. So after a pull, `index.html` points at a bundle that isn't
-   there → blank/broken UI.
+1. `frontend/dist/` is entirely a build output and is **not tracked** (the
+   committed `frontend/dist/index.html` was removed on 2026-09-27). The live
+   `index.html` references a **content-hashed** bundle (e.g. `index-ABC123.js`)
+   and exists only because it was shipped by scp.
+2. The hashed asset files **cannot be built on the host**, and git no longer
+   supplies an `index.html`. The first pull of a commit without the tracked file
+   *deletes* the host's copy, so copy `frontend/index.rollback-<previous-sha>.html`
+   back into `dist/` right after pulling (the Quick Start does this) until the
+   new build is shipped.
 3. **You must `scp` the locally-built `dist/index.html` + `dist/assets/*` +
    `dist/static/feedback-summaries/`** to the host so the referenced bundle and
    packaged feedback summaries exist. Hashed filenames make asset copies safe
    and additive (old bundles simply become unreferenced). Replace the
    `feedback-summaries` subtree on each frontend ship so stale packaged
    reports are not left behind.
-4. The host also keeps a **locally-built `dist/index.html`** that differs from the
-   committed one, which **blocks `git pull`** with a "local changes would be
-   overwritten" error. Run `git checkout -- frontend/dist/index.html` first
-   (safe — you overwrite the whole `dist` via scp anyway).
+4. **Legacy hazard (commits before 2026-09-27 still track `index.html`,
+   pointing at a stale July 2026 bundle).** Pulling from such a checkout needs
+   `git checkout -- frontend/dist/index.html` first, and `git reset --hard` to
+   such a commit silently rewrites the live entry point. Always re-apply the
+   retained `frontend/index.rollback-<sha>.html` *after* any `git reset` or
+   checkout, never before. This caused the 2026-09-22 admin-dashboard outage
+   (`docs/field-debug/2026-09-27-admin-dashboard-empty-after-rollback.md`).
 
 If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
 
@@ -162,9 +173,14 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
    ```bash
    cd $DEPLOY_DIR
    PREVIOUS_SHA=$(git rev-parse HEAD)
-   git checkout -- frontend/dist/index.html
+   cp -a frontend/dist/index.html frontend/index.rollback-$PREVIOUS_SHA.html
+   # only while the host checkout still tracks the legacy index.html:
+   git ls-files --error-unmatch frontend/dist/index.html >/dev/null 2>&1 && git checkout -- frontend/dist/index.html
    git pull --ff-only origin $DEPLOY_BRANCH
+   cp -a frontend/index.rollback-$PREVIOUS_SHA.html frontend/dist/index.html
    RELEASE_SHA=$(git rev-parse HEAD)
+   # each release leaves a ~2 GB .venv.rollback-*; keep only the newest one
+   python3 scripts/manage_release_environment.py prune --active $PWD/.venv --keep-rollback 1
    python3.13 scripts/check_production_dependencies.py
    ```
 
@@ -266,6 +282,9 @@ If you change only backend code, steps 1/3 are unnecessary — just `git pull`.
 curl -s $PUBLIC_URL/health                                   # {"status":"healthy"}
 BUNDLE=$(curl -s $PUBLIC_URL/ | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js')
 curl -s -o /dev/null -w "%{http_code}\n" $PUBLIC_URL$BUNDLE  # 200
+# ...and that it is THIS release's bundle (old bundles stay on disk and also 200)
+python3 scripts/verify_release.py frontend-entry --url $PUBLIC_URL/ \
+  --expected-script $(grep -oE 'index-[A-Za-z0-9_-]+\.js' frontend/dist/index.html)
 
 # packaged feedback summaries (after a frontend ship that includes them)
 curl -s -o /dev/null -w "%{http_code}\n" \
@@ -306,10 +325,16 @@ ssh -i $SSH_KEY $DEPLOY_USER@$DEPLOY_HOST \
      --active .venv \
      --rollback .venv.rollback-<previous-good-sha> \
      --failed .venv.failed-<failed-release-sha> && \
-   git checkout -- frontend/dist/index.html && \
-   git reset --hard <previous-good-sha>"
-# locally: rebuild that SHA's frontend and scp dist/* back (see Runbook step 7)
+   git reset --hard <previous-good-sha> && \
+   cp -a frontend/index.rollback-<previous-good-sha>.html frontend/dist/index.html"
+# the retained entry point's hashed assets are still in dist/assets; if it is
+# missing, rebuild that SHA's frontend locally and scp dist/* back (Runbook step 7)
+python3 scripts/verify_release.py frontend-entry --url $PUBLIC_URL/ \
+  --expected-script <previous-good-bundle>.js
 ```
+
+Restore the entry point **after** `git reset`: resetting to a commit that still
+tracks `frontend/dist/index.html` overwrites whatever was restored before it.
 
 After resetting the code, `sudo systemctl restart webchat` to load it. Prefer
 rolling `main` back with a revert commit if the bad code was already pushed.
@@ -437,7 +462,8 @@ downgrade or delete backfilled data.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Blank page / 404 on `/assets/index-*.js` | Frontend bundle not shipped after pull | scp `dist/index.html` + `dist/assets/*` (see [shipping the frontend](#the-one-non-obvious-constraint-shipping-the-frontend)) |
-| `git pull` aborts: "local changes would be overwritten: frontend/dist/index.html" | Host's locally-built index.html | `git checkout -- frontend/dist/index.html` then pull |
+| `git pull` aborts: "local changes would be overwritten: frontend/dist/index.html" | Host checkout still tracks the legacy index.html | retain it (`cp -a` to `frontend/index.rollback-<sha>.html`), `git checkout -- frontend/dist/index.html`, pull, copy the retained file back |
+| Admin dashboard shows 0 invites/users but data exists | Served `index.html` is an old bundle (e.g. after `git reset` to a commit tracking the legacy index) | `verify_release.py frontend-entry`; copy the retained `frontend/index.rollback-<sha>.html` into `dist/` |
 | Chat answers hallucinate / ignore the knowledge base | Neo4j or Qdrant container down → retrieval tool silently disabled | `docker ps` on host; restart `webchat-neo4j` / `webchat-qdrant` |
 | First chat after deploy is slow | Embedding model (`all-MiniLM-L6-v2`, ~80 MB) downloads on first GraphRAG query | One-time; warms after first request |
 | Backend changes not live after a pull | service not restarted | `sudo systemctl restart webchat` (see [Managing the backend service](#managing-the-backend-service)) |

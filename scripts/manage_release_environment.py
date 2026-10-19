@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -54,6 +55,45 @@ def rollback(active: Path, rollback_path: Path, failed: Path) -> None:
     print(f"Restored rollback environment: {active}")
 
 
+def _created_at(path: Path) -> float:
+    cfg = path / "pyvenv.cfg"
+    return (cfg if cfg.is_file() else path).stat().st_mtime
+
+
+def prune(active: Path, keep_rollback: int, dry_run: bool) -> None:
+    """Delete superseded rollback and failed environments beside ``active``.
+
+    Only real directories named ``<active>.rollback-*`` or ``<active>.failed-*``
+    are candidates; the newest ``keep_rollback`` rollbacks (by venv creation
+    time) survive. The active environment, in-flight ``.release-*``
+    environments, and symlinks are never touched.
+    """
+    require_directory(active, "Active environment")
+    if keep_rollback < 0:
+        raise EnvironmentFailure("--keep-rollback must be zero or positive.")
+    live = active.resolve()
+
+    def candidates(kind: str) -> list[Path]:
+        return [
+            path
+            for path in active.parent.glob(f"{active.name}.{kind}-*")
+            if path.is_dir() and not path.is_symlink() and path.resolve() != live
+        ]
+
+    rollbacks = sorted(candidates("rollback"), key=_created_at, reverse=True)
+    doomed = rollbacks[keep_rollback:] + candidates("failed")
+    for kept in rollbacks[:keep_rollback]:
+        print(f"keep {kept.name}")
+    for path in doomed:
+        if dry_run:
+            print(f"would delete {path.name}")
+        else:
+            shutil.rmtree(path)
+            print(f"deleted {path.name}")
+    if not doomed:
+        print("Nothing to prune.")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -67,6 +107,11 @@ def parse_args() -> argparse.Namespace:
     rollback_parser.add_argument("--active", type=Path, required=True)
     rollback_parser.add_argument("--rollback", type=Path, required=True)
     rollback_parser.add_argument("--failed", type=Path, required=True)
+
+    prune_parser = subparsers.add_parser("prune")
+    prune_parser.add_argument("--active", type=Path, required=True)
+    prune_parser.add_argument("--keep-rollback", type=int, default=1)
+    prune_parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
 
@@ -75,6 +120,8 @@ def main() -> int:
     try:
         if args.command == "activate":
             activate(args.active, args.release, args.rollback)
+        elif args.command == "prune":
+            prune(args.active, args.keep_rollback, args.dry_run)
         else:
             rollback(args.active, args.rollback, args.failed)
     except (EnvironmentFailure, OSError) as exc:

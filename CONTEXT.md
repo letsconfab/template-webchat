@@ -65,7 +65,8 @@ secrets, raw tool payloads, or retrieved passages.
 ### Knowledge Source
 
 An administrator-controlled document in the indexed ALO corpus (typically a
-read-only Google Drive file). Retrieval returns passage text with provenance:
+read-only Google Drive file). Where a Library Manifest is configured, the
+Knowledge Sources are exactly its Library Documents and Reference Documents. Retrieval returns passage text with provenance:
 document title, canonical Google URL, revision metadata, and the finest honest
 locator available (for example a Markdown heading or chunk index).
 
@@ -98,8 +99,21 @@ spotlights.
 
 The curator-maintained list that defines the Resource Library: which exact
 document versions are included, their member-facing titles, and their
-Spotlights. Inclusion in the Library Manifest is what approval means; filename
-markers such as "APP" are not.
+Spotlights. It lists both Library Documents and Reference Documents.
+Inclusion in the Library Manifest is what approval means; filename markers
+such as "APP" are not.
+
+### Reference Document
+
+A document that the Library Manifest includes for the Librarian to draw on
+but that does not appear when browsing the Resource Library, such as the
+Consortium Charter or the INTEGRATE Playbook.
+
+### Librarian
+
+The assistant Members talk to. It answers only from Library Documents and
+Reference Documents, and otherwise asks a clarifying question or declines.
+_Avoid_: chatbot, AI assistant (in member-facing language)
 
 ### Journey
 

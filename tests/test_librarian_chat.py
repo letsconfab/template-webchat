@@ -76,7 +76,7 @@ class LibrarianChatTurnTests(unittest.IsolatedAsyncioTestCase):
         library.write_library({
             "documents": [
                 _doc("lib_1", "Practice One", ["trust", "engage"]),
-                _doc("ref_1", "Charter", [], doc_type="Reference"),
+                _doc("ref_1", "Sample Reference", [], doc_type="Reference"),
             ],
             "issues": [],
         })
@@ -125,7 +125,7 @@ class LibrarianChatTurnTests(unittest.IsolatedAsyncioTestCase):
         stored, sent, traces, _ = await self._turn(
             [
                 _hit("LIBRARY PASSAGE", "lib_1", "lib_1_Practice One.txt"),
-                _hit("REFERENCE PASSAGE", "ref_1", "ref_1_Charter.txt"),
+                _hit("REFERENCE PASSAGE", "ref_1", "ref_1_Sample Reference.txt"),
                 _hit("UNKNOWN PASSAGE", "zzz_9", "zzz_9_Other.txt"),
             ],
             agent,
@@ -143,7 +143,7 @@ class LibrarianChatTurnTests(unittest.IsolatedAsyncioTestCase):
             end["citations"],
             [
                 {"id": "lib_1", "title": "Practice One", "type": "LSP", "systems": ["trust", "engage"], "url": "/api/library/documents/lib_1/file"},
-                {"id": "ref_1", "title": "Charter", "type": "Reference", "systems": [], "url": "/api/library/documents/ref_1/file"},
+                {"id": "ref_1", "title": "Sample Reference", "type": "Reference", "systems": [], "url": "/api/library/documents/ref_1/file"},
             ],
         )
         self.assertEqual(stored["metadata"]["citations"], end["citations"])

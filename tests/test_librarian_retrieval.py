@@ -51,7 +51,7 @@ class LibrarianRetrievalTests(unittest.IsolatedAsyncioTestCase):
         library.write_library({
             "documents": [
                 _doc("lib_1", "Practice One", ["trust", "engage"]),
-                _doc("ref_1", "Charter", [], doc_type="Reference"),
+                _doc("ref_1", "Sample Reference", [], doc_type="Reference"),
             ],
             "issues": [],
         })
@@ -68,7 +68,7 @@ class LibrarianRetrievalTests(unittest.IsolatedAsyncioTestCase):
     async def test_only_library_and_reference_passages_reach_the_model(self) -> None:
         text, citations = await self.retrieve([
             _hit("LIBRARY PASSAGE", "lib_1", "lib_1_Practice One.txt"),
-            _hit("REFERENCE PASSAGE", "ref_1", "ref_1_Charter.txt"),
+            _hit("REFERENCE PASSAGE", "ref_1", "ref_1_Sample Reference.txt"),
             _hit("UNKNOWN PASSAGE", "other_9", "other_9_Elsewhere.txt"),
             _hit("NO PROVENANCE PASSAGE", None, "loose.txt"),
             _hit("ROOT FOLDER COPY", "lib_1", "lib_1_drive name.txt", source_dir="drive"),
@@ -100,7 +100,7 @@ class LibrarianRetrievalTests(unittest.IsolatedAsyncioTestCase):
         _, citations = await self.retrieve([
             _hit("A", "lib_1", "lib_1_Practice One.txt"),
             _hit("B", "lib_1", "lib_1_Practice One.txt", score=0.5),
-            _hit("C", "ref_1", "ref_1_Charter.txt"),
+            _hit("C", "ref_1", "ref_1_Sample Reference.txt"),
         ])
 
         self.assertEqual(
@@ -115,7 +115,7 @@ class LibrarianRetrievalTests(unittest.IsolatedAsyncioTestCase):
                 },
                 {
                     "id": "ref_1",
-                    "title": "Charter",
+                    "title": "Sample Reference",
                     "type": "Reference",
                     "systems": [],
                     "url": "/api/library/documents/ref_1/file",

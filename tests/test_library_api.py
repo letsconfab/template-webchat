@@ -171,7 +171,7 @@ class LibraryApiTests(unittest.TestCase):
 
     def test_reference_documents_are_unlisted_but_openable(self) -> None:
         self.write_library(
-            self.doc("ref_a", "Charter", [], doc_type="Reference"),
+            self.doc("ref_a", "Sample Reference", [], doc_type="Reference"),
             self.doc("doc_a", "Zeta Practice", ["trust"]),
         )
 

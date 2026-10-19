@@ -330,7 +330,7 @@ class LibrarySyncTests(unittest.TestCase):
         self.drive.add("ref_eeeeeeeeee", PDF, md5="r1")
         self.drive.add("doc_aaaaaaaaaa", GDOC)
         self.drive.set_rows(
-            manifest_row("ref_eeeeeeeeee", "Charter", doc_type="Reference", ticked=()),
+            manifest_row("ref_eeeeeeeeee", "Sample Reference", doc_type="Reference", ticked=()),
             manifest_row("doc_aaaaaaaaaa", "Sample Practice", ticked=("Trust",)),
         )
 

@@ -83,7 +83,7 @@ const AdminLogin: React.FC = () => {
     } else if (user.role === 'admin') {
       navigate('/admin/dashboard')
     } else {
-      navigate('/chat')
+      navigate('/library')
     }
   }, [user, authLoading, featuresLoaded, navigate, searchParams])
 

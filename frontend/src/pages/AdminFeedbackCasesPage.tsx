@@ -280,7 +280,7 @@ export default function AdminFeedbackCasesPage() {
                       {message.is_post_feedback && <Badge variant="secondary">After rated answer</Badge>}
                     </div>
                     {message.redaction_status === 'succeeded' ? (
-                      <Markdown className="prose prose-sm max-w-none text-sm dark:prose-invert">
+                      <Markdown className="prose prose-sm max-w-none text-sm">
                         {message.content}
                       </Markdown>
                     ) : (

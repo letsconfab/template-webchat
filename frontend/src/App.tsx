@@ -15,6 +15,7 @@ import InsightsReview from './pages/InsightsReview'
 import GoogleDriveSettings from './pages/GoogleDriveSettings'
 import FeedbackCasesPage from './pages/FeedbackCasesPage'
 import AdminUsersPage from './pages/AdminUsersPage'
+import LibraryLandingPage from './pages/LibraryLandingPage'
 
 const InviteRedirect = () => {
   const { token } = useParams()
@@ -103,6 +104,14 @@ function App() {
                       <Navigate to="/admin/dashboard" replace />
                     </ProtectedRoute>
                   } 
+                />
+                <Route
+                  path="/library"
+                  element={
+                    <ProtectedRoute>
+                      <LibraryLandingPage />
+                    </ProtectedRoute>
+                  }
                 />
                 <Route
                   path="/chat"

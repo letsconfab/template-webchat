@@ -667,7 +667,7 @@ export default function ChatPage() {
                       className={`prose prose-sm max-w-none ${
                         msg.role === 'user'
                           ? 'prose-invert'
-                          : 'dark:prose-invert'
+                          : ''
                       }`}
                     >
                       {msg.content}
@@ -778,7 +778,7 @@ export default function ChatPage() {
                       </div>
                     )}
                     {currentResponse && (
-                      <Markdown className="px-4 py-3 prose prose-sm max-w-none dark:prose-invert">
+                      <Markdown className="px-4 py-3 prose prose-sm max-w-none">
                         {currentResponse}
                       </Markdown>
                     )}

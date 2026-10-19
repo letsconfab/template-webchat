@@ -43,10 +43,10 @@ function renderAtFeedback() {
     <MemoryRouter initialEntries={['/feedback/a7b7c2df-a857-42fc-880c-a771328dc5a8']}>
       <Routes>
         <Route
-          path="/chat"
+          path="/library"
           element={
             <ProtectedRoute>
-              <LocationProbe label="Chat page" />
+              <LocationProbe label="Resource Library" />
             </ProtectedRoute>
           }
         />
@@ -64,7 +64,7 @@ function renderAtFeedback() {
 }
 
 describe('ProtectedRoute feature gate', () => {
-  it('does not bounce to /chat while runtime features are still loading', () => {
+  it('does not bounce to the Member home while runtime features are still loading', () => {
     authState.current = {
       isAuthenticated: true,
       isAdmin: false,
@@ -75,7 +75,7 @@ describe('ProtectedRoute feature gate', () => {
 
     renderAtFeedback()
 
-    expect(screen.queryByRole('heading', { name: 'Chat page' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Resource Library' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Feedback case page' })).not.toBeInTheDocument()
     expect(document.querySelector('.animate-spin')).toBeTruthy()
   })
@@ -100,7 +100,7 @@ describe('ProtectedRoute feature gate', () => {
     )
   })
 
-  it('bounces to /chat only after features loaded and the flag is off', () => {
+  it('bounces a Member to /library only after features loaded and the flag is off', () => {
     authState.current = {
       isAuthenticated: true,
       isAdmin: false,
@@ -111,8 +111,8 @@ describe('ProtectedRoute feature gate', () => {
 
     renderAtFeedback()
 
-    expect(screen.getByRole('heading', { name: 'Chat page' })).toBeVisible()
-    expect(screen.getByTestId('current-path')).toHaveTextContent('/chat')
+    expect(screen.getByRole('heading', { name: 'Resource Library' })).toBeVisible()
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/library')
   })
 })
 

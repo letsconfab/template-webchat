@@ -21,3 +21,6 @@ node_modules/
 .DS_Store
 .pytest_cache/
 .tmt-agent-deploy/
+
+# Brand logo files are supplied locally, never committed.
+frontend/public/brand/

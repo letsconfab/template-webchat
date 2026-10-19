@@ -80,7 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const featureResponse = await api.get('/settings/features');
       // Features must be marked loaded before user. AdminLogin navigates as
       // soon as `user` is set; ProtectedRoute would otherwise see default
-      // feature flags and bounce email deep-links (e.g. /feedback/:id) to /chat.
+      // feature flags and bounce email deep-links (e.g. /feedback/:id) to the Member home.
       setFeatures(featureResponse.data);
       setFeaturesLoaded(true);
       setUser(response.data);
@@ -106,7 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('token', access_token);
 
     // Fetch user + features before exposing auth state so post-login
-    // navigation to feature-gated routes is not bounced to /chat.
+    // navigation to feature-gated routes is not bounced to the Member home.
     const userResponse = await api.get('/auth/me');
     const featureResponse = await api.get('/settings/features');
     setFeatures(featureResponse.data);

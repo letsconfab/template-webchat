@@ -1,6 +1,5 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: ["class"],
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -41,6 +40,16 @@ export default {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        "surface-hero": "hsl(var(--surface-hero))",
+        "brand-heart": "hsl(var(--brand-heart))",
+        "brand-heart-soft": "hsl(var(--brand-heart-soft))",
+        "link": "hsl(var(--link))",
+      },
+      fontFamily: {
+        // Default for body text, buttons, and card titles.
+        sans: ["Metrophobic", "sans-serif"],
+        // Hero H1s and section display titles: apply `font-display`.
+        display: ['"Playfair Display"', "serif"],
       },
     },
   },

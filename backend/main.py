@@ -1,6 +1,7 @@
 """FastAPI application for AI Copilot with GraphRAG knowledge base."""
 
 import logging
+import os
 import re
 import asyncio
 import time
@@ -35,6 +36,7 @@ from backend.routers import (
     insights,
     invites,
     journeys,
+    library,
     settings,
     users,
     wiki,
@@ -42,7 +44,7 @@ from backend.routers import (
 from backend.llm_providers import LLMProvider, SarvamLLM, validate_api_key, get_available_models
 from backend.services.langfuse_service import langfuse_service
 from backend.services.cocoindex_manager import cocoindex_manager
-from backend.services.graphrag_service import graphrag_service
+from backend.services.graphrag_service import NO_LIBRARY_PASSAGES, graphrag_service
 from backend.services.drive_sync_service import drive_sync_service
 from backend.models.settings import SystemSettings
 from backend.models.chat import ChatSession
@@ -57,6 +59,7 @@ from backend.services.chat_generation import (
     build_agent_messages,
     build_system_prompt,
     extract_followups,
+    librarian_refusal,
 )
 
 logging.basicConfig(
@@ -73,6 +76,7 @@ logger = logging.getLogger(__name__)
 # is available for a normal retrieval answer (short prose plus one small diagram).
 _ASSISTANT_ANSWER_MAX_TOKENS = 2048
 _BLANK_ANSWER_ERROR = "The assistant didn't return an answer. Please try again."
+_LIBRARY_SEARCH_ERROR = "The library search failed. Please try again."
 
 
 class SettingsRequest(BaseModel):
@@ -125,7 +129,14 @@ async def lifespan(app: FastAPI):
             )
 
             if settings.llm_provider and settings.llm_model and settings.llm_api_key:
-                cache_dir = str(Path(getattr(config, "KB_CACHE_DIR", "./kb_cache")) / "drive")
+                # Index the whole cache: root-folder files in drive/ and
+                # Library Manifest files in library/. Keep CocoIndex state
+                # where earlier releases put it.
+                kb_cache_dir = Path(getattr(config, "KB_CACHE_DIR", "./kb_cache"))
+                os.environ.setdefault(
+                    "COCOINDEX_DB", str(kb_cache_dir / "drive" / "cocoindex_db")
+                )
+                cache_dir = str(kb_cache_dir)
                 cocoindex_manager.configure(
                     cache_dir=cache_dir,
                     neo4j_uri=neo4j_uri,
@@ -189,6 +200,7 @@ app.include_router(case_notifications.router)
 app.include_router(insights.router)
 app.include_router(wiki.router)
 app.include_router(drive.router)
+app.include_router(library.router)
 app.include_router(chat_sessions.router)
 app.include_router(journeys.public_router)
 app.include_router(journeys.admin_router)
@@ -512,6 +524,53 @@ async def _stream_assistant_answer_followup(
     return "".join(parts)
 
 
+async def _retrieve_library_for_turn(
+    query: str, trace_events: list[dict]
+) -> Optional[tuple[str, list[dict]]]:
+    """Library-scoped retrieval for the Member's question, traced without passage text.
+
+    Returns None when the search itself failed.
+    """
+    started = time.monotonic()
+    trace_events.append(
+        {
+            "sequence": len(trace_events),
+            "timestamp": datetime.utcnow().isoformat(),
+            "event_type": "tool_started",
+            "tool_name": "library_retrieval",
+        }
+    )
+    try:
+        context, citations = await graphrag_service.retrieve_library_context(query)
+    except Exception as error:
+        logger.error("Library retrieval failed: %s", type(error).__name__)
+        trace_events.append(
+            {
+                "sequence": len(trace_events),
+                "timestamp": datetime.utcnow().isoformat(),
+                "event_type": "tool_failed",
+                "tool_name": "library_retrieval",
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "safe_error_category": "tool_error",
+            }
+        )
+        return None
+    sources = await _redacted_source_identifiers(context)
+    trace_events.append(
+        {
+            "sequence": len(trace_events),
+            "timestamp": datetime.utcnow().isoformat(),
+            "event_type": "tool_completed",
+            "tool_name": "library_retrieval",
+            "duration_ms": int((time.monotonic() - started) * 1000),
+            "source_identifiers": sources,
+            "result_count": len(sources),
+            "summary": "Tool completed with redacted results.",
+        }
+    )
+    return context, citations
+
+
 async def _query_with_knowledge(
     llm,
     user_message: str,
@@ -535,163 +594,205 @@ async def _query_with_knowledge(
         latest_user_message=user_message,
         active_journey=active_journey,
     )
-    try:
-        from langgraph.prebuilt import create_react_agent
-        from langchain_core.tools import tool
+    citations: dict[str, dict] = {}
 
-        if await graphrag_service.is_ready():
-            @tool
-            async def retrieve_knowledge(query: str) -> str:
-                """Search the knowledge base for information relevant to the query."""
-                return await graphrag_service.retrieve_knowledge(query)
+    def add_citations(found: list[dict]) -> None:
+        for citation in found:
+            citations.setdefault(str(citation.get("id")), citation)
 
-            tools = [retrieve_knowledge]
+    # The Librarian answers only from Library and Reference Documents: with no
+    # corpus passages for the question, reply with the fixed refusal and never
+    # call the model. Library passages are searched in Qdrant only.
+    kb_ready = await graphrag_service.qdrant_ready()
+    skip_model = False
+    if kb_ready:
+        retrieved = await _retrieve_library_for_turn(user_message, trace_events)
+        library_context, found = retrieved or ("", [])
+        add_citations(found)
+        if retrieved is None:
+            skip_model = True
+            had_error = True
+            full_response = _LIBRARY_SEARCH_ERROR
+        elif not library_context:
+            skip_model = True
+            full_response = librarian_refusal()
+        if skip_model:
+            try:
+                await websocket.send_json({"type": "start"})
+                await websocket.send_json({"type": "chunk", "content": full_response})
+            except Exception:
+                pass
         else:
-            tools = []
+            agent_messages = agent_messages[:-1] + [
+                HumanMessage(
+                    content=(
+                        "[Library passages retrieved for the Member's question]\n\n"
+                        + library_context
+                    )
+                ),
+                agent_messages[-1],
+            ]
 
-        # A ReAct agent (retrieve -> answer) converges in a few steps. The older
-        # deepagents planner tended to loop on its own planning/todo tools until it
-        # hit LangGraph's recursion limit, so it is intentionally not used here.
-        agent = create_react_agent(
-            model=llm,
-            tools=tools,
-            prompt=_build_system_prompt(
-                has_kb=len(tools) > 0,
-                provider=getattr(llm, "model", "unknown"),
-                model=getattr(llm, "model_name", "unknown"),
-            ),
-        )
+    if not skip_model:
+        try:
+            from langgraph.prebuilt import create_react_agent
+            from langchain_core.tools import tool
 
-        messages = agent_messages
+            if kb_ready:
+                @tool
+                async def retrieve_knowledge(query: str) -> str:
+                    """Search the library for passages relevant to the query."""
+                    context, found = await graphrag_service.retrieve_library_context(query)
+                    add_citations(found)
+                    return context or NO_LIBRARY_PASSAGES
 
-        await websocket.send_json({"type": "start"})
-        think_buf = ""
+                tools = [retrieve_knowledge]
+            else:
+                tools = []
 
-        # recursion_limit is a hard backstop: a healthy RAG turn needs only a few
-        # super-steps, so a low cap fails fast instead of looping for pages.
-        async for event in agent.astream_events(
-            {"messages": messages}, version="v2", config={"recursion_limit": 12}
-        ):
-            kind = event["event"]
+            # A ReAct agent (retrieve -> answer) converges in a few steps. The older
+            # deepagents planner tended to loop on its own planning/todo tools until it
+            # hit LangGraph's recursion limit, so it is intentionally not used here.
+            agent = create_react_agent(
+                model=llm,
+                tools=tools,
+                prompt=_build_system_prompt(
+                    has_kb=len(tools) > 0,
+                    provider=getattr(llm, "model", "unknown"),
+                    model=getattr(llm, "model_name", "unknown"),
+                ),
+            )
 
-            if kind == "on_chat_model_stream":
-                chunk = event["data"].get("chunk")
-                if not chunk:
-                    continue
+            messages = agent_messages
 
-                reasoning = chunk.additional_kwargs.get("reasoning_content", "")
-                if reasoning:
-                    think_buf += reasoning
-                    if reasoning.endswith((".", "?", "!", "\n")):
-                        thought_count += 1
+            await websocket.send_json({"type": "start"})
+            think_buf = ""
+
+            # recursion_limit is a hard backstop: a healthy RAG turn needs only a few
+            # super-steps, so a low cap fails fast instead of looping for pages.
+            async for event in agent.astream_events(
+                {"messages": messages}, version="v2", config={"recursion_limit": 12}
+            ):
+                kind = event["event"]
+
+                if kind == "on_chat_model_stream":
+                    chunk = event["data"].get("chunk")
+                    if not chunk:
+                        continue
+
+                    reasoning = chunk.additional_kwargs.get("reasoning_content", "")
+                    if reasoning:
+                        think_buf += reasoning
+                        if reasoning.endswith((".", "?", "!", "\n")):
+                            thought_count += 1
+                            await websocket.send_json({
+                                "type": "think",
+                                "content": think_buf.strip(),
+                            })
+                            think_buf = ""
+
+                    content = getattr(chunk, "content", "") or ""
+                    if content:
+                        full_response += content
                         await websocket.send_json({
-                            "type": "think",
-                            "content": think_buf.strip(),
+                            "type": "chunk",
+                            "content": content,
                         })
-                        think_buf = ""
 
-                content = getattr(chunk, "content", "") or ""
-                if content:
-                    full_response += content
+                elif kind == "on_tool_start":
+                    input_data = event["data"].get("input", {})
+                    run_id = str(event.get("run_id", len(trace_events)))
+                    tool_name = str(event.get("name", "unknown"))[:100]
+                    tool_started_at[run_id] = time.monotonic()
+                    trace_events.append(
+                        {
+                            "sequence": len(trace_events),
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "event_type": "tool_started",
+                            "tool_name": tool_name,
+                        }
+                    )
+                    thought_count += 1
                     await websocket.send_json({
-                        "type": "chunk",
-                        "content": content,
+                        "type": "think",
+                        "content": f"Searching the library: {str(input_data)[:120]}",
                     })
 
-            elif kind == "on_tool_start":
-                input_data = event["data"].get("input", {})
-                run_id = str(event.get("run_id", len(trace_events)))
-                tool_name = str(event.get("name", "unknown"))[:100]
-                tool_started_at[run_id] = time.monotonic()
-                trace_events.append(
-                    {
-                        "sequence": len(trace_events),
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "event_type": "tool_started",
-                        "tool_name": tool_name,
-                    }
-                )
-                thought_count += 1
-                await websocket.send_json({
-                    "type": "think",
-                    "content": f"Searching knowledge base: {str(input_data)[:120]}",
-                })
+                elif kind == "on_tool_end":
+                    raw_output = str(event["data"].get("output", ""))
+                    if raw_output:
+                        tool_outputs.append(raw_output)
+                    output = raw_output[:200]
+                    run_id = str(event.get("run_id", ""))
+                    started = tool_started_at.pop(run_id, None)
+                    sources = await _redacted_source_identifiers(raw_output)
+                    trace_events.append(
+                        {
+                            "sequence": len(trace_events),
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "event_type": "tool_completed",
+                            "tool_name": str(event.get("name", "unknown"))[:100],
+                            "duration_ms": (
+                                int((time.monotonic() - started) * 1000)
+                                if started is not None
+                                else None
+                            ),
+                            "source_identifiers": sources,
+                            "result_count": len(sources),
+                            "summary": "Tool completed with redacted results.",
+                        }
+                    )
+                    thought_count += 1
+                    await websocket.send_json({
+                        "type": "think",
+                        "content": output[:200],
+                    })
 
-            elif kind == "on_tool_end":
-                raw_output = str(event["data"].get("output", ""))
-                if raw_output:
-                    tool_outputs.append(raw_output)
-                output = raw_output[:200]
-                run_id = str(event.get("run_id", ""))
-                started = tool_started_at.pop(run_id, None)
-                sources = await _redacted_source_identifiers(raw_output)
-                trace_events.append(
-                    {
-                        "sequence": len(trace_events),
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "event_type": "tool_completed",
-                        "tool_name": str(event.get("name", "unknown"))[:100],
-                        "duration_ms": (
-                            int((time.monotonic() - started) * 1000)
-                            if started is not None
-                            else None
-                        ),
-                        "source_identifiers": sources,
-                        "result_count": len(sources),
-                        "summary": "Tool completed with redacted results.",
-                    }
-                )
-                thought_count += 1
-                await websocket.send_json({
-                    "type": "think",
-                    "content": output[:200],
-                })
+                elif kind == "on_tool_error":
+                    run_id = str(event.get("run_id", ""))
+                    started = tool_started_at.pop(run_id, None)
+                    trace_events.append(
+                        {
+                            "sequence": len(trace_events),
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "event_type": "tool_failed",
+                            "tool_name": str(event.get("name", "unknown"))[:100],
+                            "duration_ms": (
+                                int((time.monotonic() - started) * 1000)
+                                if started is not None
+                                else None
+                            ),
+                            "safe_error_category": "tool_error",
+                        }
+                    )
 
-            elif kind == "on_tool_error":
-                run_id = str(event.get("run_id", ""))
-                started = tool_started_at.pop(run_id, None)
-                trace_events.append(
-                    {
-                        "sequence": len(trace_events),
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "event_type": "tool_failed",
-                        "tool_name": str(event.get("name", "unknown"))[:100],
-                        "duration_ms": (
-                            int((time.monotonic() - started) * 1000)
-                            if started is not None
-                            else None
-                        ),
-                        "safe_error_category": "tool_error",
-                    }
-                )
+                elif kind == "on_chain_end":
+                    output = event.get("data", {}).get("output")
+                    if isinstance(output, dict) and isinstance(output.get("messages"), list):
+                        messages_out = output["messages"]
+                        if transcript is None or len(messages_out) >= len(transcript):
+                            transcript = messages_out
 
-            elif kind == "on_chain_end":
-                output = event.get("data", {}).get("output")
-                if isinstance(output, dict) and isinstance(output.get("messages"), list):
-                    messages_out = output["messages"]
-                    if transcript is None or len(messages_out) >= len(transcript):
-                        transcript = messages_out
-
-    except ImportError:
-        logger.warning("deepagents not installed, falling back to simple LLM call")
-        result = await llm.ainvoke(agent_messages)
-        full_response = (
-            result.content if hasattr(result, "content") else str(result)
-        )
-        await websocket.send_json({"type": "start"})
-        if full_response:
-            await websocket.send_json({"type": "chunk", "content": full_response})
-    except Exception as e:
-        logger.error("Agent query error: %s", e, exc_info=True)
-        had_error = True
-        error_msg = f"An error occurred: {str(e)}"
-        # A newline is truthy, but it is not an answer and would hide error_msg.
-        full_response = full_response if full_response.strip() else error_msg
-        try:
+        except ImportError:
+            logger.warning("deepagents not installed, falling back to simple LLM call")
+            result = await llm.ainvoke(agent_messages)
+            full_response = (
+                result.content if hasattr(result, "content") else str(result)
+            )
             await websocket.send_json({"type": "start"})
-            await websocket.send_json({"type": "chunk", "content": error_msg})
-        except Exception:
-            pass
+            if full_response:
+                await websocket.send_json({"type": "chunk", "content": full_response})
+        except Exception as e:
+            logger.error("Agent query error: %s", e, exc_info=True)
+            had_error = True
+            error_msg = f"An error occurred: {str(e)}"
+            # A newline is truthy, but it is not an answer and would hide error_msg.
+            full_response = full_response if full_response.strip() else error_msg
+            try:
+                await websocket.send_json({"type": "start"})
+                await websocket.send_json({"type": "chunk", "content": error_msg})
+            except Exception:
+                pass
 
     if not had_error and not full_response.strip():
         try:
@@ -735,6 +836,7 @@ async def _query_with_knowledge(
                 "duration_ms": duration_ms,
                 "error": had_error,
                 "followups": followups or None,
+                "citations": list(citations.values()) or None,
             },
         )
         history.append(
@@ -748,6 +850,8 @@ async def _query_with_knowledge(
             end_payload["content"] = full_response
         if followups:
             end_payload["followups"] = followups
+        if citations:
+            end_payload["citations"] = list(citations.values())
         await websocket.send_json(end_payload)
     except Exception:
         pass

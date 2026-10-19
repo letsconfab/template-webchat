@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
+import { Input } from '../components/ui/input'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Loader2, RefreshCw, Unlink, ExternalLink, FolderOpen, CheckCircle, AlertCircle, FileText, ChevronRight } from 'lucide-react'
 
@@ -28,9 +29,24 @@ interface Pipeline {
   error: string | null
 }
 
+interface LibraryIssue {
+  row: number | null
+  file_id?: string
+  code: string
+  detail: string
+}
+
+interface LibraryStatus {
+  document_count: number
+  synced_at: string | null
+  issues: LibraryIssue[]
+}
+
 interface DriveStatus {
   connected: boolean
   root_folder_id: string | null
+  library_manifest_file_id: string | null
+  library: LibraryStatus
   sync: DriveSync
   files: SyncFile[]
   pipeline: Pipeline
@@ -50,6 +66,8 @@ export default function GoogleDriveSettings() {
   const [loadingFolders, setLoadingFolders] = useState(false)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [folderStack, setFolderStack] = useState<FolderItem[]>([])
+  const [manifestInput, setManifestInput] = useState('')
+  const [savingManifest, setSavingManifest] = useState(false)
 
   const loadStatus = useCallback(async () => {
     try {
@@ -158,6 +176,22 @@ export default function GoogleDriveSettings() {
       setError(e.response?.data?.detail || 'Sync failed')
     } finally {
       setIsSyncing(false)
+    }
+  }
+
+  const handleSaveManifest = async () => {
+    setSavingManifest(true)
+    try {
+      const token = localStorage.getItem('token')
+      await api.patch('/drive/library-manifest', { manifest: manifestInput.trim() }, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      setManifestInput('')
+      loadStatus()
+    } catch (e: any) {
+      setError(e.response?.data?.detail || 'Failed to save Library Manifest')
+    } finally {
+      setSavingManifest(false)
     }
   }
 
@@ -436,6 +470,50 @@ export default function GoogleDriveSettings() {
             )}
           </CardContent>
         </Card>
+
+        {/* Library Manifest Card */}
+        {connected && (
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-4 w-4" />
+                Library Manifest
+              </CardTitle>
+              <CardDescription>
+                The Google Sheet that lists the Library Documents. Paste its link; save an empty value to clear it.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-2">
+                <Input
+                  value={manifestInput}
+                  onChange={e => setManifestInput(e.target.value)}
+                  placeholder={status?.library_manifest_file_id ?? 'https://docs.google.com/spreadsheets/d/…'}
+                  aria-label="Library Manifest link"
+                />
+                <Button size="sm" onClick={handleSaveManifest} disabled={savingManifest}>
+                  {savingManifest ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {!status?.library_manifest_file_id
+                  ? 'No Library Manifest configured.'
+                  : !status.library?.synced_at
+                    ? 'Manifest set. It is read on the next sync (use Sync now to start).'
+                    : `${status.library.document_count} documents, ${status.library.issues.length} issues — last read ${new Date(status.library.synced_at).toLocaleString()}.`}
+              </p>
+              {status?.library_manifest_file_id && (status.library?.issues.length ?? 0) > 0 && (
+                <ul className="text-xs text-red-700 space-y-1">
+                  {status.library.issues.slice(0, 10).map((issue, idx) => (
+                    <li key={idx}>
+                      {issue.row ? `Row ${issue.row}: ` : ''}{issue.code} — {issue.detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Pipeline Status Card */}
         <Card>

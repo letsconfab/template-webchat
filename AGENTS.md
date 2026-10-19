@@ -133,6 +133,10 @@ make run-fe
 | `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5454/webchat_db` | |
 | `SECRET_KEY` | - | JWT secret |
 | `KB_ASSETS_DIR` | `./kb_assets` | Knowledge base files |
+| `LIBRARY_FILES_DIR` | `./library_files` | Served Library Document PDFs + `library.json`; startup fails if inside `KB_CACHE_DIR` |
+| `LIBRARIAN_LIBRARY_NAME` | `Resource` | Librarian persona and refusal text ("the X library") |
+| `LIBRARIAN_ORGANIZATION_NAME` | `the organization` | Librarian persona ("helping Members of X") |
+| `LIBRARIAN_LIBRARY_OWNER` | `the organization` | Librarian persona ("find answers in X's own library") |
 
 ## Docker Compose
 

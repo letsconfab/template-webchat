@@ -150,7 +150,7 @@ class BlankAssistantAnswerTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "backend.main.graphrag_service.is_ready",
+                "backend.main.graphrag_service.qdrant_ready",
                 new=AsyncMock(return_value=False),
             ),
             patch("langgraph.prebuilt.create_react_agent", return_value=agent),

@@ -84,6 +84,20 @@ class Config:
 
     # Knowledge Base Configuration
     KB_CACHE_DIR: str = os.getenv("KB_CACHE_DIR", "./kb_cache")
+    # Served Library Document PDFs and library.json. Must not sit under
+    # KB_CACHE_DIR: the indexer walks that tree and would index served copies.
+    LIBRARY_FILES_DIR: str = os.getenv("LIBRARY_FILES_DIR", "./library_files")
+
+    # Librarian persona. Deployment-specific names come from the environment
+    # (this repository is public); the defaults are neutral placeholders.
+    LIBRARIAN_LIBRARY_NAME: str = os.getenv("LIBRARIAN_LIBRARY_NAME", "Resource")
+    LIBRARIAN_ORGANIZATION_NAME: str = os.getenv(
+        "LIBRARIAN_ORGANIZATION_NAME", "the organization"
+    )
+    # Whose library it is, as in "find answers in <owner>'s own library".
+    LIBRARIAN_LIBRARY_OWNER: str = os.getenv(
+        "LIBRARIAN_LIBRARY_OWNER", "the organization"
+    )
 
     # Google Drive OAuth
     GOOGLE_OAUTH_CLIENT_ID: str = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
@@ -111,6 +125,8 @@ def validate_config(cfg: Config) -> None:
     Called from the app lifespan rather than at import time so that alembic,
     scripts, and tests can import config without side effects.
     """
+    validate_library_dirs(cfg)
+
     problems: list[str] = []
 
     if cfg.SECRET_KEY == _DEFAULT_SECRET_KEY:
@@ -135,3 +151,19 @@ def validate_config(cfg: Config) -> None:
 
     for problem in problems:
         logger.warning("Insecure config (ok in development): %s", problem)
+
+
+def validate_library_dirs(cfg: Config) -> None:
+    """Refuse to start when LIBRARY_FILES_DIR sits inside KB_CACHE_DIR.
+
+    The indexer walks KB_CACHE_DIR recursively and indexes PDFs, so served
+    Library Document copies there would be indexed twice. Applies in every
+    environment.
+    """
+    kb_cache = Path(cfg.KB_CACHE_DIR).resolve()
+    library_files = Path(cfg.LIBRARY_FILES_DIR).resolve()
+    if library_files == kb_cache or library_files.is_relative_to(kb_cache):
+        raise RuntimeError(
+            f"LIBRARY_FILES_DIR ({cfg.LIBRARY_FILES_DIR}) must not be inside "
+            f"KB_CACHE_DIR ({cfg.KB_CACHE_DIR}); the indexer would index served copies."
+        )

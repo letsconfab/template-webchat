@@ -66,6 +66,8 @@ class SystemSettings(Base):
     google_drive_refresh_token = Column(Text, nullable=True)
     google_drive_root_folder_id = Column(String(500), nullable=True)
     google_drive_last_synced = Column(DateTime, nullable=True)
+    # Google Sheet that defines the Resource Library (the Library Manifest)
+    library_manifest_file_id = Column(String(500), nullable=True)
 
     # Neo4j Configuration
     neo4j_url = Column(String(500), default="bolt://localhost:7687", nullable=False)

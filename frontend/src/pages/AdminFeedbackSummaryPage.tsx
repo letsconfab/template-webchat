@@ -89,7 +89,7 @@ export default function AdminFeedbackSummaryPage() {
               </p>
             </header>
             <Markdown
-              className="prose prose-sm max-w-none dark:prose-invert"
+              className="prose prose-sm max-w-none"
               assetBaseUrl={state.entry.asset_base_url}
             >
               {state.markdown}

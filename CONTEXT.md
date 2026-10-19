@@ -1,20 +1,28 @@
 # WebChat Domain
 
-This repository has one bounded context: authenticated testers use a grounded
+This repository has one bounded context: authenticated members use a grounded
 assistant, and administrators operate the assistant and respond to reported
 answer-quality problems.
 
 ## Ubiquitous language
 
+### Member
+
+A non-administrator person signed in to the app on behalf of A Loving
+Organization: ALO staff, board members, and invited participants. Every
+non-administrator user is a Member.
+_Avoid_: Tester (the pilot-era name; it survives only in older code identifiers
+such as `tester_correspondence_enabled`), user, end user
+
 ### Chat Session
 
-An ordered conversation between one authenticated tester and the assistant. A
-Chat Session belongs to exactly one tester. Its browser-generated identifier
+An ordered conversation between one authenticated member and the assistant. A
+Chat Session belongs to exactly one member. Its browser-generated identifier
 locates it but does not prove ownership.
 
 ### Feedback Case
 
-A durable report created from a tester's negative rating of one assistant
+A durable report created from a member's negative rating of one assistant
 answer. A Feedback Case stays connected to the rated exchange and its Chat
 Session, has an opaque public identifier, and records which party is expected
 to respond.
@@ -38,14 +46,14 @@ canonical.
 
 ### Case Reply
 
-An immutable, chronological message added to a Feedback Case by its tester or
+An immutable, chronological message added to a Feedback Case by its member or
 an administrator. A correction is another Case Reply; an existing reply is
 never edited or deleted.
 
 ### Conversation Replay
 
 The complete chronological view of the Chat Session containing a rated answer.
-The tester sees their original conversation. Administrators see only the
+The member sees their original conversation. Administrators see only the
 privacy-safe projection approved for administrative review.
 
 ### Execution Trace

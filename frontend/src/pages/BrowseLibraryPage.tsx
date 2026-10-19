@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Folder } from 'lucide-react'
 
+import LibraryBreadcrumb from '../components/library/LibraryBreadcrumb'
 import LibraryLayout from '../components/library/LibraryLayout'
+import LibraryLoading from '../components/library/LibraryLoading'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { INTEGRATE_SYSTEMS, integrateSystemPath, type IntegrateSystem } from '../lib/integrateSystems'
 import { listLibrarySystems } from '../services/library'
@@ -52,17 +54,8 @@ export default function BrowseLibraryPage() {
   return (
     <LibraryLayout>
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-        <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
-          <Link to="/library" className="text-link">
-            Resource Library
-          </Link>
-          <span aria-hidden="true"> › </span>
-          <span aria-current="page">Browse</span>
-        </nav>
+        <LibraryBreadcrumb trail={[{ label: 'Resource Library', to: '/library' }]} current="Browse" />
         <h1 className="mt-3 font-display text-4xl font-bold">Browse the Library</h1>
-        <p className="mt-2 text-muted-foreground">
-          Loving Systems in Practice and Field Guides, organized by INTEGRATE domain.
-        </p>
 
         {error && (
           <Alert variant="destructive" className="mt-8">
@@ -72,11 +65,7 @@ export default function BrowseLibraryPage() {
           </Alert>
         )}
 
-        {!error && !counts && (
-          <p role="status" className="mt-8 text-muted-foreground">
-            Loading the library…
-          </p>
-        )}
+        {!error && !counts && <LibraryLoading label="Loading the library…" />}
 
         {counts && (
           <ul aria-label="INTEGRATE Systems" className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

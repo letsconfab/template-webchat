@@ -33,8 +33,16 @@ export async function getLibrarySystem(slug: string): Promise<LibrarySystemDetai
   return response.data
 }
 
-export function libraryDocumentFilePath(id: string): string {
+function libraryDocumentFilePath(id: string): string {
   return `/library/documents/${encodeURIComponent(id)}/file`
+}
+
+/** The browser blocked the new tab, so the document wasn't fetched. */
+export class PopupBlockedError extends Error {
+  constructor() {
+    super('The browser blocked the new tab')
+    this.name = 'PopupBlockedError'
+  }
 }
 
 // Long enough for the new tab to load the PDF before the blob is released.
@@ -44,23 +52,21 @@ const OBJECT_URL_LIFETIME_MS = 60_000
  * Open a document's PDF in a new tab. API auth is a bearer header, which a
  * plain link can't send, so the PDF is fetched as a blob and opened from an
  * object URL. The tab is opened before the fetch so popup blockers still see
- * it as a response to the click.
+ * it as a response to the click; a later open would be blocked, so a blocked
+ * tab fails fast with PopupBlockedError.
  */
 export async function openLibraryDocument(id: string): Promise<void> {
   const tab = window.open('', '_blank')
+  if (!tab) throw new PopupBlockedError()
   try {
     const response = await api.get<ArrayBuffer>(libraryDocumentFilePath(id), {
       responseType: 'arraybuffer',
     })
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
-    if (tab) {
-      tab.location.href = url
-    } else {
-      window.open(url, '_blank')
-    }
+    tab.location.href = url
     window.setTimeout(() => URL.revokeObjectURL(url), OBJECT_URL_LIFETIME_MS)
   } catch (error) {
-    tab?.close()
+    tab.close()
     throw error
   }
 }

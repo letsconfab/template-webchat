@@ -152,7 +152,7 @@ describe('INTEGRATE System folder', () => {
       renderPage('inspire')
 
       const [alpha] = await findDocumentRows()
-      await userEvent.setup().click(within(alpha).getByRole('button', { name: 'Open' }))
+      await userEvent.setup().click(within(alpha).getByRole('button', { name: /^Open/ }))
 
       expect(open).toHaveBeenCalledWith('', '_blank')
       await waitFor(() => expect(tab.location.href).toBe('blob:library-document'))
@@ -169,10 +169,38 @@ describe('INTEGRATE System folder', () => {
       renderPage('inspire')
 
       const [alpha] = await findDocumentRows()
-      await userEvent.setup().click(within(alpha).getByRole('button', { name: 'Open' }))
+      await userEvent.setup().click(within(alpha).getByRole('button', { name: /^Open/ }))
 
       await waitFor(() => expect(tab.close).toHaveBeenCalled())
       expect(within(alpha).getByRole('alert')).toHaveTextContent(/couldn.t open this document/i)
+    })
+
+    it('names each Open button after its document', async () => {
+      server.use(systemHandler('inspire'))
+      renderPage('inspire')
+
+      await findDocumentRows()
+      expect(screen.getByRole('button', { name: 'Open Sample Practice Alpha' })).toBeVisible()
+      expect(screen.getByRole('button', { name: 'Open Sample Field Guide Beta' })).toBeVisible()
+    })
+
+    it('asks the Member to allow pop-ups when the browser blocks the new tab', async () => {
+      let requested = false
+      server.use(
+        systemHandler('inspire'),
+        http.get('/api/library/documents/doc-a/file', () => {
+          requested = true
+          return new HttpResponse('%PDF-1.4')
+        }),
+      )
+      vi.spyOn(window, 'open').mockReturnValue(null)
+      renderPage('inspire')
+
+      const [alpha] = await findDocumentRows()
+      await userEvent.setup().click(within(alpha).getByRole('button', { name: /^Open/ }))
+
+      expect(await within(alpha).findByRole('alert')).toHaveTextContent(/allow pop-ups/i)
+      expect(requested).toBe(false)
     })
   })
 })

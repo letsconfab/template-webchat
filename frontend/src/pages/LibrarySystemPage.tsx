@@ -2,12 +2,19 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ExternalLink, FileText, MessageSquare } from 'lucide-react'
 
+import LibraryBreadcrumb from '../components/library/LibraryBreadcrumb'
 import LibraryLayout from '../components/library/LibraryLayout'
+import LibraryLoading from '../components/library/LibraryLoading'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { INTEGRATE_SYSTEMS, integrateSystemPath, type IntegrateSystem } from '../lib/integrateSystems'
-import { getLibrarySystem, openLibraryDocument, type LibraryDocumentSummary } from '../services/library'
+import {
+  PopupBlockedError,
+  getLibrarySystem,
+  openLibraryDocument,
+  type LibraryDocumentSummary,
+} from '../services/library'
 
 const updatedFormat = new Intl.DateTimeFormat('en-US', {
   month: 'short',
@@ -24,7 +31,7 @@ function updatedLabel(modifiedTime: string | null): string | null {
 
 function DocumentRow({ document, system }: { document: LibraryDocumentSummary; system: IntegrateSystem }) {
   const [opening, setOpening] = useState(false)
-  const [openFailed, setOpenFailed] = useState(false)
+  const [openError, setOpenError] = useState<string | null>(null)
   const updated = updatedLabel(document.modified_time)
   const otherSystems = INTEGRATE_SYSTEMS.filter(
     (other) => other.slug !== system.slug && document.systems.includes(other.slug),
@@ -32,11 +39,15 @@ function DocumentRow({ document, system }: { document: LibraryDocumentSummary; s
 
   const handleOpen = async () => {
     setOpening(true)
-    setOpenFailed(false)
+    setOpenError(null)
     try {
       await openLibraryDocument(document.id)
-    } catch {
-      setOpenFailed(true)
+    } catch (error) {
+      setOpenError(
+        error instanceof PopupBlockedError
+          ? 'Your browser blocked the new tab. Allow pop-ups for this site and try again.'
+          : "We couldn't open this document. Please try again.",
+      )
     } finally {
       setOpening(false)
     }
@@ -66,9 +77,9 @@ function DocumentRow({ document, system }: { document: LibraryDocumentSummary; s
               ))}
             </ul>
           )}
-          {openFailed && (
+          {openError && (
             <Alert variant="destructive" className="mt-3 py-2">
-              <AlertDescription>We couldn't open this document. Please try again.</AlertDescription>
+              <AlertDescription>{openError}</AlertDescription>
             </Alert>
           )}
         </div>
@@ -78,8 +89,7 @@ function DocumentRow({ document, system }: { document: LibraryDocumentSummary; s
         className="shrink-0 self-start"
         onClick={handleOpen}
         disabled={opening}
-        aria-label="Open"
-        title={`Open ${document.title} in a new tab`}
+        aria-label={`${opening ? 'Opening' : 'Open'} ${document.title}`}
       >
         <ExternalLink aria-hidden="true" className="mr-2 h-4 w-4" />
         {opening ? 'Opening…' : 'Open'}
@@ -130,17 +140,13 @@ export default function LibrarySystemPage() {
   return (
     <LibraryLayout>
       <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
-        <nav aria-label="Breadcrumb" className="text-sm text-muted-foreground">
-          <Link to="/library" className="text-link">
-            Resource Library
-          </Link>
-          <span aria-hidden="true"> › </span>
-          <Link to="/library/browse" className="text-link">
-            Browse
-          </Link>
-          <span aria-hidden="true"> › </span>
-          <span aria-current="page">{system.name}</span>
-        </nav>
+        <LibraryBreadcrumb
+          trail={[
+            { label: 'Resource Library', to: '/library' },
+            { label: 'Browse', to: '/library/browse' },
+          ]}
+          current={system.name}
+        />
         <h1 className="mt-3 font-display text-4xl font-bold">{system.name}</h1>
         <p className="mt-2 text-lg text-muted-foreground">
           {system.area} — {system.tagline}
@@ -154,11 +160,7 @@ export default function LibrarySystemPage() {
           </Alert>
         )}
 
-        {!error && !documents && (
-          <p role="status" className="mt-8 text-muted-foreground">
-            Loading documents…
-          </p>
-        )}
+        {!error && !documents && <LibraryLoading label="Loading documents…" />}
 
         {documents && documents.length > 0 && (
           <ul aria-label="Documents" className="mt-8 space-y-4">

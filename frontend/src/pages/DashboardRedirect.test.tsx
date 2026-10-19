@@ -54,6 +54,14 @@ function renderDashboardRoutes(initialEntries: string[]) {
             }
           />
           <Route
+            path="/library"
+            element={
+              <ProtectedRoute>
+                <LocationProbe label="Resource Library" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/dashboard"
             element={
               <ProtectedRoute requireAdmin>
@@ -199,5 +207,8 @@ describe('dashboard route protection and redirect', () => {
     })
     expect(screen.getByTestId('current-path').textContent).not.toBe('/dashboard')
     expect(screen.getByTestId('current-path').textContent).not.toBe('/admin/dashboard')
+    await waitFor(() => {
+      expect(screen.getByTestId('current-path')).toHaveTextContent('/library')
+    })
   })
 })

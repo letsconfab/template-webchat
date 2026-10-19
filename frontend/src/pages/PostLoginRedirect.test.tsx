@@ -247,7 +247,7 @@ describe('post-login redirect from email feedback link', () => {
     expect(screen.queryByRole('heading', { name: 'Chat page' })).not.toBeInTheDocument()
   })
 
-  it('sends a normal user without a return target to /chat', async () => {
+  it('sends a Member without a return target to the Resource Library at /library', async () => {
     server.use(
       http.post('/api/auth/login', () =>
         HttpResponse.json({ access_token: 'test-token' }),
@@ -278,6 +278,14 @@ describe('post-login redirect from email feedback link', () => {
           <Routes>
             <Route path="/login" element={<AdminLogin />} />
             <Route
+              path="/library"
+              element={
+                <ProtectedRoute>
+                  <LocationProbe label="Resource Library" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/chat"
               element={
                 <ProtectedRoute>
@@ -303,7 +311,10 @@ describe('post-login redirect from email feedback link', () => {
     await user.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => {
-      expect(screen.getByTestId('current-path')).toHaveTextContent('/chat')
+      expect(screen.getByTestId('current-path')).toHaveTextContent('/library')
+    })
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Resource Library' })).toBeVisible()
     })
   })
 })

@@ -49,7 +49,6 @@ function doc(fileId: string, title: string, type: string, systems: string[]) {
     type,
     systems,
     status: 'ok',
-    link: `https://drive.google.com/file/d/${fileId}/view`,
   }
 }
 
@@ -75,7 +74,14 @@ function adminLibrary() {
         title: null,
         link: 'https://drive.google.com/file/d/doc_d/view',
       },
-      { row: 7, code: 'download_failed', detail: 'x', file_id: 'doc_e', title: 'Sample Practice Three', link: null },
+      {
+        row: 7,
+        code: 'unreachable',
+        detail: 'Google Drive returned HTTP 404',
+        file_id: 'doc_e',
+        title: 'Sample Practice Three',
+        link: 'https://drive.google.com/file/d/doc_e/view',
+      },
       { row: 8, code: 'bad_type', detail: 'x', file_id: 'doc_f', title: 'Sample Practice Four', link: null },
     ],
   }
@@ -142,7 +148,9 @@ describe('Library contents on the admin Knowledge page', () => {
     expect(items[2]).toHaveTextContent('Row 5')
     expect(within(items[2]).getByRole('link')).toHaveAttribute('href', 'https://drive.google.com/file/d/doc_d/view')
     expect(items[2]).toHaveTextContent(/Title cell is empty/)
-    expect(items[3]).toHaveTextContent(/could not be saved/)
+    // Drive failures keep the actual cause next to the plain-language reason.
+    expect(items[3]).toHaveTextContent(/could not be opened/)
+    expect(items[3]).toHaveTextContent('Google Drive returned HTTP 404')
     expect(items[4]).toHaveTextContent(/Type is not LSP, Field Guide, or Reference/)
   })
 

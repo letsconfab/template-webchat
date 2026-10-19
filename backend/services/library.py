@@ -22,6 +22,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from backend.config import config
+from backend.services.source_provenance import google_doc_url
 
 logger = logging.getLogger(__name__)
 
@@ -300,11 +301,6 @@ def served_pdf_path(doc: dict[str, Any]) -> Optional[Path]:
 _ADMIN_DOCUMENT_FIELDS = ("file_id", "title", "organization", "type", "systems", "status")
 
 
-def drive_file_url(file_id: str) -> str:
-    """The Drive link an administrator follows to check a manifest row's file."""
-    return f"https://drive.google.com/file/d/{file_id}/view"
-
-
 def manifest_sheet_url(manifest_file_id: str) -> str:
     return f"https://docs.google.com/spreadsheets/d/{manifest_file_id}/edit"
 
@@ -317,13 +313,7 @@ def admin_view() -> dict[str, Any]:
     """
     data = load_library()
     titles = {d.get("file_id"): d.get("title") for d in data["documents"]}
-    documents = [
-        {
-            **{key: doc.get(key) for key in _ADMIN_DOCUMENT_FIELDS},
-            "link": drive_file_url(doc["file_id"]) if doc.get("file_id") else None,
-        }
-        for doc in data["documents"]
-    ]
+    documents = [{key: doc.get(key) for key in _ADMIN_DOCUMENT_FIELDS} for doc in data["documents"]]
     issues = []
     for issue in data["issues"]:
         file_id = issue.get("file_id")
@@ -333,7 +323,7 @@ def admin_view() -> dict[str, Any]:
             "detail": issue.get("detail"),
             "file_id": file_id,
             "title": issue.get("title") or titles.get(file_id),
-            "link": drive_file_url(file_id) if file_id else None,
+            "link": google_doc_url(file_id) if file_id else None,
         })
     manifest_file_id = data.get("manifest_file_id")
     return {

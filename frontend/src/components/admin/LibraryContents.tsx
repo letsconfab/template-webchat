@@ -15,7 +15,6 @@ interface AdminLibraryDocument {
   type: string
   systems: string[]
   status: string | null
-  link: string | null
 }
 
 interface AdminLibraryIssue {
@@ -41,7 +40,8 @@ const REFERENCE_TYPE = 'Reference'
 const ISSUE_REASONS: Record<string, string> = {
   manifest_unreachable:
     'The Library Manifest could not be read. Check that it is shared with the connected Google account.',
-  unreachable: 'The file could not be opened. Check that it is shared with the connected Google account.',
+  unreachable:
+    'The file could not be opened. Check that it still exists and is shared with the connected Google account.',
   missing_title: 'The Title cell is empty.',
   no_system: 'No INTEGRATE System is ticked.',
   bad_link: 'The File cell is not a Google Doc or Drive file link.',
@@ -51,7 +51,10 @@ const ISSUE_REASONS: Record<string, string> = {
   download_failed: 'The file could not be saved on the server. The next sync will try again.',
 }
 
-export function issueReason(issue: AdminLibraryIssue): string {
+// Failures where the sync's own detail (an HTTP status or error) says why.
+const SHOWS_CAUSE = new Set(['manifest_unreachable', 'unreachable', 'download_failed'])
+
+function issueReason(issue: AdminLibraryIssue): string {
   return ISSUE_REASONS[issue.code] ?? issue.detail ?? issue.code
 }
 
@@ -147,6 +150,9 @@ export function LibraryContents({ refreshKey }: LibraryContentsProps) {
                   <IssueSubject issue={issue} />
                 </div>
                 <p className="text-foreground">{issueReason(issue)}</p>
+                {SHOWS_CAUSE.has(issue.code) && issue.detail && (
+                  <p className="text-xs text-muted-foreground">{issue.detail}</p>
+                )}
               </li>
             ))}
           </ul>

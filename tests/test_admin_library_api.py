@@ -115,7 +115,6 @@ class AdminLibraryApiTests(unittest.TestCase):
         self.assertEqual(docs["doc_aaaaaaaaaa"]["status"], "ok")
         self.assertEqual(docs["ref_bbbbbbbbbb"]["type"], "Reference")
         self.assertEqual(docs["ref_bbbbbbbbbb"]["status"], "unreachable")
-        self.assertEqual(docs["doc_aaaaaaaaaa"]["link"], "https://drive.google.com/file/d/doc_aaaaaaaaaa/view")
 
     def test_server_paths_are_not_exposed(self) -> None:
         self.write_synced_library()

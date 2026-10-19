@@ -5,6 +5,8 @@ import { cn } from '../lib/utils'
 
 const BRAND_NAME = 'A Loving Organization'
 
+const heart = <Heart aria-hidden="true" className="h-6 w-6 fill-current text-brand-heart" />
+
 const BRAND_SOURCES = {
   full: '/brand/alo-logo-long.svg',
   mark: '/brand/alo-heart.svg',
@@ -37,14 +39,14 @@ export default function BrandLogo({ className, variant = 'full' }: BrandLogoProp
   if (variant === 'mark') {
     return (
       <span role="img" aria-label={BRAND_NAME} className={cn('inline-flex', className)}>
-        <Heart aria-hidden="true" className="h-6 w-6 fill-current text-brand-heart" />
+        {heart}
       </span>
     )
   }
 
   return (
     <span className={cn('inline-flex items-center gap-2', className)}>
-      <Heart aria-hidden="true" className="h-6 w-6 fill-current text-brand-heart" />
+      {heart}
       <span className="font-display text-lg font-semibold text-foreground">{BRAND_NAME}</span>
     </span>
   )

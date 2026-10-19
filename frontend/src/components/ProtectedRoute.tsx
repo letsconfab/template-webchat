@@ -40,7 +40,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   if (requiredFeature && !features[requiredFeature]) {
-    return <Navigate to={isAdmin ? '/admin/dashboard' : '/chat'} replace />
+    return <Navigate to={isAdmin ? '/admin/dashboard' : '/library'} replace />
   }
 
   return <>{children}</>

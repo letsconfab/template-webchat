@@ -10,15 +10,6 @@ vi.mock('../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 2, email: 'member@example.com', role: 'user' },
     logout,
-    isAuthenticated: true,
-    isAdmin: false,
-    isLoading: false,
-    featuresLoaded: true,
-    features: {
-      admin_replay_enabled: false,
-      tester_correspondence_enabled: false,
-      tester_email_notifications_enabled: false,
-    },
   }),
 }))
 

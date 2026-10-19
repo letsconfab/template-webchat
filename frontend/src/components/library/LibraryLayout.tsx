@@ -7,7 +7,7 @@ import { Button } from '../ui/button'
 import { useAuth } from '../../contexts/AuthContext'
 import { cn } from '../../lib/utils'
 
-const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+const navLinkClass = ({ isActive = false }: { isActive?: boolean } = {}) =>
   cn(
     'text-sm no-underline hover:underline',
     isActive ? 'font-semibold text-foreground' : 'text-muted-foreground',
@@ -45,7 +45,7 @@ export default function LibraryLayout({ children }: { children: ReactNode }) {
             {membersPortalUrl && (
               <a
                 href={membersPortalUrl}
-                className="text-sm text-muted-foreground no-underline hover:underline"
+                className={navLinkClass()}
               >
                 Members Portal
               </a>

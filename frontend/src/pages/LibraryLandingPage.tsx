@@ -34,8 +34,8 @@ export default function LibraryLandingPage() {
     <LibraryLayout>
       <section className="bg-surface-hero">
         <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
-          {/* Small bold text: text-primary keeps AA contrast on the hero band. */}
-          <p className="text-sm font-bold uppercase tracking-widest text-primary">MEMBERS-ONLY</p>
+          {/* Large bold text (>= 18.66px): text-primary meets AA large-text contrast on the hero band. */}
+          <p className="text-xl font-bold uppercase tracking-widest text-primary">MEMBERS-ONLY</p>
           <h1 className="mt-3 font-display text-4xl font-bold sm:text-5xl">ALO Resource Library</h1>
           <p className="mt-4 max-w-2xl text-lg">
             Every Loving System in Practice and INTEGRATE Field Guide the Consortium has published,

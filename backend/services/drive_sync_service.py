@@ -433,7 +433,7 @@ def sync_library_manifest(
             if mime not in (GOOGLE_DOC_MIME, PDF_MIME):
                 issues.append(library.manifest_issue(
                     row.row, row.file_id, "unsupported_type",
-                    "File must be a Google Doc or a PDF",
+                    "File must be a Google Doc or a PDF", row.title,
                 ))
                 continue
             ext = ".txt" if mime == GOOGLE_DOC_MIME else ".pdf"
@@ -444,7 +444,7 @@ def sync_library_manifest(
                 logger.info("Library Document downloaded: %s", row.file_id)
         except (HttpError, OSError) as error:
             code = "unreachable" if isinstance(error, HttpError) else "download_failed"
-            issues.append(library.manifest_issue(row.row, row.file_id, code, _error_detail(error)))
+            issues.append(library.manifest_issue(row.row, row.file_id, code, _error_detail(error), row.title))
             if prev:
                 documents.append({**prev, "status": code})
             continue

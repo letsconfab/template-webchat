@@ -124,6 +124,17 @@ class ParseManifestTests(unittest.TestCase):
         )
         self.assertEqual(issues[3]["file_id"], "doc_aaaaaaaaaa")
 
+    def test_issues_carry_the_rows_title_when_it_has_one(self) -> None:
+        _, issues = parse_manifest_csv(
+            _csv(
+                _row(title=""),
+                _row(title="Untagged", ticked=()),
+                _row(title="Odd Type", doc_type="Memo"),
+            )
+        )
+
+        self.assertEqual([i.get("title") for i in issues], [None, "Untagged", "Odd Type"])
+
     def test_reference_rows_need_no_system(self) -> None:
         rows, issues = parse_manifest_csv(
             _csv(_row(doc_type="reference", ticked=("Trust",)), header=HEADER)

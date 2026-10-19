@@ -248,6 +248,23 @@ describe('Ask the Librarian chat page', () => {
     )
   })
 
+  it('keeps citation chips and the browse link on reloaded answers', async () => {
+    const socket = await renderChat()
+    emit(socket, {
+      type: 'history',
+      messages: [
+        { id: 1, role: 'user', content: 'How do teams build trust?' },
+        { id: 2, role: 'assistant', content: 'Through repair.', citations: [libraryCitation], refusal: false },
+        { id: 3, role: 'assistant', content: 'Not in the library.', citations: null, refusal: true },
+      ],
+    })
+
+    const [grounded, refusal] = screen.getAllByRole('article', { name: 'Librarian' })
+    expect(within(grounded).getByRole('button', { name: /Practice One/ })).toBeVisible()
+    expect(within(grounded).queryByRole('link', { name: 'Browse the Library' })).not.toBeInTheDocument()
+    expect(within(refusal).getByRole('link', { name: 'Browse the Library' })).toBeVisible()
+  })
+
   it('does not offer the browse link on a grounded answer', async () => {
     const socket = await renderChat()
     answer(socket, { content: 'Teams build trust through repair.', citations: [libraryCitation] })

@@ -69,6 +69,14 @@ const FEEDBACK_CATEGORIES: { slug: string; label: string }[] = [
   { slug: 'other', label: 'Other' },
 ]
 
+function LibrarianLabel({ className }: { className: string }) {
+  return (
+    <p className={`text-xs font-semibold uppercase tracking-wide text-accent ${className}`}>
+      Librarian
+    </p>
+  )
+}
+
 interface GraphRAGStatus {
   connected: boolean
   files_cached: number
@@ -271,6 +279,8 @@ export default function ChatPage() {
             role: m.role,
             content: m.content,
             message_id: m.id ?? null,
+            citations: Array.isArray(m.citations) ? m.citations : undefined,
+            refusal: m.refusal === true,
           })),
         )
       } else if (data.type === 'start') {
@@ -638,9 +648,7 @@ export default function ChatPage() {
                   aria-label="Librarian"
                   className="max-w-full rounded-lg border bg-card p-4 text-card-foreground shadow-sm sm:max-w-[85%]"
                 >
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">
-                    Librarian
-                  </p>
+                  <LibrarianLabel className="mb-2" />
                   {msg.thoughts && msg.thoughts.length > 0 && (
                     <div className="mb-2">
                       <button
@@ -785,9 +793,7 @@ export default function ChatPage() {
                 aria-live="polite"
                 className="max-w-full rounded-lg border bg-card text-card-foreground shadow-sm sm:max-w-[85%]"
               >
-                <p className="px-4 pt-3 text-xs font-semibold uppercase tracking-wide text-accent">
-                  Librarian
-                </p>
+                <LibrarianLabel className="px-4 pt-3" />
                 {thinkingLines.length > 0 && (
                   <div className="space-y-0.5 border-b px-4 pb-1 pt-2">
                     {thinkingLines.map((line, i) => (

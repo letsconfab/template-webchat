@@ -89,6 +89,10 @@ class ChatMessage(BaseModel):
     id: Optional[int] = None
     role: str
     content: str
+    # Librarian answer metadata, restored so a reloaded session keeps its
+    # citation chips and refusal link.
+    citations: Optional[List[dict]] = None
+    refusal: bool = False
 
 
 class ModelsResponse(BaseModel):
@@ -427,7 +431,13 @@ async def _load_session_history(chat_session_id: int) -> List[ChatMessage]:
             )
             rows = result.scalars().all()
             return [
-                ChatMessage(id=row.id, role=row.role, content=row.content)
+                ChatMessage(
+                    id=row.id,
+                    role=row.role,
+                    content=row.content,
+                    citations=(row.msg_metadata or {}).get("citations"),
+                    refusal=bool((row.msg_metadata or {}).get("refusal")),
+                )
                 for row in rows
             ]
     except Exception as e:

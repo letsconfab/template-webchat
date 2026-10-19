@@ -16,6 +16,8 @@ import GoogleDriveSettings from './pages/GoogleDriveSettings'
 import FeedbackCasesPage from './pages/FeedbackCasesPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import LibraryLandingPage from './pages/LibraryLandingPage'
+import BrowseLibraryPage from './pages/BrowseLibraryPage'
+import LibrarySystemPage from './pages/LibrarySystemPage'
 
 const InviteRedirect = () => {
   const { token } = useParams()
@@ -110,6 +112,22 @@ function App() {
                   element={
                     <ProtectedRoute>
                       <LibraryLandingPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/library/browse"
+                  element={
+                    <ProtectedRoute>
+                      <BrowseLibraryPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/library/browse/:slug"
+                  element={
+                    <ProtectedRoute>
+                      <LibrarySystemPage />
                     </ProtectedRoute>
                   }
                 />

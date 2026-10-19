@@ -22,6 +22,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 from backend.config import config
+from backend.services.source_provenance import google_doc_url
 
 logger = logging.getLogger(__name__)
 
@@ -129,16 +130,16 @@ def parse_manifest_csv(text: str) -> tuple[list[ManifestRow], list[dict[str, Any
         if not _checked(cell(values, "include")):
             continue
         file_id = extract_drive_file_id(cell(values, "file"))
-        if not file_id:
-            issues.append(manifest_issue(row_number, None, "bad_link", "File link is not a Google Doc or Drive file link"))
-            continue
         title = cell(values, "title")
+        if not file_id:
+            issues.append(manifest_issue(row_number, None, "bad_link", "File link is not a Google Doc or Drive file link", title))
+            continue
         if not title:
             issues.append(manifest_issue(row_number, file_id, "missing_title", "Title is empty"))
             continue
         doc_type = DOCUMENT_TYPES.get(cell(values, "type").lower())
         if not doc_type:
-            issues.append(manifest_issue(row_number, file_id, "bad_type", "Type is not LSP, Field Guide, or Reference"))
+            issues.append(manifest_issue(row_number, file_id, "bad_type", "Type is not LSP, Field Guide, or Reference", title))
             continue
         systems = (
             []
@@ -146,10 +147,10 @@ def parse_manifest_csv(text: str) -> tuple[list[ManifestRow], list[dict[str, Any
             else [slug for slug, _ in SYSTEMS if _checked(cell(values, slug))]
         )
         if doc_type != REFERENCE_TYPE and not systems:
-            issues.append(manifest_issue(row_number, file_id, "no_system", "No INTEGRATE System is ticked"))
+            issues.append(manifest_issue(row_number, file_id, "no_system", "No INTEGRATE System is ticked", title))
             continue
         if file_id in seen:
-            issues.append(manifest_issue(row_number, file_id, "duplicate_file", "File is already listed on another row"))
+            issues.append(manifest_issue(row_number, file_id, "duplicate_file", "File is already listed on another row", title))
             continue
         seen.add(file_id)
         rows.append(
@@ -165,10 +166,18 @@ def parse_manifest_csv(text: str) -> tuple[list[ManifestRow], list[dict[str, Any
     return rows, issues
 
 
-def manifest_issue(row: Optional[int], file_id: Optional[str], code: str, detail: str) -> dict[str, Any]:
+def manifest_issue(
+    row: Optional[int],
+    file_id: Optional[str],
+    code: str,
+    detail: str,
+    title: Optional[str] = None,
+) -> dict[str, Any]:
     issue: dict[str, Any] = {"row": row, "code": code, "detail": detail}
     if file_id:
         issue["file_id"] = file_id
+    if title:
+        issue["title"] = title
     return issue
 
 
@@ -285,3 +294,43 @@ def served_pdf_path(doc: dict[str, Any]) -> Optional[Path]:
     if not path.is_relative_to(root) or not path.is_file():
         return None
     return path
+
+
+# ── Admin view ────────────────────────────────────────────────────────────
+
+_ADMIN_DOCUMENT_FIELDS = ("file_id", "title", "organization", "type", "systems", "status")
+
+
+def manifest_sheet_url(manifest_file_id: str) -> str:
+    return f"https://docs.google.com/spreadsheets/d/{manifest_file_id}/edit"
+
+
+def admin_view() -> dict[str, Any]:
+    """The last synced library for administrators, without server paths.
+
+    Issues keep their manifest row and code; each gains a Drive link when it
+    names a file, and the document's title when the manifest row gave none.
+    """
+    data = load_library()
+    titles = {d.get("file_id"): d.get("title") for d in data["documents"]}
+    documents = [{key: doc.get(key) for key in _ADMIN_DOCUMENT_FIELDS} for doc in data["documents"]]
+    issues = []
+    for issue in data["issues"]:
+        file_id = issue.get("file_id")
+        issues.append({
+            "row": issue.get("row"),
+            "code": issue.get("code"),
+            "detail": issue.get("detail"),
+            "file_id": file_id,
+            "title": issue.get("title") or titles.get(file_id),
+            "link": google_doc_url(file_id) if file_id else None,
+        })
+    manifest_file_id = data.get("manifest_file_id")
+    return {
+        "manifest_file_id": manifest_file_id,
+        "manifest_url": manifest_sheet_url(manifest_file_id) if manifest_file_id else None,
+        "synced_at": data.get("synced_at"),
+        "systems": [{"slug": slug, "name": name} for slug, name in SYSTEMS],
+        "documents": documents,
+        "issues": issues,
+    }

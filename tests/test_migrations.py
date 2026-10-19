@@ -12,7 +12,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATE = ROOT / "scripts" / "migrate.py"
-EXPECTED_HEAD = "0011_sessions_journeys"
+EXPECTED_HEAD = "0012_library_manifest"
 
 
 class MigrationCommandTests(unittest.TestCase):

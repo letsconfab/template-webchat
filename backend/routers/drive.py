@@ -25,6 +25,7 @@ from backend.database import get_db
 from backend.dependencies.auth import get_current_admin_user
 from backend.models.settings import SystemSettings
 from backend.models.user import User
+from backend.services import library
 from backend.services.drive_sync_service import drive_sync_service
 from backend.services.cocoindex_manager import cocoindex_manager
 
@@ -46,6 +47,11 @@ class FolderItem(BaseModel):
 class FolderListResponse(BaseModel):
     folders: list[FolderItem]
     parent_id: Optional[str] = None
+
+
+class LibraryManifestRequest(BaseModel):
+    # A Google Sheet URL or bare file id; empty clears the manifest.
+    manifest: str = ""
 
 
 def _html_page(title: str, body: str, script: str = "") -> str:
@@ -230,9 +236,20 @@ async def get_drive_status(
     return {
         "connected": bool(settings and settings.google_drive_refresh_token),
         "root_folder_id": settings.google_drive_root_folder_id if settings else None,
+        "library_manifest_file_id": settings.library_manifest_file_id if settings else None,
+        "library": _library_status(),
         "sync": sync_status,
         "files": synced_files,
         "pipeline": cocoindex_manager.get_status(),
+    }
+
+
+def _library_status() -> dict:
+    data = library.load_library()
+    return {
+        "document_count": len(data["documents"]),
+        "synced_at": data.get("synced_at"),
+        "issues": data["issues"][:50],
     }
 
 
@@ -303,3 +320,32 @@ async def disconnect_drive(
         await db.commit()
 
     return {"status": "disconnected"}
+
+
+@router.patch("/library-manifest")
+async def set_library_manifest(
+    body: LibraryManifestRequest,
+    current_user: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set (or clear) the Google Sheet that defines the Resource Library."""
+    file_id: Optional[str] = None
+    if body.manifest.strip():
+        file_id = library.extract_sheet_id(body.manifest)
+        if not file_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Enter a Google Sheet link or file id.",
+            )
+
+    result = await db.execute(select(SystemSettings).limit(1))
+    settings = result.scalar_one_or_none()
+    if not settings:
+        raise HTTPException(status_code=404, detail="Settings not found")
+
+    settings.library_manifest_file_id = file_id
+    settings.updated_at = datetime.utcnow()
+    await db.commit()
+    logger.info("Library Manifest set to %s", file_id or "(none)")
+
+    return {"status": "ok", "library_manifest_file_id": file_id}

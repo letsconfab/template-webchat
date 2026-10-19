@@ -6,6 +6,7 @@ kb_assets
 .cache
 garage_storage
 kb_cache
+library_files
 frontend/dist
 frontend/public/static/feedback-summaries/
 *.db

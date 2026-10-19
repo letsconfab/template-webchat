@@ -1,6 +1,7 @@
 """FastAPI application for AI Copilot with GraphRAG knowledge base."""
 
 import logging
+import os
 import re
 import asyncio
 import time
@@ -125,7 +126,14 @@ async def lifespan(app: FastAPI):
             )
 
             if settings.llm_provider and settings.llm_model and settings.llm_api_key:
-                cache_dir = str(Path(getattr(config, "KB_CACHE_DIR", "./kb_cache")) / "drive")
+                # Index the whole cache: root-folder files in drive/ and
+                # Library Manifest files in library/. Keep CocoIndex state
+                # where earlier releases put it.
+                kb_cache_dir = Path(getattr(config, "KB_CACHE_DIR", "./kb_cache"))
+                os.environ.setdefault(
+                    "COCOINDEX_DB", str(kb_cache_dir / "drive" / "cocoindex_db")
+                )
+                cache_dir = str(kb_cache_dir)
                 cocoindex_manager.configure(
                     cache_dir=cache_dir,
                     neo4j_uri=neo4j_uri,

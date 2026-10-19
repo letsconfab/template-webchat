@@ -133,6 +133,7 @@ make run-fe
 | `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5454/webchat_db` | |
 | `SECRET_KEY` | - | JWT secret |
 | `KB_ASSETS_DIR` | `./kb_assets` | Knowledge base files |
+| `LIBRARY_FILES_DIR` | `./library_files` | Served Library Document PDFs + `library.json`; startup fails if inside `KB_CACHE_DIR` |
 
 ## Docker Compose
 

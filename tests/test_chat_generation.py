@@ -72,6 +72,23 @@ class BuildSystemPromptTests(unittest.TestCase):
         self.assertNotIn("consent", prompt.lower().replace("even with the member's consent", ""))
         self.assertNotIn("answer from your own knowledge", prompt.lower())
 
+    def test_prompt_forbids_promising_documents_it_cannot_open(self) -> None:
+        prompt = build_system_prompt(has_kb=True)
+
+        self.assertIn(
+            "The only documents a Member can open are the library documents listed "
+            "as sources under your answer.",
+            prompt,
+        )
+        self.assertIn("Never say you are sending, sharing, or linking a document", prompt)
+        self.assertIn("never write URLs", prompt)
+        self.assertIn(
+            "When a passage only mentions another document by name (for example a case "
+            "study), say the library mentions it but does not hold it",
+            prompt,
+        )
+        self.assertIn("do not describe its contents beyond what the passage says", prompt)
+
     def test_prompt_without_kb_tells_the_librarian_to_refuse(self) -> None:
         prompt = build_system_prompt(has_kb=False)
         self.assertIn(librarian_refusal(), prompt)

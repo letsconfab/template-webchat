@@ -13,6 +13,7 @@ import { server } from '../test/server'
 vi.mock('mermaid', () => ({
   default: {
     initialize: vi.fn(),
+    parse: vi.fn(async () => ({ diagramType: 'flowchart' })),
     render: vi.fn(async (_id: string, chart: string) => ({
       svg: `<svg data-testid="mermaid-svg"><title>${chart}</title></svg>`,
     })),

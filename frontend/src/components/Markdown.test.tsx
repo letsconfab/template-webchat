@@ -5,6 +5,7 @@ import { Markdown } from './Markdown'
 vi.mock('mermaid', () => ({
   default: {
     initialize: vi.fn(),
+    parse: vi.fn(async () => ({ diagramType: 'flowchart' })),
     render: vi.fn(async (_id: string, chart: string) => ({
       svg: `<svg data-testid="mermaid-svg"><title>${chart}</title></svg>`,
     })),
@@ -75,6 +76,41 @@ describe('Markdown', () => {
       expect(screen.getAllByTestId('mermaid-svg')).toHaveLength(2)
     })
     expect(screen.queryByLabelText(/could not be rendered/i)).toBeNull()
+  })
+
+  it('does not render, or draw an error graphic for, a chart that fails to parse', async () => {
+    const mermaid = await import('mermaid')
+    vi.mocked(mermaid.default.render).mockClear()
+    vi.mocked(mermaid.default.parse).mockResolvedValueOnce(false as never)
+
+    render(
+      <Markdown>
+        {['```mermaid', 'flowchart LR', '  A[Half a node', '```'].join('\n')}
+      </Markdown>,
+    )
+    await screen.findByLabelText(/could not be rendered/i)
+    expect(mermaid.default.render).not.toHaveBeenCalled()
+    expect(mermaid.default.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ suppressErrorRendering: true }),
+    )
+  })
+
+  it('removes the leftover mermaid container when a render fails', async () => {
+    const mermaid = await import('mermaid')
+    vi.mocked(mermaid.default.render).mockImplementationOnce(async (id: string) => {
+      const leftover = document.createElement('div')
+      leftover.id = `d${id}`
+      document.body.appendChild(leftover)
+      throw new Error('Syntax error in text')
+    })
+
+    render(
+      <Markdown>
+        {['```mermaid', 'flowchart LR', '  A --> B', '```'].join('\n')}
+      </Markdown>,
+    )
+    await screen.findByLabelText(/could not be rendered/i)
+    expect(document.body.querySelector('[id^="dmermaid-"]')).toBeNull()
   })
 
   it('falls back to a code block when mermaid render fails', async () => {

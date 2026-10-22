@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { isValidElement, useEffect, useId, useState, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -24,6 +24,7 @@ export function Markdown({ children, className, assetBaseUrl }: MarkdownProps) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          pre: MarkdownPre,
           code: MarkdownCode,
           a: CitationLink,
           img: (props) => <MarkdownImage {...props} assetBaseUrl={assetBaseUrl} />,
@@ -109,6 +110,32 @@ function CitationLink({
   )
 }
 
+/** Mermaid diagrams render their own figure, so they skip the code-block `pre`. */
+function MarkdownPre({
+  children,
+  node: _node,
+  ...props
+}: React.HTMLAttributes<HTMLPreElement> & { children?: ReactNode; node?: unknown }) {
+  const child = Array.isArray(children) ? children[0] : children
+  if (
+    isValidElement<{ className?: string }>(child) &&
+    /\blanguage-mermaid\b/.test(child.props.className ?? '')
+  ) {
+    return <>{children}</>
+  }
+  return <pre {...props}>{children}</pre>
+}
+
+// mermaid.render is not reentrant: overlapping calls (e.g. a streaming answer
+// re-rendering while the final message mounts) fail. Run them one at a time.
+let mermaidQueue: Promise<unknown> = Promise.resolve()
+
+function queueMermaidRender<T>(task: () => Promise<T>): Promise<T> {
+  const run = mermaidQueue.then(task, task)
+  mermaidQueue = run.catch(() => undefined)
+  return run
+}
+
 function MarkdownCode({
   className,
   children,
@@ -149,14 +176,16 @@ function MermaidBlock({ chart }: { chart: string }) {
     let cancelled = false
     ;(async () => {
       try {
-        const mermaid = (await import('mermaid')).default
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          theme: 'neutral',
+        const { svg: rendered } = await queueMermaidRender(async () => {
+          const mermaid = (await import('mermaid')).default
+          mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: 'strict',
+            theme: 'neutral',
+          })
+          const id = `mermaid-${reactId}-${Math.random().toString(36).slice(2, 8)}`
+          return mermaid.render(id, chart)
         })
-        const id = `mermaid-${reactId}-${Math.random().toString(36).slice(2, 8)}`
-        const { svg: rendered } = await mermaid.render(id, chart)
         if (!cancelled) {
           setSvg(rendered)
           setFailed(false)

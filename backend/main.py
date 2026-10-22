@@ -77,6 +77,7 @@ logger = logging.getLogger(__name__)
 _ASSISTANT_ANSWER_MAX_TOKENS = 2048
 _BLANK_ANSWER_ERROR = "The assistant didn't return an answer. Please try again."
 _LIBRARY_SEARCH_ERROR = "The library search failed. Please try again."
+_MODEL_ERROR = "The Librarian is unavailable right now. Please try again in a few minutes."
 
 
 class SettingsRequest(BaseModel):
@@ -785,7 +786,8 @@ async def _query_with_knowledge(
         except Exception as e:
             logger.error("Agent query error: %s", e, exc_info=True)
             had_error = True
-            error_msg = f"An error occurred: {str(e)}"
+            # Provider errors (quota, auth, rate limits) stay in the server log.
+            error_msg = _MODEL_ERROR
             # A newline is truthy, but it is not an answer and would hide error_msg.
             full_response = full_response if full_response.strip() else error_msg
             try:
@@ -824,6 +826,10 @@ async def _query_with_knowledge(
     followups: list[str] = []
     if full_response:
         full_response, followups = extract_followups(full_response)
+    # A refusal says the library has no answer, so it cites no sources.
+    if full_response.strip() == librarian_refusal():
+        citations.clear()
+    if full_response:
         duration_ms = int((time.monotonic() - start_time) * 1000)
         message_id = await _persist_chat_message(
             chat_session=chat_session,
@@ -1057,7 +1063,7 @@ async def websocket_chat(websocket: WebSocket):
     except Exception as e:
         logger.error("WebSocket error: %s", e)
         try:
-            await websocket.send_json({"type": "error", "message": str(e)})
+            await websocket.send_json({"type": "error", "message": _MODEL_ERROR})
         except Exception:
             pass
         manager.disconnect(websocket)

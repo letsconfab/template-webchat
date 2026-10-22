@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.messages import AIMessage
 
 from backend.config import config
-from backend.main import _query_with_knowledge, graphrag_service
+from backend.main import _MODEL_ERROR, _query_with_knowledge, graphrag_service
 from backend.services import library
 from backend.services.chat_generation import librarian_refusal
 
@@ -64,6 +64,15 @@ class _FakeAgent:
             "name": "LangGraph",
             "data": {"output": {"messages": [*payload["messages"], AIMessage(content=self.answer)]}},
         }
+
+
+class _FailingAgent:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def astream_events(self, payload, version="v2", config=None):
+        raise self.error
+        yield  # pragma: no cover - makes this an async generator
 
 
 class LibrarianChatTurnTests(unittest.IsolatedAsyncioTestCase):
@@ -175,6 +184,35 @@ class LibrarianChatTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("library", stored["content"].lower())
         self.assertTrue(stored["metadata"]["error"])
         self.assertIn("tool_failed", [event["event_type"] for event in traces[0]])
+
+    async def test_model_refusal_carries_no_citations(self) -> None:
+        agent = _FakeAgent(librarian_refusal())
+        stored, sent, _, _ = await self._turn(
+            [_hit("LIBRARY PASSAGE", "lib_1", "lib_1_Practice One.txt")], agent
+        )
+
+        self.assertEqual(stored["content"], librarian_refusal())
+        self.assertIsNone(stored["metadata"]["citations"])
+        end = next(frame for frame in sent if frame["type"] == "end")
+        self.assertNotIn("citations", end)
+
+    async def test_model_failure_shows_members_a_friendly_message(self) -> None:
+        agent = _FailingAgent(
+            RuntimeError("Error code: 429 - {'error': {'code': 'insufficient_quota'}}")
+        )
+        with self.assertLogs("backend.main", level="ERROR") as logs:
+            stored, sent, _, _ = await self._turn(
+                [_hit("LIBRARY PASSAGE", "lib_1", "lib_1_Practice One.txt")], agent
+            )
+
+        member_text = stored["content"] + "".join(
+            str(frame.get("content", "")) for frame in sent
+        )
+        self.assertNotIn("429", member_text)
+        self.assertNotIn("insufficient_quota", member_text)
+        self.assertEqual(stored["content"], _MODEL_ERROR)
+        self.assertTrue(stored["metadata"]["error"])
+        self.assertIn("insufficient_quota", "\n".join(logs.output))
 
 
 if __name__ == "__main__":

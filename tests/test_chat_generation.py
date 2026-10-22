@@ -156,6 +156,22 @@ class ExtractFollowupsTests(unittest.TestCase):
         self.assertEqual(len(followups), 3)
         self.assertEqual(followups[0], "How does licensing work?")
 
+    def test_drops_quote_fence_wrapped_around_followups_block(self) -> None:
+        raw = (
+            "Here is the answer.\n\n"
+            "```mermaid\nflowchart LR\n  A --> B\n``` \n\n"
+            '"""\n'
+            ":::followups\n"
+            "- How does licensing work?\n"
+            ":::\n"
+            '"""\n'
+        )
+        cleaned, followups = extract_followups(raw)
+        self.assertEqual(
+            cleaned, "Here is the answer.\n\n```mermaid\nflowchart LR\n  A --> B\n```"
+        )
+        self.assertEqual(followups, ["How does licensing work?"])
+
     def test_returns_original_when_no_followups_block(self) -> None:
         raw = "Just an answer."
         cleaned, followups = extract_followups(raw)

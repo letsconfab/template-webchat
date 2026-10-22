@@ -174,6 +174,9 @@ def extract_followups(raw: str) -> tuple[str, list[str]]:
 
     block = raw[start + len(_FOLLOWUPS_START) : end]
     cleaned = (raw[:start] + raw[end + len(_FOLLOWUPS_END) :]).rstrip()
+    # Models sometimes wrap the block in a """ fence; drop the leftover quotes.
+    while cleaned.endswith('"""'):
+        cleaned = cleaned[: -len('"""')].rstrip()
 
     followups: list[str] = []
     for line in block.splitlines():

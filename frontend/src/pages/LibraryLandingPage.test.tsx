@@ -96,8 +96,8 @@ describe('Resource Library landing page', () => {
 
     const nav = within(screen.getByRole('navigation', { name: 'Resource Library' }))
     expect(nav.getByRole('link', { name: 'Resource Library' })).toHaveAttribute('href', '/library')
-    expect(nav.getByRole('link', { name: 'Ask the Librarian' })).toHaveAttribute('href', '/chat')
+    expect(nav.queryByRole('link', { name: 'Ask the Librarian' })).toBeNull()
     expect(screen.getByRole('button', { name: /log out/i })).toBeVisible()
-    expect(screen.getByText('© 2026 A Loving Organization')).toBeVisible()
+    expect(screen.getByText('© 2026 All rights reserved A Loving Organization')).toBeVisible()
   })
 })

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Toaster } from 'sonner'
-import { AuthProvider } from './contexts/AuthContext'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import ConfigurationChecker from './components/ConfigurationChecker'
 import AdminRegister from './pages/AdminRegister'
@@ -30,6 +30,7 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [configStatus, setConfigStatus] = useState<any>(null)
   const navigate = useNavigate()
+  const { isAuthenticated, isAdmin, isLoading: authLoading } = useAuth()
 
   useEffect(() => {
     checkConfigurationStatus()
@@ -55,7 +56,12 @@ function AppContent() {
     }
   }
 
-  if (isLoading) {
+  // Signed-in users skip the splash: members land on the Resource Library.
+  if (!isLoading && !authLoading && isAuthenticated && !configStatus?.needs_setup) {
+    return <Navigate to={isAdmin ? '/admin/dashboard' : '/library'} replace />
+  }
+
+  if (isLoading || authLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>

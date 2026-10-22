@@ -182,9 +182,22 @@ function MermaidBlock({ chart }: { chart: string }) {
             startOnLoad: false,
             securityLevel: 'strict',
             theme: 'neutral',
+            suppressErrorRendering: true,
           })
+          // A streaming answer passes half-written charts; skip them quietly
+          // instead of letting mermaid draw its "Syntax error" graphic.
+          if (!(await mermaid.parse(chart, { suppressErrors: true }))) {
+            throw new Error('Mermaid chart does not parse')
+          }
           const id = `mermaid-${reactId}-${Math.random().toString(36).slice(2, 8)}`
-          return mermaid.render(id, chart)
+          try {
+            return await mermaid.render(id, chart)
+          } catch (error) {
+            // mermaid leaves its temporary render container in <body> on failure.
+            document.getElementById(`d${id}`)?.remove()
+            document.getElementById(id)?.remove()
+            throw error
+          }
         })
         if (!cancelled) {
           setSvg(rendered)

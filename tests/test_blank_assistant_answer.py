@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from backend.llm_providers import SarvamLLM
-from backend.main import _query_with_knowledge
+from backend.main import _MODEL_ERROR, _query_with_knowledge
 
 
 RETRIEVAL_TEXT = "ALO licensing policy requires a written application."
@@ -277,11 +277,11 @@ class BlankAssistantAnswerTests(unittest.IsolatedAsyncioTestCase):
             "\n", [], agent=agent
         )
 
-        self.assertEqual(stored["content"], "An error occurred: agent blew up")
+        self.assertEqual(stored["content"], _MODEL_ERROR)
         self.assertTrue(stored["metadata"]["error"])
         self.assertEqual(payloads, [])
         end = next(frame for frame in sent if frame["type"] == "end")
-        self.assertEqual(end["content"], "An error occurred: agent blew up")
+        self.assertEqual(end["content"], _MODEL_ERROR)
 
     async def test_followup_keeps_question_when_chain_end_is_only_the_blank_answer(
         self,

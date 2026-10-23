@@ -27,6 +27,7 @@ from backend.routers import (
     auth,
     admin_analytics,
     admin_feedback_cases,
+    admin_library,
     bulk_invites,
     case_notifications,
     chat_sessions,
@@ -197,6 +198,7 @@ app.include_router(feedback.router)
 app.include_router(feedback_cases.router)
 app.include_router(admin_feedback_cases.router)
 app.include_router(admin_analytics.router)
+app.include_router(admin_library.router)
 app.include_router(case_notifications.router)
 app.include_router(insights.router)
 app.include_router(wiki.router)

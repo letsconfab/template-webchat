@@ -8,6 +8,7 @@ import { Loader2, RefreshCw, Unlink, ExternalLink, FolderOpen, CheckCircle, Aler
 
 import { api } from '../services/api'
 import { AdminLayout } from '../components/admin/AdminLayout'
+import { LibraryContents } from '../components/admin/LibraryContents'
 
 interface SyncFile {
   filename: string
@@ -68,6 +69,9 @@ export default function GoogleDriveSettings() {
   const [folderStack, setFolderStack] = useState<FolderItem[]>([])
   const [manifestInput, setManifestInput] = useState('')
   const [savingManifest, setSavingManifest] = useState(false)
+  // Bumped after Sync now so Library contents reloads even when synced_at
+  // has not changed yet (a background sync was already running).
+  const [libraryVersion, setLibraryVersion] = useState(0)
 
   const loadStatus = useCallback(async () => {
     try {
@@ -171,7 +175,11 @@ export default function GoogleDriveSettings() {
       await api.post('/drive/sync-now', {}, {
         headers: { Authorization: `Bearer ${token}` }
       })
-      setTimeout(loadStatus, 2000)
+      setLibraryVersion(v => v + 1)
+      setTimeout(() => {
+        loadStatus()
+        setLibraryVersion(v => v + 1)
+      }, 2000)
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Sync failed')
     } finally {
@@ -502,14 +510,8 @@ export default function GoogleDriveSettings() {
                     ? 'Manifest set. It is read on the next sync (use Sync now to start).'
                     : `${status.library.document_count} documents, ${status.library.issues.length} issues — last read ${new Date(status.library.synced_at).toLocaleString()}.`}
               </p>
-              {status?.library_manifest_file_id && (status.library?.issues.length ?? 0) > 0 && (
-                <ul className="text-xs text-red-700 space-y-1">
-                  {status.library.issues.slice(0, 10).map((issue, idx) => (
-                    <li key={idx}>
-                      {issue.row ? `Row ${issue.row}: ` : ''}{issue.code} — {issue.detail}
-                    </li>
-                  ))}
-                </ul>
+              {status?.library_manifest_file_id && (
+                <LibraryContents refreshKey={`${status.library?.synced_at ?? ''}:${libraryVersion}`} />
               )}
             </CardContent>
           </Card>

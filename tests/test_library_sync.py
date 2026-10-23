@@ -170,6 +170,7 @@ class LibrarySyncTests(unittest.TestCase):
         self.assertFalse(library.is_library_document("dcx_cccccccccc"))
         issues = self.library_json()["issues"]
         self.assertEqual([(i["code"], i["file_id"], i["row"]) for i in issues], [("unsupported_type", "dcx_cccccccccc", 2)])
+        self.assertEqual(issues[0]["title"], "Draft")
         self.assertEqual(list(self.files_dir.glob("*.pdf")), [])
 
     def test_unchanged_files_are_not_downloaded_again(self) -> None:

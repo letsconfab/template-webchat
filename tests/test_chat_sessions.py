@@ -25,6 +25,15 @@ from backend.services.auth import create_access_token
 import backend.main as main
 
 
+CITATION = {
+    "id": "lib_1",
+    "title": "Practice One",
+    "type": "LSP",
+    "systems": ["trust"],
+    "url": "/api/library/documents/lib_1/file",
+}
+
+
 class DummyProvider:
     def __init__(self, *args, **kwargs) -> None:
         pass
@@ -233,6 +242,50 @@ class ChatSessionIntegrationTests(unittest.TestCase):
                 ("assistant", "Earlier answer"),
             ],
         )
+
+    async def _add_librarian_answers(self, session_id: str) -> None:
+        async with self.sessions() as session:
+            result = await session.execute(
+                select(ChatSession).where(ChatSession.client_uuid == session_id)
+            )
+            chat_session = result.scalar_one()
+            session.add_all(
+                [
+                    ChatMessage(
+                        chat_session_id=chat_session.id,
+                        session_id=session_id,
+                        role="assistant",
+                        content="Grounded answer",
+                        msg_metadata={"citations": [CITATION], "refusal": None},
+                    ),
+                    ChatMessage(
+                        chat_session_id=chat_session.id,
+                        session_id=session_id,
+                        role="assistant",
+                        content="Refusal",
+                        msg_metadata={"citations": None, "refusal": True},
+                    ),
+                ]
+            )
+            await session.commit()
+
+    def test_history_restores_citations_and_refusals(self) -> None:
+        session_id = str(uuid4())
+        auth = {"type": "auth", "session_id": session_id, "token": self.token()}
+        with self.client.websocket_connect("/ws/chat") as websocket:
+            websocket.send_json(auth)
+            websocket.receive_json()
+        asyncio.run(self._add_librarian_answers(session_id))
+
+        with self.client.websocket_connect("/ws/chat") as websocket:
+            websocket.send_json(auth)
+            frame = websocket.receive_json()
+
+        grounded, refusal = frame["messages"]
+        self.assertEqual(grounded["citations"], [CITATION])
+        self.assertFalse(grounded["refusal"])
+        self.assertIsNone(refusal["citations"])
+        self.assertTrue(refusal["refusal"])
 
     def test_http_history_is_authenticated_and_owner_scoped(self) -> None:
         session_id = str(uuid4())

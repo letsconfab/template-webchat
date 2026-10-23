@@ -4,8 +4,9 @@ import {
   Send,
   Loader2,
   Settings,
-  LogOut,
+  LayoutDashboard,
   MessageSquare,
+  PanelLeft,
   ThumbsUp,
   ThumbsDown,
   CircleCheck,
@@ -29,11 +30,21 @@ import {
   api,
 } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import LibraryLayout from '../components/library/LibraryLayout'
 import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
 import { Textarea } from '../components/ui/textarea'
 import { Markdown } from '../components/Markdown'
 import { ChatSessionSidebar } from '../components/ChatSessionSidebar'
 import { JourneyStarterGrid } from '../components/JourneyStarterGrid'
+import {
+  LibrarianCitations,
+  type LibrarianCitation,
+} from '../components/LibrarianCitations'
+
+const PAGE_TITLE = 'Ask the Librarian'
+const PAGE_SUBTITLE =
+  "Ask a question in plain language. Answers come only from the Consortium's own library."
 
 interface Message {
   role: 'user' | 'assistant'
@@ -44,6 +55,9 @@ interface Message {
   feedbackId?: number
   caseId?: string
   feedbackDetailed?: boolean
+  citations?: LibrarianCitation[]
+  // Set by the backend when the answer is the Librarian's fixed refusal.
+  refusal?: boolean
 }
 
 const FEEDBACK_CATEGORIES: { slug: string; label: string }[] = [
@@ -54,6 +68,14 @@ const FEEDBACK_CATEGORIES: { slug: string; label: string }[] = [
   { slug: 'too_long', label: 'Too long' },
   { slug: 'other', label: 'Other' },
 ]
+
+function LibrarianLabel({ className }: { className: string }) {
+  return (
+    <p className={`text-xs font-semibold uppercase tracking-wide text-accent ${className}`}>
+      Librarian
+    </p>
+  )
+}
 
 interface GraphRAGStatus {
   connected: boolean
@@ -67,7 +89,7 @@ interface GraphRAGStatus {
 export default function ChatPage() {
   const navigate = useNavigate()
   const { sessionId: routeSessionId } = useParams<{ sessionId?: string }>()
-  const { user, logout, isAdmin, features } = useAuth()
+  const { user, isAdmin, features } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isConnected, setIsConnected] = useState(false)
@@ -88,6 +110,7 @@ export default function ChatPage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(
     routeSessionId ?? null,
   )
+  const [showSessions, setShowSessions] = useState(false)
   const MAX_THINKING_LINES = 4
 
   const currentResponseRef = useRef('')
@@ -104,6 +127,10 @@ export default function ChatPage() {
       console.error('Failed to load chat sessions:', error)
       return [] as ChatSessionSummary[]
     }
+  }, [])
+
+  useEffect(() => {
+    document.title = PAGE_TITLE
   }, [])
 
   useEffect(() => {
@@ -252,6 +279,8 @@ export default function ChatPage() {
             role: m.role,
             content: m.content,
             message_id: m.id ?? null,
+            citations: Array.isArray(m.citations) ? m.citations : undefined,
+            refusal: m.refusal === true,
           })),
         )
       } else if (data.type === 'start') {
@@ -287,6 +316,8 @@ export default function ChatPage() {
             content: finalResponse,
             thoughts: savedThoughts,
             message_id: data.message_id ?? null,
+            citations: Array.isArray(data.citations) ? data.citations : undefined,
+            refusal: data.refusal === true,
           },
         ])
         if (Array.isArray(data.followups)) {
@@ -339,12 +370,8 @@ export default function ChatPage() {
     }
   }
 
-  const handleLogout = () => {
-    logout()
-    navigate('/login')
-  }
-
   const handleNewChat = async () => {
+    setShowSessions(false)
     const created = await createChatSession()
     await refreshSessions()
     setSessionId(created.client_uuid)
@@ -352,6 +379,7 @@ export default function ChatPage() {
   }
 
   const handleSelectSession = (uuid: string) => {
+    setShowSessions(false)
     setSessionId(uuid)
     navigate(`/chat/${uuid}`)
   }
@@ -484,361 +512,362 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
-      <ChatSessionSidebar
-        sessions={sessions}
-        activeUuid={activeSessionId}
-        onSelect={handleSelectSession}
-        onNew={() => void handleNewChat()}
-        onRename={(uuid, title) => void handleRenameSession(uuid, title)}
-        onDelete={(uuid) => void handleDeleteSession(uuid)}
-      />
+    <LibraryLayout>
+      <div className="mx-auto flex w-full max-w-6xl flex-col md:flex-row">
+        <div
+          id="chat-sessions"
+          className={`${showSessions ? 'block' : 'hidden'} border-b md:block md:border-b-0`}
+        >
+          <ChatSessionSidebar
+            sessions={sessions}
+            activeUuid={activeSessionId}
+            onSelect={handleSelectSession}
+            onNew={() => void handleNewChat()}
+            onRename={(uuid, title) => void handleRenameSession(uuid, title)}
+            onDelete={(uuid) => void handleDeleteSession(uuid)}
+          />
+        </div>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="border-b border-border bg-card px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-semibold">AI Chat</h1>
-              <span className="text-sm text-muted-foreground ml-2">
-                ({user.email})
-              </span>
+        <div className="flex min-w-0 flex-1 flex-col px-4 sm:px-6">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b py-5">
+            <div className="min-w-0">
+              <h1 className="font-display text-3xl font-bold sm:text-4xl">{PAGE_TITLE}</h1>
+              <p className="mt-1 text-muted-foreground">{PAGE_SUBTITLE}</p>
             </div>
-            <div className="flex items-center gap-2">
-              {isAdmin && (
-                <Link to="/admin/settings">
-                  <button className="p-2 hover:bg-muted rounded-lg transition-colors">
-                    <Settings className="w-5 h-5" />
-                  </button>
-                </Link>
-              )}
-              {features.tester_correspondence_enabled && (
-                <Link to="/feedback">
-                  <button
-                    className="p-2 hover:bg-muted rounded-lg transition-colors"
-                    title="Feedback cases"
-                  >
-                    <ThumbsDown className="w-5 h-5" />
-                  </button>
-                </Link>
-              )}
-              {isAdmin && (
-                <Link to="/admin/dashboard">
-                  <button
-                    className="p-2 hover:bg-muted rounded-lg transition-colors"
-                    title="Admin dashboard"
-                  >
-                    <MessageSquare className="w-5 h-5" />
-                  </button>
-                </Link>
-              )}
-              <button
-                onClick={handleLogout}
-                className="p-2 hover:bg-muted rounded-lg transition-colors"
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="md:hidden"
+                aria-expanded={showSessions}
+                aria-controls="chat-sessions"
+                onClick={() => setShowSessions((open) => !open)}
               >
-                <LogOut className="w-5 h-5" />
-              </button>
+                <PanelLeft aria-hidden="true" className="mr-2 h-4 w-4" />
+                Conversations
+              </Button>
+              {features.tester_correspondence_enabled && (
+                <Link
+                  to="/feedback"
+                  className="rounded-md p-2 text-foreground hover:bg-muted"
+                  title="Feedback cases"
+                  aria-label="Feedback cases"
+                >
+                  <ThumbsDown aria-hidden="true" className="h-5 w-5" />
+                </Link>
+              )}
+              {isAdmin && (
+                <Link
+                  to="/admin/dashboard"
+                  className="rounded-md p-2 text-foreground hover:bg-muted"
+                  title="Admin dashboard"
+                  aria-label="Admin dashboard"
+                >
+                  <LayoutDashboard aria-hidden="true" className="h-5 w-5" />
+                </Link>
+              )}
+              {isAdmin && (
+                <Link
+                  to="/admin/settings"
+                  className="rounded-md p-2 text-foreground hover:bg-muted"
+                  title="Settings"
+                  aria-label="Settings"
+                >
+                  <Settings aria-hidden="true" className="h-5 w-5" />
+                </Link>
+              )}
             </div>
           </div>
-        </header>
 
-        {status && (
-          <div className="border-b border-slate-200 bg-slate-50">
-            <div className="mx-auto max-w-4xl px-4 py-3">
-              <div
-                className={`rounded-2xl border px-4 py-3 shadow-sm ${
-                  isReady
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                    : isProcessing
-                      ? 'border-amber-200 bg-amber-50 text-amber-900'
-                      : 'border-slate-200 bg-white text-slate-900'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                      {isReady ? (
-                        <CircleCheck className="h-4 w-4 text-emerald-600" />
-                      ) : isProcessing ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
-                      ) : status?.connected ? (
-                        <AlertTriangle className="h-4 w-4 text-amber-500" />
-                      ) : (
-                        <AlertTriangle className="h-4 w-4 text-slate-500" />
-                      )}
-                      <span>{statusLabel}</span>
-                    </div>
-                    <div className="mt-1 text-xs text-slate-600">
-                      {isReady
-                        ? 'Answers are grounded in your Google Drive documents.'
-                        : isProcessing
-                          ? 'Documents are being indexed into the knowledge graph.'
-                          : status?.connected
-                            ? 'Documents synced, waiting for indexing.'
-                            : 'Connect Google Drive in admin settings to enable grounded answers.'}
-                    </div>
+          {isAdmin && status && (
+            <div className="mt-4 rounded-lg border bg-muted px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    {isReady ? (
+                      <CircleCheck aria-hidden="true" className="h-4 w-4 text-accent" />
+                    ) : isProcessing ? (
+                      <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-accent" />
+                    ) : (
+                      <AlertTriangle aria-hidden="true" className="h-4 w-4 text-primary" />
+                    )}
+                    <span>{statusLabel}</span>
                   </div>
-                  <Badge
-                    className={
-                      isReady
-                        ? 'border-emerald-200 bg-white text-emerald-800'
-                        : isProcessing
-                          ? 'border-amber-200 bg-white text-amber-800'
-                          : 'border-slate-200 bg-white text-slate-700'
-                    }
-                  >
+                  <div className="mt-1 text-xs text-muted-foreground">
                     {isReady
-                      ? 'Ready'
+                      ? 'Answers are grounded in your Google Drive documents.'
                       : isProcessing
-                        ? 'Indexing'
+                        ? 'Documents are being indexed into the knowledge graph.'
                         : status?.connected
-                          ? 'No files'
-                          : 'Offline'}
-                  </Badge>
+                          ? 'Documents synced, waiting for indexing.'
+                          : 'Connect Google Drive in admin settings to enable grounded answers.'}
+                  </div>
                 </div>
+                <Badge variant="outline" className="bg-background">
+                  {isReady
+                    ? 'Ready'
+                    : isProcessing
+                      ? 'Indexing'
+                      : status?.connected
+                        ? 'No files'
+                        : 'Offline'}
+                </Badge>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <main className="flex-1 max-w-4xl mx-auto w-full p-4">
-          <div className="h-[calc(100vh-180px)] flex flex-col">
-            <div className="flex-1 overflow-y-auto space-y-4 pb-4">
-              {messages.length === 0 && !isStreaming && (
+          <div className="flex-1 space-y-4 py-6">
+            {messages.length === 0 && !isStreaming && (
+              <div className="mx-auto max-w-2xl space-y-8 py-4">
+                <div className="flex flex-col items-center text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-md bg-secondary">
+                    <MessageSquare aria-hidden="true" className="h-6 w-6 text-brand-heart" />
+                  </div>
+                  <p className="mt-4 max-w-md text-muted-foreground">{PAGE_SUBTITLE}</p>
+                </div>
                 <JourneyStarterGrid
                   journeys={journeys}
                   onSelect={handleJourneySelect}
                   disabled={!isConnected || isStreaming}
                 />
-              )}
+              </div>
+            )}
 
-              {messages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[80%] rounded-lg p-4 ${
-                      msg.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted'
-                    }`}
-                  >
-                    {msg.role === 'assistant' &&
-                      msg.thoughts &&
-                      msg.thoughts.length > 0 && (
-                        <div className="mb-2">
-                          <button
-                            onClick={() => {
-                              setExpandedThoughts((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(idx)) next.delete(idx)
-                                else next.add(idx)
-                                return next
-                              })
-                            }}
-                            className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
-                          >
-                            {expandedThoughts.has(idx) ? (
-                              <ChevronDown className="w-3 h-3" />
-                            ) : (
-                              <ChevronRight className="w-3 h-3" />
-                            )}
-                            <Brain className="w-3 h-3" />
-                            {expandedThoughts.has(idx)
-                              ? 'Hide thoughts'
-                              : `${msg.thoughts.length} thoughts`}
-                          </button>
-                          {expandedThoughts.has(idx) && (
-                            <div className="mt-1 pl-4 space-y-0.5 border-l-2 border-border/30">
-                              {msg.thoughts.map((line, i) => (
-                                <div
-                                  key={i}
-                                  className="text-xs text-gray-400 whitespace-pre-wrap font-mono leading-relaxed"
-                                >
-                                  {line}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                    <Markdown
-                      className={`prose prose-sm max-w-none ${
-                        msg.role === 'user'
-                          ? 'prose-invert'
-                          : ''
-                      }`}
-                    >
+            {messages.map((msg, idx) =>
+              msg.role === 'user' ? (
+                <div key={idx} className="flex justify-end">
+                  <div className="max-w-[85%] rounded-lg bg-primary px-4 py-3 text-primary-foreground">
+                    <Markdown className="prose prose-sm prose-invert max-w-none">
                       {msg.content}
                     </Markdown>
-
-                    {msg.role === 'assistant' && (
-                      <>
-                        <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/50">
-                          {msg.feedback ? (
-                            <span className="text-xs text-muted-foreground">
-                              {msg.feedback === 'thumbs_up'
-                                ? '👍 Thanks!'
-                                : msg.feedbackDetailed
-                                  ? '👎 Thanks for the details'
-                                  : '👎 Sorry about that'}
-                            </span>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => handleFeedback(idx, 'thumbs_up')}
-                                className="p-1 hover:bg-secondary rounded transition-colors"
-                                title="Helpful"
-                              >
-                                <ThumbsUp className="w-4 h-4 text-muted-foreground" />
-                              </button>
-                              <button
-                                onClick={() => handleFeedback(idx, 'thumbs_down')}
-                                className="p-1 hover:bg-secondary rounded transition-colors"
-                                title="Not helpful"
-                              >
-                                <ThumbsDown className="w-4 h-4 text-muted-foreground" />
-                              </button>
-                            </>
-                          )}
+                  </div>
+                </div>
+              ) : (
+                <article
+                  key={idx}
+                  aria-label="Librarian"
+                  className="max-w-full rounded-lg border bg-card p-4 text-card-foreground shadow-sm sm:max-w-[85%]"
+                >
+                  <LibrarianLabel className="mb-2" />
+                  {msg.thoughts && msg.thoughts.length > 0 && (
+                    <div className="mb-2">
+                      <button
+                        onClick={() => {
+                          setExpandedThoughts((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(idx)) next.delete(idx)
+                            else next.add(idx)
+                            return next
+                          })
+                        }}
+                        className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        {expandedThoughts.has(idx) ? (
+                          <ChevronDown className="h-3 w-3" />
+                        ) : (
+                          <ChevronRight className="h-3 w-3" />
+                        )}
+                        <Brain className="h-3 w-3" />
+                        {expandedThoughts.has(idx)
+                          ? 'Hide thoughts'
+                          : `${msg.thoughts.length} thoughts`}
+                      </button>
+                      {expandedThoughts.has(idx) && (
+                        <div className="mt-1 space-y-0.5 border-l-2 border-border pl-4">
+                          {msg.thoughts.map((line, i) => (
+                            <div
+                              key={i}
+                              className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground"
+                            >
+                              {line}
+                            </div>
+                          ))}
                         </div>
-                        {msg.caseId && (
-                          <Link
-                            to={`/feedback/${msg.caseId}`}
-                            className="mt-2 inline-block text-xs text-primary hover:underline"
-                          >
-                            View feedback case
-                          </Link>
-                        )}
-                        {openPanelIdx === idx && (
-                          <div className="mt-2 p-3 rounded-lg border border-border bg-background/60 space-y-2">
-                            <p className="text-xs font-medium text-muted-foreground">
-                              What went wrong? (optional)
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {FEEDBACK_CATEGORIES.map((cat) => (
-                                <button
-                                  key={cat.slug}
-                                  onClick={() => togglePanelCategory(cat.slug)}
-                                  className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                                    panelCategories.includes(cat.slug)
-                                      ? 'bg-primary text-primary-foreground border-primary'
-                                      : 'bg-background text-muted-foreground border-border hover:bg-secondary'
-                                  }`}
-                                >
-                                  {cat.label}
-                                </button>
-                              ))}
-                            </div>
-                            <Textarea
-                              value={panelComment}
-                              onChange={(e) => setPanelComment(e.target.value)}
-                              placeholder="Tell us more (optional)..."
-                              maxLength={2000}
-                              className="min-h-[60px] text-xs"
-                            />
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => submitFeedbackDetails(idx)}
-                                disabled={panelSubmitting}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                              >
-                                {panelSubmitting ? 'Submitting...' : 'Submit'}
-                              </button>
-                              <button
-                                onClick={closeFeedbackPanel}
-                                disabled={panelSubmitting}
-                                className="px-3 py-1.5 text-xs rounded-lg text-muted-foreground hover:bg-secondary disabled:opacity-50"
-                              >
-                                Skip
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                      )}
+                    </div>
+                  )}
+
+                  <Markdown className="prose prose-sm max-w-none">{msg.content}</Markdown>
+
+                  {msg.refusal && (
+                    <Button asChild variant="outline" size="sm" className="mt-3">
+                      <Link to="/library/browse" className="no-underline">
+                        Browse the Library
+                      </Link>
+                    </Button>
+                  )}
+
+                  {msg.citations && msg.citations.length > 0 && (
+                    <LibrarianCitations citations={msg.citations} />
+                  )}
+
+                  <div className="mt-3 flex items-center gap-2 border-t pt-2">
+                    {msg.feedback ? (
+                      <span className="text-xs text-muted-foreground">
+                        {msg.feedback === 'thumbs_up'
+                          ? '👍 Thanks!'
+                          : msg.feedbackDetailed
+                            ? '👎 Thanks for the details'
+                            : '👎 Sorry about that'}
+                      </span>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleFeedback(idx, 'thumbs_up')}
+                          className="rounded p-1 transition-colors hover:bg-secondary"
+                          title="Helpful"
+                          aria-label="Helpful"
+                        >
+                          <ThumbsUp className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                        <button
+                          onClick={() => handleFeedback(idx, 'thumbs_down')}
+                          className="rounded p-1 transition-colors hover:bg-secondary"
+                          title="Not helpful"
+                          aria-label="Not helpful"
+                        >
+                          <ThumbsDown className="h-4 w-4 text-muted-foreground" />
+                        </button>
                       </>
                     )}
                   </div>
-                </div>
-              ))}
-
-              {isStreaming && (thinkingLines.length > 0 || currentResponse) && (
-                <div className="flex justify-start">
-                  <div className="max-w-[80%] rounded-lg bg-muted">
-                    {thinkingLines.length > 0 && (
-                      <div className="px-4 pt-3 pb-1 space-y-0.5 border-b border-border/30">
-                        {thinkingLines.map((line, i) => (
-                          <div
-                            key={i}
-                            className="text-xs text-gray-400 whitespace-pre-wrap font-mono leading-relaxed"
+                  {msg.caseId && (
+                    <Link
+                      to={`/feedback/${msg.caseId}`}
+                      className="mt-2 inline-block text-xs hover:underline"
+                    >
+                      View feedback case
+                    </Link>
+                  )}
+                  {openPanelIdx === idx && (
+                    <div className="mt-2 space-y-2 rounded-lg border bg-background p-3">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        What went wrong? (optional)
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {FEEDBACK_CATEGORIES.map((cat) => (
+                          <button
+                            key={cat.slug}
+                            onClick={() => togglePanelCategory(cat.slug)}
+                            className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                              panelCategories.includes(cat.slug)
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border bg-background text-muted-foreground hover:bg-secondary'
+                            }`}
                           >
-                            {line}
-                          </div>
+                            {cat.label}
+                          </button>
                         ))}
                       </div>
-                    )}
-                    {currentResponse && (
-                      <Markdown className="px-4 py-3 prose prose-sm max-w-none">
-                        {currentResponse}
-                      </Markdown>
-                    )}
-                    {!currentResponse && thinkingLines.length > 0 && (
-                      <div className="px-4 pb-3">
-                        <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                      <Textarea
+                        value={panelComment}
+                        onChange={(e) => setPanelComment(e.target.value)}
+                        placeholder="Tell us more (optional)..."
+                        maxLength={2000}
+                        className="min-h-[60px] text-xs"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => submitFeedbackDetails(idx)}
+                          disabled={panelSubmitting}
+                          className="rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          {panelSubmitting ? 'Submitting...' : 'Submit'}
+                        </button>
+                        <button
+                          onClick={closeFeedbackPanel}
+                          disabled={panelSubmitting}
+                          className="rounded-lg px-3 py-1.5 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-50"
+                        >
+                          Skip
+                        </button>
                       </div>
-                    )}
+                    </div>
+                  )}
+                </article>
+              ),
+            )}
+
+            {isStreaming && (thinkingLines.length > 0 || currentResponse) && (
+              <div
+                aria-live="polite"
+                className="max-w-full rounded-lg border bg-card text-card-foreground shadow-sm sm:max-w-[85%]"
+              >
+                <LibrarianLabel className="px-4 pt-3" />
+                {thinkingLines.length > 0 && (
+                  <div className="space-y-0.5 border-b px-4 pb-1 pt-2">
+                    {thinkingLines.map((line, i) => (
+                      <div
+                        key={i}
+                        className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-muted-foreground"
+                      >
+                        {line}
+                      </div>
+                    ))}
                   </div>
-                </div>
-              )}
-
-              {!isStreaming && followups.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {followups.map((q) => (
-                    <button
-                      key={q}
-                      type="button"
-                      onClick={() => setInput(q)}
-                      className="rounded-full border border-border bg-card px-3 py-1.5 text-left text-xs text-foreground hover:border-primary/50 hover:bg-muted/50"
-                    >
-                      {q}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-
-            <div className="border-t border-border pt-4">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Type your message..."
-                  disabled={isStreaming || !isConnected}
-                  className="flex-1 p-3 border border-border rounded-lg bg-background disabled:opacity-50"
-                />
-                <button
-                  onClick={() => handleSend()}
-                  disabled={!input.trim() || isStreaming || !isConnected}
-                  className="p-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
+                )}
+                {currentResponse && (
+                  <Markdown className="prose prose-sm max-w-none px-4 py-3">
+                    {currentResponse}
+                  </Markdown>
+                )}
+                {!currentResponse && thinkingLines.length > 0 && (
+                  <div className="px-4 pb-3 pt-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
               </div>
-              {!isConnected && (
-                <p className="text-sm text-muted-foreground mt-2">
-                  {isStreaming
-                    ? 'Connecting...'
-                    : 'Disconnected. Please refresh to reconnect.'}
-                </p>
-              )}
-            </div>
+            )}
+
+            {!isStreaming && followups.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {followups.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => setInput(q)}
+                    className="rounded-full border bg-card px-3 py-1.5 text-left text-xs text-foreground hover:border-accent hover:bg-muted"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
           </div>
-        </main>
+
+          <div className="sticky bottom-0 border-t bg-background pb-4 pt-4">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Ask the Librarian a question..."
+                aria-label="Ask the Librarian a question"
+                disabled={isStreaming || !isConnected}
+                className="min-w-0 flex-1 rounded-md border border-input bg-background p-3 text-base disabled:opacity-50"
+              />
+              <Button
+                onClick={() => handleSend()}
+                disabled={!input.trim() || isStreaming || !isConnected}
+                aria-label="Send"
+                className="h-auto px-3"
+              >
+                <Send aria-hidden="true" className="h-5 w-5" />
+              </Button>
+            </div>
+            {!isConnected && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                {isStreaming
+                  ? 'Connecting...'
+                  : 'Disconnected. Please refresh to reconnect.'}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </LibraryLayout>
   )
 }

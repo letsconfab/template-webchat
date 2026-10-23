@@ -91,6 +91,10 @@ class ChatMessage(BaseModel):
     id: Optional[int] = None
     role: str
     content: str
+    # Librarian answer metadata, restored so a reloaded session keeps its
+    # citation chips and refusal link.
+    citations: Optional[List[dict]] = None
+    refusal: bool = False
 
 
 class ModelsResponse(BaseModel):
@@ -430,7 +434,13 @@ async def _load_session_history(chat_session_id: int) -> List[ChatMessage]:
             )
             rows = result.scalars().all()
             return [
-                ChatMessage(id=row.id, role=row.role, content=row.content)
+                ChatMessage(
+                    id=row.id,
+                    role=row.role,
+                    content=row.content,
+                    citations=(row.msg_metadata or {}).get("citations"),
+                    refusal=bool((row.msg_metadata or {}).get("refusal")),
+                )
                 for row in rows
             ]
     except Exception as e:
@@ -826,10 +836,12 @@ async def _query_with_knowledge(
 
     message_id: Optional[int] = None
     followups: list[str] = []
+    refusal = False
     if full_response:
         full_response, followups = extract_followups(full_response)
+        refusal = full_response.strip() == librarian_refusal()
     # A refusal says the library has no answer, so it cites no sources.
-    if full_response.strip() == librarian_refusal():
+    if refusal:
         citations.clear()
     if full_response:
         duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -845,6 +857,7 @@ async def _query_with_knowledge(
                 "error": had_error,
                 "followups": followups or None,
                 "citations": list(citations.values()) or None,
+                "refusal": refusal or None,
             },
         )
         history.append(
@@ -860,6 +873,8 @@ async def _query_with_knowledge(
             end_payload["followups"] = followups
         if citations:
             end_payload["citations"] = list(citations.values())
+        if refusal:
+            end_payload["refusal"] = True
         await websocket.send_json(end_payload)
     except Exception:
         pass

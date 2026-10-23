@@ -53,6 +53,10 @@ flowchart LR
 {refusal}
 - Never give general or uncited guidance, even with the Member's consent. Do not fall back to general model knowledge.
 
+## Documents and links
+- The only documents a Member can open are the library documents listed as sources under your answer. Never say you are sending, sharing, or linking a document, and never write URLs.
+- When a passage only mentions another document by name (for example a case study), say the library mentions it but does not hold it, and do not describe its contents beyond what the passage says.
+
 ## Follow-up suggestions
 After a grounded answer, you may offer up to three follow-up questions derived only from the current conversation, any active starter journey, and cited library documents. Offer only questions the library can answer. Prefer one deeper exploration and one or two adjacent supported directions. Suppress suggestions after a refusal or a clarifying question.
 
@@ -174,6 +178,9 @@ def extract_followups(raw: str) -> tuple[str, list[str]]:
 
     block = raw[start + len(_FOLLOWUPS_START) : end]
     cleaned = (raw[:start] + raw[end + len(_FOLLOWUPS_END) :]).rstrip()
+    # Models sometimes wrap the block in a """ fence; drop the leftover quotes.
+    while cleaned.endswith('"""'):
+        cleaned = cleaned[: -len('"""')].rstrip()
 
     followups: list[str] = []
     for line in block.splitlines():

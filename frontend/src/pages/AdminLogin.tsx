@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useNavigate, Link, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Eye, EyeOff, LogIn } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+
+const MEMBER_SIGNUP_URL =
+  'https://a-loving-organization.outseta.com/auth?widgetMode=register&planFamilyUid=pWrPx2Qn&planPaymentTerm=annual&skipPlanOptions=true#o-anonymous'
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -194,12 +197,12 @@ const AdminLogin: React.FC = () => {
 <div className="text-center pt-4 border-t border-gray-100">
               <p className="text-sm text-gray-600">
                 Don't have an account?{' '}
-                <Link
-                  to="/register"
+                <a
+                  href={MEMBER_SIGNUP_URL}
                   className="font-semibold text-blue-600 hover:text-blue-700 transition-colors duration-200 hover:underline"
                 >
                   Register here
-                </Link>
+                </a>
               </p>
             </div>
             

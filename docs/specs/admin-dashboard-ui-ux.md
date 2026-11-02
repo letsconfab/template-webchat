@@ -347,8 +347,8 @@ Correct the guards, all inside one transaction with the update:
 - A last-active-admin check counts only active admins and runs under a
   transaction-level lock over the active-admin rows. An unlocked read-then-write
   lets two concurrent requests each see two admins and demote a different one,
-  leaving zero — with no in-app recovery, since `/admin/register` and invites
-  both require admin. Concurrent Postgres tests required.
+  leaving zero — with no in-app recovery, since invites require an admin and
+  there is no other way to create one after setup. Concurrent Postgres tests required.
 
 Cancel pending invites matching a deactivated address. This is hygiene — stale
 invites should not outlive the decision to revoke access — not a security fix.

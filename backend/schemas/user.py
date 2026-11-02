@@ -21,14 +21,6 @@ class UserCreate(BaseModel):
     role: Optional[str] = "user"
 
 
-class AdminCreate(BaseModel):
-    """Admin registration schema."""
-    email: EmailStr
-    password: str = Field(..., min_length=8)
-    confirm_password: str = Field(..., min_length=8)
-    full_name: Optional[str] = None
-
-
 class UserLogin(BaseModel):
     """User login schema."""
     email: EmailStr

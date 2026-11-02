@@ -16,7 +16,6 @@ interface AuthContextType {
   token: string | null;
   login: (email: string, password: string) => Promise<string>;
   register: (email: string, password: string) => Promise<void>;
-  adminRegister: (email: string, password: string, confirmPassword: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
   isAdmin: boolean;
@@ -137,21 +136,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const adminRegister = async (email: string, password: string, confirmPassword: string) => {
-    try {
-      await api.post('/auth/admin/register', { 
-        email, 
-        password, 
-        confirm_password: confirmPassword 
-      });
-      toast.success('Admin registration successful! Please login.');
-    } catch (error: any) {
-      const message = error.response?.data?.detail || 'Admin registration failed';
-      toast.error(message);
-      throw error;
-    }
-  };
-
   const logout = () => {
     localStorage.removeItem('token');
     setToken(null);
@@ -169,7 +153,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         login,
         register,
-        adminRegister,
         logout,
         isLoading,
         isAdmin,

@@ -73,6 +73,8 @@ logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
 # Sarvam's documented completion cap. With reasoning disabled, the whole budget
 # is available for a normal retrieval answer (short prose plus one small diagram).
 _ASSISTANT_ANSWER_MAX_TOKENS = 2048
@@ -160,7 +162,7 @@ async def lifespan(app: FastAPI):
             if settings.google_drive_refresh_token:
                 await drive_sync_service.start(settings.google_drive_refresh_token)
 
-    frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+    frontend_dist = FRONTEND_DIST
     if frontend_dist.exists():
         assets_dir = frontend_dist / "assets"
         if assets_dir.exists():
@@ -1088,10 +1090,16 @@ async def websocket_chat(websocket: WebSocket):
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
-    frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+    # Unmatched API paths must not look like a successful response.
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    frontend_dist = FRONTEND_DIST.resolve()
     if full_path.startswith("assets/") or full_path.startswith("static/"):
-        file_path = frontend_dist / full_path
-        if file_path.exists():
+        file_path = (frontend_dist / full_path).resolve()
+        # This route runs before the static mounts, so it must contain paths itself.
+        if not file_path.is_relative_to(frontend_dist):
+            raise HTTPException(status_code=404, detail="Not found")
+        if file_path.is_file():
             return FileResponse(file_path)
     index_file = frontend_dist / "index.html"
     if index_file.exists():

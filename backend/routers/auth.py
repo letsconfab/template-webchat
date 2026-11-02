@@ -9,7 +9,7 @@ from sqlalchemy import select, and_
 from backend.database import get_db
 from backend.dependencies.auth import get_current_active_user
 from backend.models.user import User
-from backend.schemas.user import UserCreate, AdminCreate, UserLogin, UserResponse, Token
+from backend.schemas.user import UserCreate, UserLogin, UserResponse, Token
 from backend.services.auth import (
     create_access_token,
     get_password_hash,
@@ -93,47 +93,6 @@ async def register(
             status_code=500,
             detail="Internal server error"
         )
-
-
-@router.post("/admin/register", response_model=UserResponse)
-async def admin_register(
-    admin_data: AdminCreate,
-    db: AsyncSession = Depends(get_db)
-) -> Any:
-    """Register a new admin user."""
-    if admin_data.password != admin_data.confirm_password:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Passwords do not match"
-        )
-
-    canonical = canonicalize_email(str(admin_data.email))
-    result = await db.execute(
-        select(User).where(User.email_canonical == canonical)
-    )
-    existing_admin = result.scalar_one_or_none()
-
-    if existing_admin:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-
-    hashed_password = get_password_hash(admin_data.password)
-
-    db_admin = User(
-        email=str(admin_data.email).strip(),
-        email_canonical=canonical,
-        password_hash=hashed_password,
-        role="admin",
-        is_active=True
-    )
-
-    db.add(db_admin)
-    await db.commit()
-    await db.refresh(db_admin)
-
-    return db_admin
 
 
 @router.post("/login", response_model=Token)
